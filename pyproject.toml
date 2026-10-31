@@ -1,0 +1,20 @@
+[project]
+name = "omarchy-tweaker"
+version = "1.0.0"
+description = "A tool to tweak and customize Omarchy for my personal use."
+readme = "README.md"
+authors = [
+    {
+        name = "Armoghan-ul-Mohmin",
+        email = "Armoghan16@gmail.com"
+    }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+omarchy-tweaker = "omarchy_tweaker:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
