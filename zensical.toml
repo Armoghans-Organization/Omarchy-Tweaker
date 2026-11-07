@@ -1,0 +1,138 @@
+[project]
+site_author = "Armoghan-ul-Mohmin"
+site_description = "Personal Omarchy customization and automation toolkit"
+site_name = "Omarchy Tweaker"
+site_url = "https://armoghans-organization.github.io/Omarchy-Tweaker/"
+
+copyright = """
+Copyright &copy; 2026 Armoghan-ul-Mohmin.
+<a href="#__consent">Cookie settings</a>
+"""
+
+edit_uri = "edit/main/docs/"
+repo_name = "Armoghans-Organization/Omarchy-Tweaker"
+repo_url = "https://github.com/Armoghans-Organization/Omarchy-Tweaker"
+
+nav = [
+    {"Home" = "index.md"},
+]
+
+extra_css = [
+    "stylesheets/extra.css",
+]
+
+[project.theme]
+custom_dir = "docs/overrides"
+features = [
+    "announce.dismiss",
+    "content.code.annotate",
+    "content.code.copy",
+    "content.code.select",
+    "content.footnote.tooltips",
+    "content.tabs.link",
+    "content.tooltips",
+    "header.autohide",
+    "navigation.expand",
+    "navigation.footer",
+    "navigation.indexes",
+    "navigation.instant",
+    "navigation.instant.prefetch",
+    "navigation.instant.progress",
+    "navigation.path",
+    "navigation.prune",
+    "navigation.sections",
+    "navigation.tabs.sticky",
+    "navigation.tracking",
+    "search.highlight",
+    "toc.follow",
+    "toc.integrate",
+]
+
+language = "en"
+variant = "modern"
+
+[project.theme.icon]
+logo = "simple/archlinux"
+repo = "fontawesome/brands/github"
+
+[project.theme.font]
+code = "Fira Code"
+text = "Cascadia Code"
+
+[[project.theme.palette]]
+accent = "deep purple"
+media = "(prefers-color-scheme: light)"
+primary = "purple"
+scheme = "purple"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+accent = "purple"
+media = "(prefers-color-scheme: dark)"
+primary = "deep purple"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+pymdownx.arithmatex.generic = true
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+pymdownx.superfences.custom_fences = [
+    {name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format"},
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true
+pymdownx.tilde = {}
+toc.permalink = true
+
+[project.plugins.offline]
+enabled = true
+
+[project.validation]
+invalid_link_anchors = true
+invalid_links = true
+shadowed_definitions = false
+shadowed_footnotes = false
+unresolved_footnotes = false
+unresolved_references = false
+unused_definitions = false
+unused_footnotes = false
+
+[project.extra.consent]
+title = "Cookie consent"
+actions = [
+    "accept",
+    "reject",
+    "manage",
+]
+description = """
+We use cookies to recognize your repeated visits and preferences, as well
+as to measure the effectiveness of our documentation and whether users
+find what they're searching for. With your consent, you're helping us to
+make our documentation better.
+"""
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/Armoghans-Organization/Omarchy-Tweaker"
+name = "GitHub Repository"

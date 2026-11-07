@@ -1,0 +1,84 @@
+
+/* ============================================================
+   OMARCHY TWEAKER - CUSTOM THEME
+   ============================================================ */
+
+:root {
+    --md-primary-fg-color: #7c3aed;
+    --md-primary-fg-color--light: #a78bfa;
+    --md-primary-fg-color--dark: #6d28d9;
+
+    --md-accent-fg-color: #a78bfa;
+
+    --md-code-font: "Fira Code", monospace;
+}
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Rounded code blocks */
+.md-typeset pre {
+    border-radius: 10px;
+}
+
+.md-typeset code {
+    border-radius: 4px;
+}
+
+/* Code block shadows */
+.highlight pre {
+    border: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Rounded images */
+.md-content img {
+    border-radius: 10px;
+}
+
+/* Better tables */
+.md-typeset table:not([class]) {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* Rounded admonitions */
+.md-typeset .admonition {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* Navigation polish */
+.md-nav__link {
+    transition: color 150ms ease;
+}
+
+/* Selection color */
+::selection {
+    background: #7c3aed;
+    color: white;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #7c3aed;
+    border-radius: 10px;
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+        transition-duration: 0.01ms !important;
+    }
+}
