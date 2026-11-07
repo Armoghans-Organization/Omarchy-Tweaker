@@ -1,0 +1,162 @@
+layout {
+    cwd "$PWD"
+
+    // -------------------------------------------------------------
+    // TEMPLATES
+    // -------------------------------------------------------------
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="zellij:tab-bar"
+        }
+        children
+        pane size=1 borderless=true {
+            plugin location="zellij:status-bar"
+        }
+    }
+
+    new_tab_template {
+        pane size=1 borderless=true {
+            plugin location="zellij:tab-bar"
+        }
+        pane
+        pane size=1 borderless=true {
+            plugin location="zellij:status-bar"
+        }
+    }
+
+    //  Tab 1 (SuperFiles)
+    tab name="Super Files" focus=false hide_floating_panes=true can_close=false {
+        pane command="spf" {
+            start_suspended false
+            close_on_exit false
+        }
+    }
+
+    //  Tab 2 (LazyGit)
+    tab name="LazyGit" focus=false hide_floating_panes=true can_close=false {
+        pane command="lazygit" {
+            start_suspended false
+            close_on_exit false
+        }
+    }
+
+    // Tab 3 (Editor)
+    tab name="Editor" focus=false hide_floating_panes=true can_close=false {
+        pane command="bash" {
+            args "-c" "while true; do clear; printf '\\n\\n'; figlet -f slant 'EDITOR' | lolcat; printf '\\n'; gum style --border double --border-foreground 99 --padding '1 3' --margin '0 2' --width 52 --align center \"$(gum style --foreground 212 --bold 'WORKSPACE LAUNCHER')\" \"$(gum style --foreground 245 'Choose your preferred editor')\" \"$(gum style --foreground 99 '◆  Current directory')\"; printf '\\n'; editor=$(gum choose --height 5 --cursor='   ❯ ' --cursor.foreground 212 --selected.foreground 212 --item.foreground 252 --header='  LAUNCH EDITOR' '  󰨞  Visual Studio Code' '    Neovim' '  󰗼  Exit'); case \"$editor\" in *'Visual Studio Code') code .;; *Neovim) nvim .;; *Exit) exit 0;; *) exit 0;; esac; done"
+            start_suspended false
+            close_on_exit false
+        }
+    }
+
+    // Tab 4 (TEST LAB)
+    tab name="Testing" focus=false hide_floating_panes=true can_close=false {
+        pane command="bash" {
+            args "-c" "while true; do clear; figlet -t -f slant 'Testing & Linting' | lolcat; echo; gum style --foreground 245 '  PROJECT QUALITY CONTROL CENTER'; echo; choice=$(gum choose --height 12 --cursor ' 󰁔 ' --cursor.foreground 39 --selected.foreground 82 --header '  Select an operation' '󰄬  Run Pytest' '󰓆  Run Pytest with Coverage' '󰱽  Lint (Ruff Check)' '󰛨  Fix Lint Issues' '󰈙  Check Formatting' '󰉶  Format Code' '󰑴  Mypy Type Check' '󰓆  Run All Checks' '󰆍  Open Shell') || continue; run_task() { title=\"$1\"; shift; echo; gum style --foreground 39 --bold \" $title\"; echo; \"$@\"; result=$?; echo; if [ \"$result\" -eq 0 ]; then gum style --foreground 82 --bold \"  󰄬 $title passed\"; else gum style --foreground 196 --bold \"  󰀦 $title failed (exit $result)\"; fi; return \"$result\"; }; case \"$choice\" in '󰄬  Run Pytest') run_task 'Running Pytest' uv run pytest ;; '󰓆  Run Pytest with Coverage') run_task 'Pytest Coverage' uv run pytest --cov ;; '󰱽  Lint (Ruff Check)') run_task 'Ruff Lint' uv run ruff check . ;; '󰛨  Fix Lint Issues') run_task 'Fixing Lint Issues' uv run ruff check --fix . ;; '󰈙  Check Formatting') run_task 'Formatting Check' uv run ruff format --check . ;; '󰉶  Format Code') run_task 'Formatting Python Files' uv run ruff format . ;; '󰑴  Mypy Type Check') run_task 'Mypy Type Check' uv run mypy . ;; '󰓆  Run All Checks') clear; figlet -t -f slant 'OMARCHY TWEAKER' | lolcat; run_task 'Pytest Coverage' uv run pytest --cov; coverage_status=$?; run_task 'Mypy Type Check' uv run mypy .; mypy_status=$?; run_task 'Ruff Lint' uv run ruff check .; lint_status=$?; run_task 'Formatting Check' uv run ruff format --check .; format_status=$?; echo; if [ \"$coverage_status\" -eq 0 ] && [ \"$mypy_status\" -eq 0 ] && [ \"$lint_status\" -eq 0 ] && [ \"$format_status\" -eq 0 ]; then gum style --border rounded --border-foreground 82 --foreground 82 --bold --padding '1 2' '  󰄬 ALL CHECKS PASSED'; else gum style --border rounded --border-foreground 196 --foreground 196 --bold --padding '1 2' '  󰀦 SOME CHECKS FAILED'; fi ;; '󰆍  Open Shell') clear; exec zsh ;; esac; echo; gum input --placeholder 'Press ENTER to return to menu...' >/dev/null; done";
+            start_suspended false
+            close_on_exit false
+        }
+    }
+
+    // Tab 5 (UV PYTHON)
+    tab name="UV Python" focus=false hide_floating_panes=true can_close=false {
+        pane command="bash" {
+            args "-c" "\n clear\n figlet -t -f slant 'UV Python' | lolcat\n\n echo\n\n if [ -f .venv/bin/activate ]; then\n source .venv/bin/activate\n  gum style --foreground 82 '  󰄬 Virtual environment activated!'\n else\n gum style --foreground 214 '  󰀦 No virtual environment found!'\n echo\n gum style --foreground 252 '  Run: uv sync'\n fi\n\n echo\n exec zsh\n ";
+            start_suspended false
+            close_on_exit false
+        }
+    }
+
+    // Tab 6 (TERMINAL)
+    tab name="Terminal" focus=true can_close=false {
+        pane command="bash" {
+            args "-c" "\n clear\n\n figlet -t -f slant 'Terminal' | lolcat\n\n echo\n gum style --foreground 245 '  ───────────── PROJECT INFORMATION ─────────────'\n\n if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then\n  echo\n gum style --foreground 82 --bold '  󰊢 GIT REPOSITORY'\n echo\n gum style --foreground 252 \"  Branch        : $(git branch --show-current)\"\n gum style --foreground 252 \"  Last Commit   : $(git log -1 --pretty=format:'%h - %s' 2>/dev/null || echo None)\"\n  gum style --foreground 252 \"  Total Changes : $(git status --porcelain | wc -l | xargs)\"\n fi\n\n echo\n exec zsh\n ";
+            start_suspended false
+            close_on_exit false
+        }
+    }
+
+    // Tab 7 (AI)
+    tab name="AI" focus=false can_close=false {
+        pane name="AI Agents" command="bash" {
+            args "-c" "\n clear\n figlet -t -f slant 'AI Agents' | lolcat\n echo\n exec zsh\n ";
+            start_suspended false
+            close_on_exit false
+        }
+    }
+
+    // Tab 8 (VM)
+    tab name="VM" focus=false can_close=false {
+        pane command="bash" {
+            args "-c" "\n clear\n name=sandbox-${PWD##*/}\n\n figlet -t -f slant 'VM SANDBOX' | lolcat\n\n echo\n gum style --foreground 252 \"  Project : $PWD\"\n gum style --foreground 252 \"  Sandbox : $name\"\n echo\n\n if [ -d \"$HOME/.VM/$name\" ]; then\n gum style --foreground 214 '  󰀦 Sandbox already exists!'\n echo\n\n choice=$(gum choose \\\n --header 'What would you like to do?' \\\n '󰑐 Remove & Recreate' \\\n '󰆍 Enter Existing Sandbox' \\\n '󰗼 Cancel') || exit 0\n\n case \"$choice\" in\n '󰑐 Remove & Recreate')\n omarchy-create-vm remove -y \"$name\" &&\n omarchy-create-vm sandbox \"$name\" \"$PWD\" --mount \"$PWD\" &&\n ssh \"$name\"\n ;;\n '󰆍 Enter Existing Sandbox')\n omarchy-create-vm start \"$name\"\n ssh \"$name\"\n ;;\n *)\n exit 0\n ;;\n esac\n else\n omarchy-create-vm sandbox \"$name\" \"$PWD\" --mount \"$PWD\" &&\n ssh \"$name\"\n fi\n ";
+            start_suspended false
+            close_on_exit false
+        }
+    }
+
+    // Tab 9 (CRAP)
+    tab name="Crap" focus=false can_close=false {
+        pane command="bash" {
+            args "-c" "\n clear\n figlet -t -f slant 'CRAP' | lolcat\n echo\n exec zsh\n ";
+            start_suspended false
+            close_on_exit false
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// KEYBINDINGS
+// -------------------------------------------------------------
+keybinds {
+    normal {
+        unbind "Alt p"
+
+        // PANE NAVIGATION
+        bind "Alt h" { MoveFocus "Left"; }
+        bind "Alt l" { MoveFocus "Right"; }
+        bind "Alt j" { MoveFocus "Down"; }
+        bind "Alt k" { MoveFocus "Up"; }
+        bind "Alt u" { CloseFocus; }
+
+        // TAB NAVIGATION
+        bind "Alt 1" { GoToTab 1; }
+        bind "Alt 2" { GoToTab 2; }
+        bind "Alt 3" { GoToTab 3; }
+        bind "Alt 4" { GoToTab 4; }
+        bind "Alt 5" { GoToTab 5; }
+        bind "Alt 6" { GoToTab 6; }
+        bind "Alt 7" { GoToTab 7; }
+        bind "Alt 8" { GoToTab 8; }
+        bind "Alt 9" { GoToTab 9; }
+
+        // FLOATING Tab
+        bind "Alt 0" {
+            Run "zsh" {
+                floating true
+                close_on_exit true
+                width "80%"
+                height "80%"
+                x "10%"
+                y "10%"
+            }
+        }
+
+        // FLOATING BTOP
+        bind "Ctrl h" {
+            Run "btop" {
+                floating true
+                close_on_exit true
+                width "80%"
+                height "80%"
+                x "10%"
+                y "10%"
+            }
+        }
+    }
+
+    shared_except "normal" {
+        bind "Enter" "Esc" {
+            SwitchToMode "Normal";
+        }
+    }
+}
