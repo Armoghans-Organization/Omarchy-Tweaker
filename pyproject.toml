@@ -1,0 +1,188 @@
+[project]
+name = "omarchy-tweaker"
+version = "0.0.0"
+description = "A tool to tweak and customize Omarchy for my personal use"
+readme = { file = "Readme.md", content-type = "text/markdown" }
+license = { file = "LICENSE" }
+authors = [
+    { name = "Armoghan-ul-Mohmin", email = "Armoghan16@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+keywords = [
+    "omarchy",
+    "linux",
+    "arch-linux",
+    "customization",
+    "tweaks",
+    "automation"
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities"
+]
+
+[project.urls]
+Homepage = "https://github.com/Armoghans-Organization/Omarchy-Tweaker"
+Repository = "https://github.com/Armoghans-Organization/Omarchy-Tweaker"
+Issues = "https://github.com/Armoghans-Organization/Omarchy-Tweaker/issues"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "pytest>=9.0.0",
+    "pytest-mock>=3.17.0",
+    "ruff>=0.17.3",
+    "pytest-cov>=7.0.0",
+    "poethepoet>=0.49.0",
+]
+docs = [
+    "zensical>=0.0.74",
+]
+
+[project.scripts]
+omarchy-tweaker = "omarchy_tweaker:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+# -------------------------------------------------------------
+# RUFF
+# -------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+    "PERF",
+]
+
+ignore = [
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["omarchy_tweaker"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# -------------------------------------------------------------
+# PYTEST
+# -------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+python_files = ["test_*.py"]
+
+# -------------------------------------------------------------
+# COVERAGE
+# -------------------------------------------------------------
+
+[tool.coverage.run]
+source = ["omarchy_tweaker"]
+omit = ["tests/*"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+# -------------------------------------------------------------
+# MYPY
+# -------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src", "tests"]
+strict = true
+pretty = true
+show_error_codes = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+# -------------------------------------------------------------
+# TASK RUNNER
+# -------------------------------------------------------------
+
+[tool.poe.tasks]
+
+# LINTING
+lint = "ruff check ."
+lint-fix = "ruff check --fix ."
+
+# FORMATTING
+format = "ruff format ."
+format-check = "ruff format --check ."
+
+# TYPE CHECKING
+typecheck = "mypy"
+
+# TESTING
+test = "pytest -v"
+coverage = "pytest --cov=omarchy_tweaker --cov-report=term-missing"
+
+# DOCUMENTATION
+docs = "zensical serve"
+docs-build = "zensical build --strict"
+docs-deploy = "zensical gh-deploy"
+
+# BUILDING
+build = "uv build"
+
+# CLEANUP
+clean = "rm -rf dist build .coverage site"
+
+# COMBINED CHECKS
+check = [
+    "lint",
+    "format-check",
+    "typecheck",
+    "test",
+]
+
+pre-commit = [
+    "lint",
+    "format-check",
+    "typecheck",
+    "test",
+]
+
+ci = [
+    "lint",
+    "format-check",
+    "typecheck",
+    "coverage",
+    "docs-build",
+    "build",
+]
