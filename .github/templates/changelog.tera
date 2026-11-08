@@ -1,0 +1,279 @@
+{%- macro group_badge(key) -%}
+{%- if key == "Breaking Changes" -%}
+[![Breaking Changes](https://img.shields.io/badge/%21-BREAKING_CHANGES-b42318?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases)
+{%- elif key == "Security" -%}
+[![Security](https://img.shields.io/badge/S-SECURITY-8b5cf6?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/security)
+{%- elif key == "Dependencies" -%}
+[![Dependencies](https://img.shields.io/badge/D-DEPENDENCIES-64748b?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- elif key == "Features" -%}
+[![Features](https://img.shields.io/badge/%2B-FEATURES-2563eb?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- elif key == "Bug Fixes" -%}
+[![Bug Fixes](https://img.shields.io/badge/F-FIXES-16a34a?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/issues)
+{%- elif key == "Performance" -%}
+[![Performance](https://img.shields.io/badge/P-PERFORMANCE-0891b2?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- elif key == "Interface" -%}
+[![Interface](https://img.shields.io/badge/UI-INTERFACE-0d9488?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- elif key == "Architecture" -%}
+[![Architecture](https://img.shields.io/badge/A-ARCHITECTURE-7c3aed?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- elif key == "Refactoring" -%}
+[![Refactoring](https://img.shields.io/badge/R-REFACTORING-6366f1?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- elif key == "Build System" -%}
+[![Build System](https://img.shields.io/badge/B-BUILD_SYSTEM-475569?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- elif key == "Testing" -%}
+[![Testing](https://img.shields.io/badge/T-TESTING-0d9488?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- elif key == "Documentation" -%}
+[![Documentation](https://img.shields.io/badge/DOC-DOCUMENTATION-64748b?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- elif key == "Automation" -%}
+[![Automation](https://img.shields.io/badge/CI-AUTOMATION-334155?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/actions)
+{%- elif key == "Reverts" -%}
+[![Reverts](https://img.shields.io/badge/REV-REVERTS-64748b?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/commits)
+{%- elif key == "Maintenance" -%}
+[![Maintenance](https://img.shields.io/badge/M-MAINTENANCE-78716c?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+{%- else -%}
+[![Other Changes](https://img.shields.io/badge/%3F-OTHER_CHANGES-334155?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/commits)
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro group_intro(key) -%}
+{%- if key == "Breaking Changes" -%}
+Changes that require attention before upgrading.
+{%- elif key == "Security" -%}
+Security-related fixes and hardening.
+{%- elif key == "Dependencies" -%}
+Dependency updates and maintenance.
+{%- elif key == "Features" -%}
+New functionality and capabilities.
+{%- elif key == "Bug Fixes" -%}
+Corrections to unexpected or broken behaviour.
+{%- elif key == "Performance" -%}
+Speed, memory, and efficiency improvements.
+{%- elif key == "Interface" -%}
+Visual, styling, and user-experience updates.
+{%- elif key == "Architecture" -%}
+Internal structure and design changes.
+{%- elif key == "Refactoring" -%}
+Code cleanup with no intended behaviour change.
+{%- elif key == "Build System" -%}
+Packaging, build, and tooling changes.
+{%- elif key == "Testing" -%}
+Test coverage and test infrastructure changes.
+{%- elif key == "Documentation" -%}
+Documentation and project guidance updates.
+{%- elif key == "Automation" -%}
+Continuous integration and workflow changes.
+{%- elif key == "Reverts" -%}
+Changes that were rolled back.
+{%- elif key == "Maintenance" -%}
+Routine repository and project upkeep.
+{%- else -%}
+Changes that do not fit the categories above.
+{%- endif -%}
+{%- endmacro -%}
+
+{%- set group_keys = [
+    "Breaking Changes",
+    "Security",
+    "Dependencies",
+    "Features",
+    "Bug Fixes",
+    "Performance",
+    "Interface",
+    "Architecture",
+    "Refactoring",
+    "Build System",
+    "Testing",
+    "Documentation",
+    "Automation",
+    "Reverts",
+    "Maintenance",
+    "Other Changes"
+] -%}
+
+{%- set_global total_additions = 0 -%}
+{%- set_global total_deletions = 0 -%}
+{%- set_global total_files = 0 -%}
+{%- for commit in commits -%}
+{%- set_global total_additions = total_additions + commit.statistics.additions -%}
+{%- set_global total_deletions = total_deletions + commit.statistics.deletions -%}
+{%- set_global total_files = total_files + commit.statistics.files_changed -%}
+{%- endfor -%}
+
+{% if version %}
+
+## {{ version }}
+
+[![Release](https://img.shields.io/badge/RELEASE-{{ version }}-2563eb?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases/tag/{{ version }})
+
+**Released:** {{ timestamp | date(format="%B %d, %Y") }}{% if previous.version %} · **Previous:** [{{ previous.version }}](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases/tag/{{ previous.version }}){% endif %}
+
+{% else %}
+
+## Unreleased
+
+[![Status](https://img.shields.io/badge/STATUS-IN_DEVELOPMENT-d97706?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+
+Development changes that have not yet been included in an
+official release.
+
+{% endif %}
+
+---
+
+### Release Statistics
+
+| Metric | Value |
+|:--|--:|
+| Total commits | **{{ statistics.commit_count }}** |
+| Contributors | {{ commits | map(attribute="author.name") | unique | length }} |
+| Conventional commits | {{ statistics.conventional_commit_count }} |
+| Files changed | {{ total_files }} |
+| Lines added | +{{ total_additions }} |
+| Lines removed | -{{ total_deletions }} |
+| Development period | {{ statistics.commits_timespan }} day(s) |
+| Linked references | {{ statistics.links | length }} |
+
+{% if statistics.links | length > 0 %}
+
+---
+
+### Referenced Issues and Pull Requests
+
+| Reference | Occurrences |
+|:--|--:|
+{% for link in statistics.links %}| [{{ link.text }}]({{ link.href }}) | {{ link.count }} |
+{% endfor %}
+
+{% endif %}
+
+{% if message %}
+
+---
+
+### Release Overview
+
+{{ message }}
+
+{% endif %}
+
+---
+
+### Release Highlights
+
+{% set_global highlight_groups = 0 %}
+{% for key in ["Features", "Bug Fixes", "Performance", "Interface", "Security"] -%}
+{%- set group_commits = commits | filter(attribute="group", value=key) -%}
+{%- if group_commits | length > 0 %}
+{%- set_global highlight_groups = highlight_groups + 1 %}
+
+**{{ key }}**
+
+{% for commit in group_commits %}
+- {% if commit.scope %}`{{ commit.scope }}` — {% endif %}{{ commit.message | upper_first }}{% if commit.breaking %} **⚠ breaking**{% endif %}
+{% endfor %}
+{% endif %}
+{%- endfor %}
+
+{% if highlight_groups == 0 %}
+
+No feature, fix, performance, interface, or security changes
+were recorded in this release.
+
+{% endif %}
+
+---
+
+### Detailed Changes
+
+{% for key in group_keys -%}
+{%- set group_commits = commits | filter(attribute="group", value=key) -%}
+{%- if group_commits | length > 0 %}
+
+#### {{ key }}
+
+{{ self::group_badge(key=key) }}
+
+{{ self::group_intro(key=key) }}
+
+{% for commit in group_commits %}
+
+##### {% if commit.scope %}`{{ commit.scope }}` — {% endif %}{{ commit.message | upper_first }}
+
+{% if commit.breaking %}
+> [!CAUTION]
+> **Breaking change.** {{ commit.breaking_description | default(value="Review this commit carefully before upgrading.") }}
+{% endif %}
+
+{% if commit.body %}
+{{ commit.body | trim }}
+
+{% endif %}
+
+| Commit | Author | Files | Added | Removed |
+|:--|:--|--:|--:|--:|
+| [`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/Armoghans-Organization/Omarchy-Tweaker/commit/{{ commit.id }}) | {{ commit.author.name }} | {{ commit.statistics.files_changed }} | +{{ commit.statistics.additions }} | -{{ commit.statistics.deletions }} |
+
+{% if commit.links | length > 0 %}
+**References:** {% for link in commit.links %}[{{ link.text }}]({{ link.href }}){% if not loop.last %}, {% endif %}{% endfor %}
+
+{% endif %}
+
+{% if commit.footers | length > 0 %}
+**Metadata**
+
+{% for footer in commit.footers %}
+- **{{ footer.token }}:** {{ footer.value }}
+{% endfor %}
+
+{% endif %}
+
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+---
+
+### Release Comparison
+
+{% if version and previous.version %}
+
+| Resource | Link |
+|:--|:--|
+| Previous release | [{{ previous.version }}](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases/tag/{{ previous.version }}) |
+| Current release | [{{ version }}](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases/tag/{{ version }}) |
+| Full comparison | [{{ previous.version }}...{{ version }}](https://github.com/Armoghans-Organization/Omarchy-Tweaker/compare/{{ previous.version }}...{{ version }}) |
+
+{% elif version %}
+
+This is the first tagged release. Browse the repository to
+inspect the complete project history.
+
+[View commit history](https://github.com/Armoghans-Organization/Omarchy-Tweaker/commits/main)
+
+{% else %}
+
+[View the full commit history](https://github.com/Armoghans-Organization/Omarchy-Tweaker/commits/main)
+
+{% endif %}
+
+---
+
+### Upgrade Notes
+
+Before upgrading:
+
+1. Read the breaking changes and migration instructions above.
+2. Review the release comparison for the full diff.
+3. Back up any important custom configuration.
+4. Pull the latest changes and re-run the setup steps.
+
+**Get the latest release:**
+[GitHub Releases](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases)
+
+**Release notes:**
+[Release Notes](https://armoghans-organization.github.io/Omarchy-Tweaker/release-notes.html)
+
+**Report a problem:**
+[GitHub Issues](https://github.com/Armoghans-Organization/Omarchy-Tweaker/issues)
+
+
+

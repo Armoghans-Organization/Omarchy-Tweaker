@@ -44,6 +44,7 @@ dev = [
     "poethepoet>=0.49.0",
 ]
 docs = [
+    "git-cliff>=2.14.2",
     "zensical>=0.0.74",
 ]
 
@@ -152,16 +153,26 @@ typecheck = "mypy"
 test = "pytest -v"
 coverage = "pytest --cov=omarchy_tweaker --cov-report=term-missing"
 
+# CHANGELOG & RELEASE NOTES
+changelog = "git-cliff --config cliff.toml --body-file .github/templates/changelog.tera --output docs/changelog.md"
+changelog-preview = "git-cliff --config cliff.toml --body-file .github/templates/changelog.tera --unreleased"
+release-notes = "git-cliff --config cliff.toml --body-file .github/templates/release-notes.tera --latest --strip all --output docs/release-notes.md"
+release-notes-preview = "git-cliff --config cliff.toml --body-file .github/templates/release-notes.tera --unreleased --strip all"
+docs-generate = ["changelog", "release-notes"]
+
 # DOCUMENTATION
-docs = "zensical serve"
-docs-build = "zensical build --strict"
-docs-deploy = "zensical gh-deploy"
+docs = ["docs-generate", "docs-serve"]
+docs-serve = "zensical serve"
+docs-build = ["docs-generate", "docs-compile"]
+docs-compile = "zensical build --clean --strict"
+docs-deploy = ["docs-generate", "docs-publish"]
+docs-publish = "zensical gh-deploy"
 
 # BUILDING
 build = "uv build"
 
 # CLEANUP
-clean = "rm -rf dist build .coverage site"
+clean = "rm -rf dist build .coverage site docs/changelog.md docs/release-notes.md"
 
 # COMBINED CHECKS
 check = [

@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GIT_CLIFF_VERSION: "2.14.2"
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.13
+
+      - name: Verify release version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          TAG_VERSION="${TAG#v}"
+
+          if [ "$VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Git tag ($TAG_VERSION) does not match pyproject.toml ($VERSION)"
+            exit 1
+          fi
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Validate distributions
+        run: uvx twine check dist/*
+
+      - name: Generate release notes
+        run: |
+          uvx "git-cliff@${GIT_CLIFF_VERSION}" \
+            --config cliff.toml \
+            --body-file .github/templates/release-notes.tera \
+            --latest \
+            --strip all \
+            --output RELEASE_NOTES.md
+
+      - name: Generate full changelog
+        run: |
+          uvx "git-cliff@${GIT_CLIFF_VERSION}" \
+            --config cliff.toml \
+            --body-file .github/templates/changelog.tera \
+            --output CHANGELOG.md
+
+      - name: Generate documentation changelog
+        run: |
+          uvx "git-cliff@${GIT_CLIFF_VERSION}" \
+            --config cliff.toml \
+            --body-file .github/templates/changelog.tera \
+            --output docs/changelog.md
+
+      - name: Generate documentation release notes
+        run: |
+          uvx "git-cliff@${GIT_CLIFF_VERSION}" \
+            --config cliff.toml \
+            --body-file .github/templates/release-notes.tera \
+            --latest \
+            --strip all \
+            --output docs/release-notes.md
+
+      - name: Validate changelog artifacts
+        run: |
+          test -s RELEASE_NOTES.md
+          test -s CHANGELOG.md
+          test -s docs/changelog.md
+          test -s docs/release-notes.md
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "Omarchy-Tweaker ${TAG}" \
+              --notes-file RELEASE_NOTES.md
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --verify-tag \
+              --title "Omarchy-Tweaker ${TAG}" \
+              --notes-file RELEASE_NOTES.md
+          fi
+
+      - name: Upload changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release upload "$TAG" CHANGELOG.md RELEASE_NOTES.md --clobber

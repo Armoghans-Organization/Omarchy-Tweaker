@@ -1,0 +1,241 @@
+# ============================================================
+# OMARCHY TWEAKER
+# git-cliff configuration
+#
+# Rendered body templates live in .github/templates/:
+#
+#   changelog.tera      -> docs/changelog.md, CHANGELOG.md
+#   release-notes.tera  -> docs/release-notes.md, RELEASE_NOTES.md
+#
+# Generate the documentation sources with:
+#
+#   poe changelog
+#   poe release-notes
+#   poe docs-generate
+#
+# The release workflow renders the same templates for the
+# CHANGELOG.md and RELEASE_NOTES.md release assets.
+#
+# Repository: Armoghans-Organization/Omarchy-Tweaker
+# ============================================================
+
+
+# ============================================================
+# GIT SETTINGS
+# ============================================================
+
+[git]
+
+conventional_commits = true
+
+filter_unconventional = false
+require_conventional = false
+
+split_commits = false
+protect_breaking_commits = true
+
+filter_commits = false
+fail_on_unmatched_commit = false
+
+sort_commits = "newest"
+topo_order_commits = true
+
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$"
+
+
+# ============================================================
+# COMMIT PREPROCESSORS
+# ============================================================
+
+commit_preprocessors = [
+    # Remove trailing whitespace.
+    { pattern = "\\s+$", replace = "" },
+
+    # Normalize legacy commit prefixes.
+    { pattern = "^Bugfix:", replace = "fix:" },
+    { pattern = "^Bug Fix:", replace = "fix:" },
+    { pattern = "^Feature:", replace = "feat:" },
+    { pattern = "^Hotfix:", replace = "hotfix:" },
+    { pattern = "^Docs:", replace = "docs:" },
+    { pattern = "^CI:", replace = "ci:" },
+]
+
+
+# ============================================================
+# LINK PARSERS
+# ============================================================
+#
+# GitHub redirects issue URLs to the matching pull request when
+# the number belongs to a PR, so a single issue parser covers
+# both issue and pull-request references. Keeping one parser
+# also prevents nested Markdown links when a message mentions
+# both a PR and an issue.
+#
+
+link_parsers = [
+    { pattern = "#(\\d+)", href = "https://github.com/Armoghans-Organization/Omarchy-Tweaker/issues/$1" },
+]
+
+
+# ============================================================
+# COMMIT PARSERS
+# ============================================================
+
+commit_parsers = [
+    # --------------------------------------------------------
+    # EXCLUDED COMMITS
+    # --------------------------------------------------------
+    { message = "^(Merge|merge)( pull request| branch)", skip = true },
+    { message = "^(WIP|wip)(:|\\b)", skip = true },
+    { message = "^chore\\(release\\):", skip = true },
+    { message = "^chore\\(version\\):", skip = true },
+    { message = "^chore\\(bump\\):", skip = true },
+
+    # --------------------------------------------------------
+    # BREAKING CHANGES
+    # --------------------------------------------------------
+    { message = "^[a-zA-Z]+(\\([^)]*\\))?!:", group = "Breaking Changes" },
+    { body = "(?s).*BREAKING[ -]CHANGE:.*", group = "Breaking Changes" },
+
+    # --------------------------------------------------------
+    # SECURITY
+    # --------------------------------------------------------
+    { message = "^(security|feat\\(security\\)|fix\\(security\\))", group = "Security" },
+
+    # --------------------------------------------------------
+    # DEPENDENCIES
+    # --------------------------------------------------------
+    { message = "^(deps|dep|chore\\(deps\\)|build\\(deps\\)|fix\\(deps\\))", group = "Dependencies" },
+
+    # --------------------------------------------------------
+    # FEATURES
+    # --------------------------------------------------------
+    { message = "^feat", group = "Features" },
+
+    # --------------------------------------------------------
+    # BUG FIXES
+    # --------------------------------------------------------
+    { message = "^(fix|hotfix)", group = "Bug Fixes" },
+
+    # --------------------------------------------------------
+    # PERFORMANCE
+    # --------------------------------------------------------
+    { message = "^perf", group = "Performance" },
+
+    # --------------------------------------------------------
+    # USER INTERFACE
+    # --------------------------------------------------------
+    { message = "^(ui|ux|style)", group = "Interface" },
+
+    # --------------------------------------------------------
+    # ARCHITECTURE
+    # --------------------------------------------------------
+    { message = "^(arch|architecture)", group = "Architecture" },
+
+    # --------------------------------------------------------
+    # REFACTORING
+    # --------------------------------------------------------
+    { message = "^refactor", group = "Refactoring" },
+
+    # --------------------------------------------------------
+    # BUILD SYSTEM
+    # --------------------------------------------------------
+    { message = "^build", group = "Build System" },
+
+    # --------------------------------------------------------
+    # TESTING
+    # --------------------------------------------------------
+    { message = "^test", group = "Testing" },
+
+    # --------------------------------------------------------
+    # DOCUMENTATION
+    # --------------------------------------------------------
+    { message = "^docs?", group = "Documentation" },
+
+    # --------------------------------------------------------
+    # CI / AUTOMATION
+    # --------------------------------------------------------
+    { message = "^(ci|workflow)", group = "Automation" },
+
+    # --------------------------------------------------------
+    # REVERTS
+    # --------------------------------------------------------
+    { message = "^revert", group = "Reverts" },
+
+    # --------------------------------------------------------
+    # MAINTENANCE
+    # --------------------------------------------------------
+    { message = "^(chore|maintenance)", group = "Maintenance" },
+
+    # --------------------------------------------------------
+    # FALLBACK
+    # --------------------------------------------------------
+    { message = ".*", group = "Other Changes" },
+]
+
+# ============================================================
+# REMOTE METADATA
+# ============================================================
+
+[remote.github]
+owner = "Armoghans-Organization"
+repo = "Omarchy-Tweaker"
+
+# ============================================================
+# CHANGELOG CONFIGURATION
+# ============================================================
+#
+# The release body is supplied at render time by the templates
+# in .github/templates/ (--body-file). Without that flag
+# git-cliff falls back to its built-in body template.
+#
+
+[changelog]
+
+header_marker = "<!-- git-cliff: end of header -->"
+
+header = """
+# Omarchy Tweaker
+
+### Project Changelog
+
+[![Repository](https://img.shields.io/badge/GitHub-Repository-181717?style=flat-square&logo=github)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+[![Releases](https://img.shields.io/badge/Release-History-2563eb?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases)
+[![Issues](https://img.shields.io/badge/Issues-Tracker-64748b?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/issues)
+[![License](https://img.shields.io/badge/License-MIT-e3b341?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/blob/main/LICENSE)
+
+---
+
+A complete, chronological record of the development of
+Omarchy Tweaker.
+
+Use this document to understand what changed in each release,
+find the commits behind a change, and check for breaking
+changes or migration steps before upgrading.
+
+Sections are ordered by impact. Breaking changes and security
+fixes appear first, followed by features, fixes, and
+maintenance work. Every entry links back to its commit, its
+author, and any related issues or pull requests.
+
+---
+
+<!-- git-cliff: end of header -->
+"""
+
+footer = """
+---
+
+## Omarchy Tweaker
+
+**Built with care. Improved with every release.**
+
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?style=flat-square&logo=github)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
+[![Releases](https://img.shields.io/badge/Releases-Changelog-2563eb?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases)
+[![Issues](https://img.shields.io/badge/Issues-Tracker-64748b?style=flat-square)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/issues)
+
+<sub>Release documentation generated from the project's commit history with [git-cliff](https://git-cliff.org/).</sub>
+"""
+
+trim = true
+render_always = true

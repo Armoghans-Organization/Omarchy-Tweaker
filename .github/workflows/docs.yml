@@ -1,12 +1,22 @@
 name: Documentation
+
 on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   deploy:
     environment:
@@ -14,15 +24,27 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/configure-pages@v6
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
         with:
-          python-version: 3.x
-      - run: pip install zensical
-      - run: zensical build --clean
-      - uses: actions/upload-pages-artifact@v5
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Build documentation
+        run: uv run --frozen --group docs poe docs-build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
-      - uses: actions/deploy-pages@v5
+
+      - name: Deploy to GitHub Pages
         id: deployment
+        uses: actions/deploy-pages@v5

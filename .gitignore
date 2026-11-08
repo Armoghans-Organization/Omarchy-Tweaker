@@ -539,3 +539,5 @@ log/*
 *.tmp
 *.tmp*
 CHANGELOG.md
+changelog.md
+release-notes.md
