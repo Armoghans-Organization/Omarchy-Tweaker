@@ -1,16 +1,66 @@
-
 /* ============================================================
-   OMARCHY TWEAKER - CUSTOM THEME
-   ============================================================ */
+    OMARCHY TWEAKER - CUSTOM THEME
+============================================================ */
 
 :root {
-    --md-primary-fg-color: #7c3aed;
-    --md-primary-fg-color--light: #a78bfa;
-    --md-primary-fg-color--dark: #6d28d9;
+    --ot-green: #a6e3a1;
+    --ot-green-bright: #b8f28b;
+    --ot-lavender: #cba6f7;
+    --ot-pink: #f5c2e7;
+    --ot-blue: #89b4fa;
+    --ot-teal: #94e2d5;
+    --ot-base: #1e1e2e;
+    --ot-mantle: #181825;
+    --ot-crust: #11111b;
+    --ot-surface: #313244;
+    --ot-overlay: #45475a;
+    --ot-text: #cdd6f4;
+    --ot-subtext: #a6adc8;
 
-    --md-accent-fg-color: #a78bfa;
+    --md-primary-fg-color--light: var(--ot-surface);
+    --md-primary-fg-color--dark: var(--ot-crust);
+    --md-accent-fg-color: var(--ot-green-bright);
+    --md-default-bg-color: var(--ot-base);
+    --md-default-bg-color--light: var(--ot-mantle);
+    --md-default-bg-color--lighter: var(--ot-surface);
+    --md-default-fg-color: var(--ot-text);
+    --md-default-fg-color--light: var(--ot-subtext);
+    --md-default-fg-color--lightest: var(--ot-overlay);
+    --md-code-bg-color: var(--ot-crust);
+    --md-code-fg-color: var(--ot-text);
 
     --md-code-font: "Fira Code", monospace;
+}
+
+.md-typeset pre {
+    border-radius: 10px;
+}
+
+.ot-img {
+    display: block;
+    max-height: 18rem;
+    object-fit: cover;
+    object-position: center;
+    margin: 0 auto 2rem;
+    border: 1px solid var(--ot-surface);
+}
+
+.ot-h1 {
+    margin-bottom: 0.35rem !important;
+    color: var(--ot-green-bright) !important;
+    font-size: clamp(2rem, 5vw, 3.5rem) !important;
+}
+
+.ot-status {
+    margin: 0 0 2rem;
+}
+
+.ot-footer-note {
+    margin: 3rem 0 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--ot-surface);
+    color: var(--ot-subtext);
+    text-align: center;
 }
 
 /* Smooth scrolling */
@@ -56,8 +106,8 @@ html {
 
 /* Selection color */
 ::selection {
-    background: #7c3aed;
-    color: white;
+    background: var(--ot-lavender);
+    color: var(--ot-crust);
 }
 
 /* Scrollbar */
@@ -66,7 +116,7 @@ html {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #7c3aed;
+    background: linear-gradient(var(--ot-lavender), var(--ot-blue));
     border-radius: 10px;
 }
 
