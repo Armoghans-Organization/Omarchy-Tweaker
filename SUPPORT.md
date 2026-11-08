@@ -4,8 +4,8 @@
 
 Omarchy Tweaker is primarily a personal project. Support is provided on a best-effort basis.
 
-- Check the [documentation](docs/index.md) for usage and behavior.
-- Check the [changelog](docs/changelog.md) and [release notes](docs/release-notes.md).
+- Check the [documentation](https://armoghans-organization.github.io/Omarchy-Tweaker) for usage and behavior.
+- Check the [changelog](https://armoghans-organization.github.io/Omarchy-Tweaker/changelog.html) and [release notes](https://armoghans-organization.github.io/Omarchy-Tweaker/release-notes.html).
 - Open a [GitHub issue](https://github.com/Armoghans-Organization/Omarchy-Tweaker/issues) for bug reports or feature requests.
 
 ## Reporting Bugs
