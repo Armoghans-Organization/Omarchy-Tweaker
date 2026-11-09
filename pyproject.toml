@@ -58,11 +58,14 @@ docs = [
 ]
 
 [project.scripts]
-omarchy-tweaker = "omarchy_tweaker:main"
+omarchy-tweaker = "omarchy_tweaker_bootstrap:main"
 
 [build-system]
-requires = ["uv_build>=0.12.10,<0.13.0"]
+requires = ["uv_build>=0.13.5,<0.14"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = ["omarchy_tweaker", "omarchy_tweaker_bootstrap"]
 
 # -------------------------------------------------------------
 # RUFF
@@ -186,7 +189,7 @@ typecheck = "mypy"
 
 # TESTING
 test = "pytest -v"
-coverage = "pytest --cov=omarchy_tweaker --cov-report=term-missing"
+coverage = "pytest --cov=omarchy_tweaker --cov=omarchy_tweaker_bootstrap --cov-report=term-missing"
 
 # CHANGELOG & RELEASE NOTES
 changelog = "git-cliff --config cliff.toml --body-file .github/templates/changelog.tera --output docs/changelog.md"

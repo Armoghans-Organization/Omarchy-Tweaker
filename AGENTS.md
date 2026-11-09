@@ -46,13 +46,14 @@ The project brings useful system tweaks, configuration management, automation ro
 
 ### Current Status
 
-The repository is in the **scaffolding stage**.
+The repository is in the **early implementation stage**.
 
-- The only implementation is the CLI entry point in `src/omarchy_tweaker/__init__.py`.
+- The console entry point is implemented in `src/omarchy_tweaker_bootstrap/__init__.py` and delegates to `src/omarchy_tweaker/__init__.py`.
 - The entry point currently prints a welcome message.
-- No features, commands, modules, or system operations are implemented yet.
+- Reusable UI, logging, metadata, and Rich error-handling utilities are implemented.
+- No system-modifying features, commands, or package-management operations are implemented yet.
 
-Do not assume that a feature is implemented because it is described here, planned here, or referenced in this file. Treat all non-entry-point behavior as **not implemented**.
+Do not assume that a feature is implemented because it is described here, planned here, or referenced in this file. Treat all system-modifying behavior as **not implemented**.
 
 ### Primary Objectives
 
@@ -88,14 +89,14 @@ Agents must respect the existing technology choices and use established librarie
 
 | Library | Purpose | Status |
 |---|---|---|
-| InquirerPy | Interactive prompts, menus, and selection interfaces | Planned |
-| Prompt Toolkit | Advanced terminal input handling and interactive interfaces | Planned |
+| InquirerPy | Interactive prompts, menus, and selection interfaces | Implemented |
+| Prompt Toolkit | Advanced terminal input handling and interactive interfaces | Implemented |
 | psutil | System and process information | Planned |
-| Pydantic | Data validation, parsing, and settings management | Planned |
-| Rich | Terminal formatting, panels, tables, progress indicators, and tracebacks | Planned |
+| Pydantic | Data validation, parsing, and settings management | Implemented |
+| Rich | Terminal formatting, panels, tables, progress indicators, and tracebacks | Implemented |
 | Typer | CLI commands, arguments, options, and application entry points | Planned |
 
-**Important:** The runtime dependencies above are **planned**. The current `pyproject.toml` declares no runtime dependencies yet.
+**Important:** Dependencies marked **Implemented** are declared in `pyproject.toml`. Do not import a dependency marked **Planned** until it has been added with `uv add`.
 
 Do not import a runtime library before it has been added to `pyproject.toml` with `uv add`.
 
@@ -162,11 +163,25 @@ Before adding a dependency:
 │   ├── changelog.md
 │   └── release-notes.md
 ├── src/
-│   └── omarchy_tweaker/
-│       ├── __init__.py          [IMPLEMENTED] CLI entry point.
-│       └── ...                   [TARGET] Not yet implemented.
+│   ├── omarchy_tweaker/
+│   │   ├── __init__.py          [IMPLEMENTED] Package init and CLI entry point.
+│   │   ├── __main__.py          [IMPLEMENTED] python -m entry point.
+│   │   ├── app_metadata.py      [IMPLEMENTED] Application name and version metadata.
+│   │   ├── error_handling.py    [IMPLEMENTED] Compatibility re-exports for error handling.
+│   │   └── functions/
+│   │       ├── __init__.py      [IMPLEMENTED] Reusable function exports.
+│   │       ├── logger.py        [IMPLEMENTED] Session logging utilities.
+│   │       └── ui.py            [IMPLEMENTED] Rich and InquirerPy UI toolkit.
+│   └── omarchy_tweaker_bootstrap/
+│       ├── __init__.py          [IMPLEMENTED] Bootstrap entry point.
+│       └── error_handling.py    [IMPLEMENTED] Process-wide Rich error handling.
 ├── tests/
-│   └── test_main.py
+│   ├── test_app_metadata.py
+│   ├── test_bootstrap.py
+│   ├── test_error_handling.py
+│   ├── test_logger.py
+│   ├── test_main.py
+│   └── test_ui.py
 └── .github/
     └── workflows/               [REQUIRED] CI, docs, release workflows.
 
