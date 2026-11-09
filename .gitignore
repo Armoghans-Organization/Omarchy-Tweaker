@@ -524,6 +524,7 @@ zsdoc/data
 logs/*
 log/*
 *.log
+bandit-report.json
 
 # AI Stuff
 .remember

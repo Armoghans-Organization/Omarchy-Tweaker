@@ -1,0 +1,227 @@
+# =============================================================
+# Omarchy-Tweaker
+# Comprehensive pre-commit configuration
+#
+# Python:       3.13+
+# Environment:  uv
+# Linter:       Ruff
+# Formatter:    Ruff
+# Security:     Bandit
+# Spellcheck:   Codespell
+# Type checker: Mypy (strict)
+# Tests:        Pytest
+# Commits:      Conventional Commits
+# =============================================================
+
+minimum_pre_commit_version: "4.0.0"
+
+default_language_version:
+  python: python3.13
+
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+  - pre-push
+
+default_stages:
+  - pre-commit
+
+fail_fast: false
+
+
+# =============================================================
+# GLOBAL EXCLUSIONS
+# =============================================================
+
+exclude: |
+  (?x)^(
+      \.git/|
+      \.github/|
+      \.venv/|
+      \.mypy_cache/|
+      \.pytest_cache/|
+      \.ruff_cache/|
+      \.coverage|
+      htmlcov/|
+      dist/|
+      build/|
+      site/|
+      __pycache__/|
+      .*\.egg-info/|
+      bandit-report\.json$
+  )
+
+repos:
+
+  # ===========================================================
+  # 01. GIT HYGIENE & FILE VALIDATION
+  # ===========================================================
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+
+      - id: trailing-whitespace
+        name: "[GIT] Remove trailing whitespace"
+        verbose: true
+
+      - id: end-of-file-fixer
+        name: "[GIT] Ensure newline at EOF"
+        verbose: true
+
+      - id: mixed-line-ending
+        name: "[GIT] Enforce LF line endings"
+        args: [--fix=lf]
+        verbose: true
+
+      - id: check-merge-conflict
+        name: "[GIT] Detect merge conflicts"
+        verbose: true
+
+      - id: check-added-large-files
+        name: "[GIT] Prevent large files"
+        args: [--maxkb=1000]
+        verbose: true
+
+      - id: check-case-conflict
+        name: "[GIT] Detect filename conflicts"
+        verbose: true
+
+      - id: check-symlinks
+        name: "[GIT] Validate symlinks"
+        verbose: true
+
+      - id: destroyed-symlinks
+        name: "[GIT] Detect destroyed symlinks"
+        verbose: true
+
+      - id: check-toml
+        name: "[CONFIG] Validate TOML"
+        verbose: true
+
+      - id: check-yaml
+        name: "[CONFIG] Validate YAML"
+        verbose: true
+
+      - id: check-json
+        name: "[CONFIG] Validate JSON"
+        verbose: true
+
+      - id: check-xml
+        name: "[CONFIG] Validate XML"
+        verbose: true
+
+      - id: check-ast
+        name: "[PYTHON] Validate Python syntax"
+        verbose: true
+
+      - id: debug-statements
+        name: "[PYTHON] Detect debugger statements"
+        verbose: true
+
+      - id: detect-private-key
+        name: "[SECURITY] Detect private keys"
+        verbose: true
+
+      - id: check-executables-have-shebangs
+        name: "[SCRIPTS] Validate executable shebangs"
+        verbose: true
+
+      - id: check-shebang-scripts-are-executable
+        name: "[SCRIPTS] Validate script permissions"
+        verbose: true
+
+  # ===========================================================
+  # 02. PYTHON LINTING — RUFF
+  # ===========================================================
+
+  - repo: local
+    hooks:
+      - id: ruff
+        name: "[QUALITY] Ruff — Python linting"
+        entry: uv run --locked ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        verbose: true
+
+  # ===========================================================
+  # 03. PYTHON FORMATTING — RUFF
+  # ===========================================================
+
+      - id: ruff-format
+        name: "[QUALITY] Ruff — Python formatting"
+        entry: uv run --locked ruff format
+        language: system
+        types_or: [python, pyi]
+        verbose: true
+
+  # ===========================================================
+  # 04. SECURITY ANALYSIS — BANDIT
+  # ===========================================================
+
+      - id: bandit
+        name: "[SECURITY] Bandit — Python security analysis"
+        entry: uv run --locked bandit --configfile pyproject.toml -r src
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: true
+
+  # ===========================================================
+  # 05. SPELL CHECKING — CODESPELL
+  # ===========================================================
+
+      - id: codespell
+        name: "[DOCS] Codespell — Spelling validation"
+        entry: uv run --locked codespell
+        language: system
+        types_or:
+          - python
+          - markdown
+          - rst
+          - toml
+          - yaml
+          - shell
+        args: [--write-changes]
+        verbose: true
+
+  # ===========================================================
+  # 06. COMMIT MESSAGE VALIDATION
+  # ===========================================================
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.2.0
+    hooks:
+      - id: conventional-pre-commit
+        name: "[COMMIT] Enforce Conventional Commits"
+        stages: [commit-msg]
+        args: [--strict]
+        verbose: true
+
+  # ===========================================================
+  # 07. STRICT TYPE CHECKING — MYPY
+  # ===========================================================
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: "[TYPES] Mypy — Strict type checking"
+        entry: uv run --locked mypy
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+        verbose: true
+
+  # ===========================================================
+  # 08. AUTOMATED TESTING — PYTEST
+  # ===========================================================
+
+      - id: pytest
+        name: "[TESTS] Pytest — Full test suite"
+        entry: uv run --locked pytest -v
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+        verbose: true

@@ -42,6 +42,10 @@ dev = [
     "ruff>=0.17.3",
     "pytest-cov>=7.0.0",
     "poethepoet>=0.49.0",
+    "pre-commit>=4.7.0",
+    "bandit>=1.9.4",
+    "codespell>=2.4.3",
+    "pytest-rich>=0.3.0",
 ]
 docs = [
     "git-cliff>=2.14.2",
@@ -93,7 +97,10 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = [
+    "-ra",
+    "--rich",
+]
 python_files = ["test_*.py"]
 
 # -------------------------------------------------------------
@@ -131,6 +138,29 @@ show_error_codes = true
 warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
+
+# -------------------------------------------------------------
+# BANDIT — PYTHON SECURITY ANALYSIS
+# -------------------------------------------------------------
+
+[tool.bandit]
+target = ["src"]
+exclude_dirs = [
+    "tests",
+    ".venv",
+    "build",
+    "dist",
+]
+
+# Security checks
+skips = []
+
+# Confidence and severity thresholds
+confidence = "MEDIUM"
+severity = "LOW"
+
+# Output configuration
+number = true
 
 # -------------------------------------------------------------
 # TASK RUNNER
@@ -197,3 +227,10 @@ ci = [
     "docs-build",
     "build",
 ]
+
+# -------------------------------------------------------------
+# SECURITY
+# -------------------------------------------------------------
+
+security = "bandit --configfile pyproject.toml -r src"
+security-report = "bandit --configfile pyproject.toml -r src -f json -o bandit-report.json"
