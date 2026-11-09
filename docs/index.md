@@ -26,6 +26,8 @@
 [![Repository Size](https://img.shields.io/github/repo-size/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=REPOSITORY_SIZE&color=informational)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
 [![Top Language](https://img.shields.io/github/languages/top/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=TOP_LANGUAGE&color=blue)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
 
+[![Setup manual](https://gitmanual.com/Armoghans-Organization/Omarchy-Tweaker/badge.svg)](https://gitmanual.com/Armoghans-Organization/Omarchy-Tweaker)
+
 </div>
 
 ---

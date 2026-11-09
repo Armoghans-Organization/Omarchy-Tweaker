@@ -24,6 +24,8 @@
 
 ![Languages](https://img.shields.io/github/languages/count/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=LANGUAGES&color=purple)
 
+[![Setup manual](https://gitmanual.com/Armoghans-Organization/Omarchy-Tweaker/badge.svg)](https://gitmanual.com/Armoghans-Organization/Omarchy-Tweaker)
+
 </div>
 
 ---
@@ -64,6 +66,40 @@ A growing collection of tools and resources, including:
 * **Setup Scripts**: Scripts to bootstrap and configure a fresh Omarchy installation according to my preferences.
 * **Documentation**: Notes, guides, and documentation to help understand and maintain my setup
 * **Customization**: Tweaks and modifications to enhance the look, feel, and behavior of my Omarchy environment.
+
+## Platform Compatibility
+
+> [!CAUTION]
+> **Omarchy Tweaker is exclusively designed for Omarchy Linux. It is NOT a cross-platform application or a universal Linux customization tool.**
+
+### Supported Environment
+
+- **Omarchy Linux:** The ONLY supported operating system and execution environment.
+
+### Unsupported Environments
+
+This project is NOT designed, supported, or tested for:
+
+- Standard Arch Linux installations (even though Omarchy is Arch-based).
+- Other Arch Linux-based distributions.
+- Ubuntu.
+- Debian.
+- Fedora.
+- Linux Mint.
+- Other Linux distributions.
+- macOS.
+- Windows.
+- Any other operating system or Linux distribution.
+
+### Important Technical Details
+
+Omarchy Tweaker relies on Omarchy-specific system configurations, directory structures, packages, defaults, utilities, and workflows.
+
+Although some components may use Python, Bash, or other cross-platform technologies, this does NOT make the project cross-platform.
+
+Having Python installed, satisfying Python dependencies, or successfully running individual scripts does not guarantee compatibility with any environment other than Omarchy Linux.
+
+**Do not attempt to install, execute, or use Omarchy Tweaker on non-Omarchy systems.**
 
 ## Disclaimer
 
