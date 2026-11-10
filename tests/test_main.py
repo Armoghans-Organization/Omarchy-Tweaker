@@ -3,9 +3,12 @@ import pytest
 from omarchy_tweaker import main
 
 
-def test_main_prints_welcome_message(capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_prints_banner_and_welcome_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     main()
 
     captured = capsys.readouterr()
-    assert captured.out == "Welcome to Omarchy Tweaker!\n"
+    assert "Omarchy Tweaker" in captured.out
+    assert "Welcome to Omarchy Tweaker!" in captured.out
     assert captured.err == ""
