@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import pytest
+from typer.testing import CliRunner
+
+import omarchy_tweaker.cli as cli_module
+import omarchy_tweaker.startup as startup_module
+from omarchy_tweaker.cli import app
+from omarchy_tweaker.screens.banner import show_banner
+
+runner = CliRunner()
+
+
+def test_cli_without_arguments_shows_welcome() -> None:
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Omarchy Tweaker" in result.output
+    assert "Welcome to Omarchy Tweaker!" in result.output
+
+
+def test_cli_without_arguments_runs_default_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[bool] = []
+    monkeypatch.setattr(cli_module, "run_default", lambda: calls.append(True))
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert calls == [True]
+
+
+def test_default_sequence_starts_with_banner() -> None:
+    assert startup_module.DEFAULT_SEQUENCE[0] is show_banner
+
+
+def test_default_sequence_runs_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        startup_module,
+        "DEFAULT_SEQUENCE",
+        (
+            lambda: calls.append("first"),
+            lambda: calls.append("second"),
+        ),
+    )
+
+    startup_module.run_default()
+
+    assert calls == ["first", "second"]
+
+
+def test_welcome_command_shows_welcome() -> None:
+    result = runner.invoke(app, ["welcome"])
+
+    assert result.exit_code == 0
+    assert "Omarchy Tweaker" in result.output
+    assert "Welcome to Omarchy Tweaker!" in result.output
+
+
+def test_help_lists_welcome_command() -> None:
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "welcome" in result.output

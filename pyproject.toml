@@ -13,6 +13,7 @@ dependencies = [
     "prompt-toolkit>=3.0.53",
     "pydantic>=2.14.3",
     "rich>=15.0.0",
+    "typer>=0.29.0",
 ]
 
 keywords = [

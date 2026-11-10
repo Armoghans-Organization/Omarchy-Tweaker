@@ -49,9 +49,12 @@ The project brings useful system tweaks, configuration management, automation ro
 The repository is in the **early implementation stage**.
 
 - The console entry point is implemented in `src/omarchy_tweaker_bootstrap/__init__.py` and delegates to `src/omarchy_tweaker/__init__.py`.
-- The entry point currently prints a welcome message.
+- The Typer application is initialized in `src/omarchy_tweaker/cli.py`.
+- Individual commands live in separate modules under `src/omarchy_tweaker/commands/`.
+- The default invocation runs the ordered `DEFAULT_SEQUENCE` in `src/omarchy_tweaker/startup.py` without importing Typer; it currently shows the banner followed by the welcome screen and system overview.
+- The `welcome` command displays the same welcome screen explicitly through `src/omarchy_tweaker/screens/welcome.py`.
 - Reusable UI, logging, metadata, and Rich error-handling utilities are implemented.
-- No system-modifying features, commands, or package-management operations are implemented yet.
+- No system-modifying commands or package-management operations are implemented yet.
 
 Do not assume that a feature is implemented because it is described here, planned here, or referenced in this file. Treat all system-modifying behavior as **not implemented**.
 
@@ -94,7 +97,7 @@ Agents must respect the existing technology choices and use established librarie
 | psutil | System and process information | Planned |
 | Pydantic | Data validation, parsing, and settings management | Implemented |
 | Rich | Terminal formatting, panels, tables, progress indicators, and tracebacks | Implemented |
-| Typer | CLI commands, arguments, options, and application entry points | Planned |
+| Typer | CLI commands, arguments, options, and application entry points | Implemented |
 
 **Important:** Dependencies marked **Implemented** are declared in `pyproject.toml`. Do not import a dependency marked **Planned** until it has been added with `uv add`.
 
@@ -164,13 +167,23 @@ Before adding a dependency:
 │   └── release-notes.md
 ├── src/
 │   ├── omarchy_tweaker/
-│   │   ├── __init__.py          [IMPLEMENTED] Package init and CLI entry point.
+│   │   ├── __init__.py          [IMPLEMENTED] Package init and default/CLI entry point.
 │   │   ├── __main__.py          [IMPLEMENTED] python -m entry point.
 │   │   ├── app_metadata.py      [IMPLEMENTED] Application name and version metadata.
+│   │   ├── cli.py               [IMPLEMENTED] Typer application and root callback.
+│   │   ├── startup.py           [IMPLEMENTED] Typer-free default startup sequence.
 │   │   ├── error_handling.py    [IMPLEMENTED] Compatibility re-exports for error handling.
+│   │   ├── commands/
+│   │   │   ├── __init__.py      [IMPLEMENTED] Command registration.
+│   │   │   └── welcome.py       [IMPLEMENTED] Welcome command wrapper.
+│   │   ├── screens/
+│   │   │   ├── __init__.py      [IMPLEMENTED] Reusable terminal screens.
+│   │   │   ├── banner.py        [IMPLEMENTED] Application banner screen.
+│   │   │   └── welcome.py       [IMPLEMENTED] Welcome screen and system overview.
 │   │   └── functions/
 │   │       ├── __init__.py      [IMPLEMENTED] Reusable function exports.
 │   │       ├── logger.py        [IMPLEMENTED] Session logging utilities.
+│   │       ├── system_info.py   [IMPLEMENTED] OS and hardware information helpers.
 │   │       └── ui.py            [IMPLEMENTED] Rich and InquirerPy UI toolkit.
 │   └── omarchy_tweaker_bootstrap/
 │       ├── __init__.py          [IMPLEMENTED] Bootstrap entry point.
@@ -178,9 +191,11 @@ Before adding a dependency:
 ├── tests/
 │   ├── test_app_metadata.py
 │   ├── test_bootstrap.py
+│   ├── test_cli.py
 │   ├── test_error_handling.py
 │   ├── test_logger.py
 │   ├── test_main.py
+│   ├── test_system_info.py
 │   └── test_ui.py
 └── .github/
     └── workflows/               [REQUIRED] CI, docs, release workflows.
