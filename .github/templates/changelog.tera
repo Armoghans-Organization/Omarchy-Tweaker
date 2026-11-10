@@ -129,7 +129,7 @@ official release.
 | Files changed | {{ total_files }} |
 | Lines added | +{{ total_additions }} |
 | Lines removed | -{{ total_deletions }} |
-| Development period | {{ statistics.commits_timespan }} day(s) |
+| Development period | {% if version %}{{ statistics.commits_timespan }}{% else %}{{ statistics.days_passed_since_last_release }}{% endif %} day(s) |
 | Linked references | {{ statistics.links | length }} |
 
 {% if statistics.links | length > 0 %}
