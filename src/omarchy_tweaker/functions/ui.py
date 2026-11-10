@@ -1148,8 +1148,7 @@ class VirtualTerminal:
             auto_refresh=False,
             transient=False,
         )
-        self._live.start()
-        self._live.update(self.render(), refresh=True)
+        self._live.start(refresh=False)
 
     def stop(self) -> None:
         """Stop the live display, leaving the final frame visible."""

@@ -21,6 +21,8 @@ import socket
 import sys
 import textwrap
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import TracebackType
@@ -397,3 +399,103 @@ class OmarchyTweakerLogger:
         self.logger.removeFilter(self.statistics)
         self.logger.removeHandler(self.file_handler)
         self.file_handler.close()
+
+
+_session: OmarchyTweakerLogger | None = None
+
+
+def start_session(
+    log_level: int | str = DEFAULT_LOG_LEVEL,
+    log_directory: Path | None = None,
+) -> OmarchyTweakerLogger:
+    """Start the process-wide logging session.
+
+    If a session is already active, the existing session is returned. This
+    makes it safe to call from multiple entry points without creating duplicate
+    log files.
+
+    Args:
+        log_level: Numeric logging level or level name. Defaults to INFO.
+        log_directory: Directory for log files. Defaults to
+            :func:`get_log_directory`.
+
+    Returns:
+        The active logging session.
+    """
+    global _session
+
+    if _session is not None and not _session.closed:
+        return _session
+
+    _session = OmarchyTweakerLogger(log_level=log_level, log_directory=log_directory)
+    return _session
+
+
+def get_session() -> OmarchyTweakerLogger | None:
+    """Return the active process-wide logging session, if any."""
+    return _session
+
+
+def shutdown_session(status: str = "SUCCESS") -> None:
+    """Shut down the process-wide logging session.
+
+    Calling this function when no session is active has no effect.
+
+    Args:
+        status: Final session status, such as ``"SUCCESS"`` or ``"FAILED"``.
+    """
+    global _session
+
+    session = _session
+    if session is None:
+        return
+
+    _session = None
+    session.shutdown(status)
+
+
+@contextmanager
+def application_session(
+    log_level: int | str = DEFAULT_LOG_LEVEL,
+    log_directory: Path | None = None,
+) -> Iterator[OmarchyTweakerLogger]:
+    """Run application code with a process-wide logging session.
+
+    The session starts before the wrapped code runs and always shuts down when
+    the block exits. Existing sessions are reused, so nested entry points do not
+    create or close additional log files.
+
+    Args:
+        log_level: Numeric logging level or level name. Defaults to INFO.
+        log_directory: Directory for log files. Defaults to
+            :func:`get_log_directory`.
+
+    Yields:
+        The active logging session.
+    """
+    existing = get_session()
+    if existing is not None and not existing.closed:
+        yield existing
+        return
+
+    session = start_session(log_level=log_level, log_directory=log_directory)
+    status = "SUCCESS"
+
+    try:
+        yield session
+    except KeyboardInterrupt:
+        status = "INTERRUPTED"
+        session.warning("Application interrupted by the user.")
+        raise
+    except SystemExit as exc:
+        code = exc.code
+        if code not in (None, 0):
+            status = "FAILED"
+            session.error("Application exited with status %s.", code)
+        raise
+    except BaseException:
+        status = "FAILED"
+        session.exception("Unhandled exception terminated the application.")
+        raise
+    finally:
+        shutdown_session(status)

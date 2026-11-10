@@ -15,16 +15,24 @@ def main(args: list[str] | None = None) -> None:
             used. With no arguments, the default startup sequence runs without
             invoking Typer.
     """
+    from omarchy_tweaker.functions.logger import application_session
+
     cli_args = sys.argv[1:] if args is None else args
-    if not cli_args:
-        from omarchy_tweaker.startup import run_default
 
-        run_default()
-        return
+    with application_session() as logger:
+        logger.info("CLI invocation started with arguments: %s", cli_args or "<none>")
 
-    from omarchy_tweaker.cli import main as run_typer
+        if not cli_args:
+            from omarchy_tweaker.startup import run_default
 
-    run_typer(cli_args)
+            run_default()
+            return
+
+        from omarchy_tweaker.cli import main as run_typer
+
+        logger.info("Dispatching to the Typer CLI.")
+        run_typer(cli_args)
+        logger.info("Typer CLI completed.")
 
 
 __all__ = ["main"]

@@ -4,16 +4,23 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from omarchy_tweaker.functions.logger import get_session
+from omarchy_tweaker.functions.snapshot import run_snapshot_step
 from omarchy_tweaker.screens.banner import show_banner
-from omarchy_tweaker.screens.welcome import show_welcome
 
-DEFAULT_SEQUENCE: tuple[Callable[[], None], ...] = (
-    show_banner,
-    show_welcome,
-)
+DEFAULT_SEQUENCE: tuple[Callable[[], object], ...] = (show_banner, run_snapshot_step)
 
 
 def run_default() -> None:
     """Run the default startup functions in order."""
+    logger = get_session()
+    if logger is not None:
+        logger.info("Starting the default startup sequence.")
+
     for step in DEFAULT_SEQUENCE:
+        if logger is not None:
+            logger.info("Running startup step: %s", step.__name__)
         step()
+
+    if logger is not None:
+        logger.info("Default startup sequence completed.")

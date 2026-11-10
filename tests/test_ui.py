@@ -865,8 +865,9 @@ def test_virtual_terminal_context_manager_starts_and_stops(
             self.stopped = False
             self.updates: list[object] = []
 
-        def start(self) -> None:
+        def start(self, refresh: bool = True) -> None:
             self.started = True
+            self.start_refresh = refresh
 
         def update(self, renderable: object, *, refresh: bool = False) -> None:
             self.updates.append(renderable)
@@ -888,6 +889,8 @@ def test_virtual_terminal_context_manager_starts_and_stops(
     assert not terminal.is_started
     with terminal:
         assert terminal.is_started
+        assert created[0].start_refresh is False
+        assert created[0].updates == []
         terminal.writeline("alpha")
         assert created[0].updates
     assert not terminal.is_started
@@ -903,7 +906,7 @@ def test_virtual_terminal_context_manager_function(
             self.renderable = renderable
             self.kwargs = kwargs
 
-        def start(self) -> None:
+        def start(self, refresh: bool = True) -> None:
             return None
 
         def update(self, renderable: object, *, refresh: bool = False) -> None:

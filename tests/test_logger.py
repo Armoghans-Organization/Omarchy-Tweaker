@@ -10,9 +10,21 @@ from omarchy_tweaker.app_metadata import APP_NAME, APP_SLUG, APP_VERSION
 from omarchy_tweaker.functions.logger import (
     LOG_DIR_ENV_VAR,
     OmarchyTweakerLogger,
+    application_session,
     get_log_directory,
+    get_session,
     resolve_log_level,
+    shutdown_session,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_application_session() -> Iterator[None]:
+    shutdown_session()
+    try:
+        yield
+    finally:
+        shutdown_session()
 
 
 @pytest.fixture
@@ -240,3 +252,59 @@ def test_resolve_log_level(level: int | str, expected: int) -> None:
 def test_resolve_log_level_rejects_unknown_name() -> None:
     with pytest.raises(ValueError, match="Unsupported log level"):
         resolve_log_level("TRACE")
+
+
+def test_application_session_creates_and_closes_session(tmp_path: Path) -> None:
+    with application_session(log_directory=tmp_path) as instance:
+        assert get_session() is instance
+        instance.info("inside application session")
+
+    assert get_session() is None
+    assert instance.closed is True
+
+    content = instance.log_file.read_text(encoding="utf-8")
+    assert "inside application session" in content
+    assert "APPLICATION SHUTDOWN REPORT" in content
+
+
+def test_application_session_marks_interrupted_on_keyboard_interrupt(
+    tmp_path: Path,
+) -> None:
+    with (
+        pytest.raises(KeyboardInterrupt),
+        application_session(log_directory=tmp_path) as instance,
+    ):
+        raise KeyboardInterrupt
+
+    content = instance.log_file.read_text(encoding="utf-8")
+    assert "[INTERRUPTED]" in content
+    assert get_session() is None
+
+
+def test_application_session_marks_failed_on_nonzero_system_exit(
+    tmp_path: Path,
+) -> None:
+    with (
+        pytest.raises(SystemExit),
+        application_session(log_directory=tmp_path) as instance,
+    ):
+        raise SystemExit(2)
+
+    content = instance.log_file.read_text(encoding="utf-8")
+    assert "[   FAILED  ]" in content
+    assert "Application exited with status 2." in content
+    assert get_session() is None
+
+
+def test_application_session_reuses_existing_session(tmp_path: Path) -> None:
+    other_directory = tmp_path / "other"
+
+    with application_session(log_directory=tmp_path) as outer:
+        with application_session(log_directory=other_directory) as inner:
+            assert inner is outer
+            assert get_session() is outer
+
+        assert get_session() is outer
+
+    assert get_session() is None
+    assert not other_directory.exists()

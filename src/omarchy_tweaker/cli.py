@@ -38,4 +38,7 @@ def main(args: list[str] | None = None) -> None:
         args: Optional command-line arguments. When omitted, Typer reads
             ``sys.argv``.
     """
-    app(args=args)
+    from omarchy_tweaker.functions.logger import application_session
+
+    with application_session():
+        app(args=args)

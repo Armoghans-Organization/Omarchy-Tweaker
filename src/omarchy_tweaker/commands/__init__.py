@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from omarchy_tweaker.commands import welcome
+from omarchy_tweaker.commands import snapshot, welcome
 
 
 def register_commands(app: typer.Typer) -> None:
@@ -13,4 +13,5 @@ def register_commands(app: typer.Typer) -> None:
     Args:
         app: The Typer application to register commands on.
     """
+    snapshot.register(app)
     welcome.register(app)
