@@ -1,12 +1,22 @@
+---
+description: Local setup, tooling, testing, Git hooks, and release workflow for Omarchy Tweaker.
+icon: material/tools
+subtitle: Local setup and tooling
+mermaid: true
+---
+
 # Development Guide
 
 This page describes how the Omarchy Tweaker development environment is set up, how the
 quality tooling is configured, and how to work on the project day to day.
 
 Omarchy Tweaker is a terminal-first, Python 3.13+ toolkit for customizing and automating
-personal Omarchy (Arch Linux) installations. The repository is currently in the
-**scaffolding stage**: the CLI entry point and the full tooling pipeline exist, while
-feature modules are still being built.
+personal Omarchy (Arch Linux) installations. The repository is in **early implementation**:
+the CLI, default startup workflow, snapshot step, cleanup workflow, session logging, Rich
+error handling, and reusable terminal UI toolkit are implemented and tested.
+
+The project is intentionally small. New behavior should follow the existing module patterns
+rather than introducing a new framework or a speculative package layout.
 
 ---
 
@@ -23,6 +33,14 @@ uv run poe check
 ```
 
 If every task passes, the environment is ready.
+
+```mermaid
+flowchart LR
+    A[Clone repository] --> B[uv sync --all-groups]
+    B --> C[Install Git hooks]
+    C --> D[uv run poe check]
+    D --> E{Ready}
+```
 
 ---
 
@@ -122,17 +140,40 @@ Omarchy-Tweaker/
 │   └── workflows/                  # ci.yml, docs.yml, release.yml
 ├── docs/                           # Zensical documentation sources
 │   ├── changelog.md                # GENERATED — do not edit by hand
+│   ├── commands.md                 # CLI reference
+│   ├── cleanup.md                  # Cleanup workflow reference
 │   ├── development.md              # This page
-│   ├── index.md
+│   ├── getting-started.md          # Installation and first run
+│   ├── index.md                    # Documentation home
+│   ├── architecture.md             # Runtime flow and module design
 │   ├── release-notes.md            # GENERATED — do not edit by hand
+│   ├── security.md                 # Security policy
+│   ├── troubleshooting.md          # Common issues
 │   ├── overrides/                  # Theme overrides
 │   ├── stylesheets/                # Custom CSS
 │   ├── favicons/ · images/         # Static assets
-├── src/omarchy_tweaker/
-│   └── __init__.py                 # CLI entry point (currently a welcome message)
+├── src/
+│   ├── omarchy_tweaker/
+│   │   ├── __init__.py             # Application entry and dispatch
+│   │   ├── __main__.py             # python -m omarchy_tweaker
+│   │   ├── app_metadata.py         # Name and version metadata
+│   │   ├── cli.py                  # Typer application and callback
+│   │   ├── startup.py              # Typer-free default sequence
+│   │   ├── commands/               # Thin CLI command wrappers
+│   │   ├── screens/                # Banner and welcome screens
+│   │   └── functions/              # Cleanup, snapshot, logging, UI, system info
+│   └── omarchy_tweaker_bootstrap/
+│       ├── __init__.py             # Early entry point
+│       └── error_handling.py       # Rich exception rendering
 ├── tests/
 │   ├── __init__.py
-│   └── test_main.py                # CLI smoke test
+│   ├── test_cleanup.py
+│   ├── test_cli.py
+│   ├── test_logger.py
+│   ├── test_main.py
+│   ├── test_snapshot.py
+│   ├── test_system_info.py
+│   └── test_ui.py
 ├── .gitignore
 ├── .pre-commit-config.yaml         # Git hook definitions
 ├── .python-version                 # Pinned interpreter (3.13)
@@ -161,9 +202,10 @@ The following are produced by tasks and must **never be committed**:
 - `bandit-report.json`.
 - `docs/changelog.md`, `docs/release-notes.md` — regenerated from Git history.
 
-When feature modules are added, they are expected to follow the target structure under
-`src/omarchy_tweaker/` (for example `cli/`, `core/`, and `models/`). That structure does
-not exist yet.
+The `src/omarchy_tweaker/` layout is intentionally flat. Commands, screens, and reusable
+functions live in separate packages, but there is no implemented `cli/`, `core/`, or
+`models/` subpackage. See [Architecture](architecture.md) for module responsibilities and
+extension points.
 
 ---
 
@@ -410,8 +452,8 @@ Run a single test or file directly:
 
 ```bash
 uv run pytest tests/test_main.py -v
-uv run pytest tests/test_main.py::test_main_prints_welcome_message -v
-uv run pytest -k "welcome" -v
+uv run pytest tests/test_cleanup.py::test_run_cleanup_step_removes_only_selected_items -v
+uv run pytest -k "cleanup" -v
 ```
 
 ### Guidelines
@@ -426,8 +468,33 @@ uv run pytest -k "welcome" -v
 
 ### Current Coverage
 
-The suite currently contains a single CLI smoke test (`tests/test_main.py`). External
-system operations must be mocked as feature modules are introduced.
+The suite currently contains **166 tests** covering:
+
+```mermaid
+pie showData
+    title Tests by area
+    "UI" : 64
+    "Logging" : 27
+    "CLI and startup" : 18
+    "Cleanup" : 16
+    "System info" : 15
+    "Snapshot" : 10
+    "Error handling" : 7
+    "Metadata and bootstrap" : 9
+```
+
+- Application metadata and bootstrap entry points.
+- CLI dispatch, banner behavior, command registration, and exit codes.
+- The default startup sequence.
+- Snapshot success, skip, timeout, missing-command, and OS-error paths.
+- Cleanup discovery, selection, removal, path validation, and failure reporting.
+- Session logging, log-directory resolution, shutdown reports, and interrupt handling.
+- Rich error handling for main-thread, thread, unraisable, and syntax errors.
+- System information formatting and fallbacks.
+- UI helpers, prompts, progress, and virtual-terminal behavior.
+
+External commands, package-manager calls, privileged operations, filesystem writes, and
+service changes are mocked. Tests must never modify the host system.
 
 ---
 
@@ -455,7 +522,7 @@ test: add package manager tests
 chore: update development dependencies
 ```
 
-Indicator a breaking change with `!` after the type or scope, and/or a `BREAKING CHANGE:`
+Indicate a breaking change with `!` after the type or scope, and/or a `BREAKING CHANGE:`
 footer:
 
 ```text
@@ -469,10 +536,13 @@ Keep messages descriptive enough for `git-cliff` to build meaningful changelogs.
 ## Documentation
 
 Documentation is built with [Zensical](https://zensical.org/docs) and configured in
-`zensical.toml`. The site navigation currently exposes:
+`zensical.toml`. The site navigation exposes:
 
 - Home → `index.md`
-- Development → `development.md`
+- Getting Started → `getting-started.md`
+- Usage → `commands.md` and `cleanup.md`
+- Project → `architecture.md`, `development.md`, `contributing.md`, and `security.md`
+- Troubleshooting → `troubleshooting.md`
 - Changelog → `changelog.md` (generated)
 - Release Notes → `release-notes.md` (generated)
 
@@ -509,6 +579,14 @@ to guarantee a reproducible build.
 ---
 
 ## CI/CD Pipeline
+
+```mermaid
+flowchart LR
+    A[Push or pull request] --> B[quality]
+    A --> C[docs]
+    B --> D[build]
+    C --> D
+```
 
 ### `ci.yml` — Continuous Integration
 
@@ -566,6 +644,18 @@ The project follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PAT
 The `release.yml` workflow rejects a tag whose version does not match `pyproject.toml`.
 
 ---
+
+### Release path
+
+```mermaid
+timeline
+    title Release path
+    Version : Update pyproject.toml
+    Notes : Preview changelog and release notes
+    Verify : uv run poe ci
+    Tag : Push vX.Y.Z
+    Publish : GitHub release workflow
+```
 
 ## Troubleshooting
 
@@ -625,25 +715,3 @@ Before opening a pull request, confirm that:
 - [ ] No generated artifacts, secrets, or virtual environments are staged.
 
 Additional contribution expectations are described in `CONTRIBUTING.md` and `AGENTS.md`.
-
----
-
-## Command Cheat Sheet
-
-| Goal | Command |
-|---|---|
-| Install everything | `uv sync --all-groups` |
-| Install Git hooks | `uv run pre-commit install --install-hooks` |
-| Lint and auto-fix | `uv run poe lint-fix` |
-| Format | `uv run poe format` |
-| Type check | `uv run poe typecheck` |
-| Run tests | `uv run poe test` |
-| Coverage | `uv run poe coverage` |
-| Security scan | `uv run poe security` |
-| Full local gate | `uv run poe check` |
-| Full pipeline | `uv run poe ci` |
-| Build package | `uv run poe build` |
-| Serve docs | `uv run poe docs-serve` |
-| Build docs | `uv run poe docs-build` |
-| Run all hooks | `uv run pre-commit run --all-files` |
-| Clean artifacts | `uv run poe clean` |

@@ -1,3 +1,9 @@
+---
+description: Personal Omarchy customization, automation, maintenance, and bootstrap toolkit documentation.
+icon: material/home-variant
+subtitle: Project overview
+mermaid: true
+---
 
 <div align="center" markdown="1">
 
@@ -9,172 +15,221 @@
 
 **A personal Omarchy customization, automation, and bootstrap toolkit.**
 
+[Get started](getting-started.md){ .md-button .md-button--primary }
+[Browse commands](commands.md){ .md-button }
+[View on GitHub](https://github.com/Armoghans-Organization/Omarchy-Tweaker){ .md-button }
+
 </div>
 
 ---
 
 <div align="center" markdown="1">
 
-[![License](https://img.shields.io/github/license/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=LICENSE&color=e3b341)](LICENSE)
+[![License](https://img.shields.io/github/license/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=LICENSE&color=e3b341)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/blob/main/LICENSE)
 [![Stars](https://img.shields.io/github/stars/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=STARS&color=yellow)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/stargazers)
 [![Issues](https://img.shields.io/github/issues/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=ISSUES&color=ff6b6b)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/issues)
 
 [![Omarchy](https://img.shields.io/badge/POWERED_BY-OMARCHY-7C83FD?style=for-the-badge&logo=linux&logoColor=white)](https://omarchy.org/)
 [![Arch Linux](https://img.shields.io/badge/BASED_ON-ARCH_LINUX-1793D1?style=for-the-badge&logo=archlinux&logoColor=white)](https://archlinux.org/)
+[![Python](https://img.shields.io/badge/PYTHON-3.13+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 
 [![Last Commit](https://img.shields.io/github/last-commit/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=LAST_COMMIT&color=orange)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/commits)
 [![Repository Size](https://img.shields.io/github/repo-size/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=REPOSITORY_SIZE&color=informational)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
-[![Top Language](https://img.shields.io/github/languages/top/Armoghans-Organization/Omarchy-Tweaker?style=for-the-badge&label=TOP_LANGUAGE&color=blue)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
-
-[![Setup manual](https://gitmanual.com/Armoghans-Organization/Omarchy-Tweaker/badge.svg)](https://gitmanual.com/Armoghans-Organization/Omarchy-Tweaker)
 
 </div>
 
 ---
 
-<div class="ot-status" markdown="1">
-
 !!! info "A personal project, built around a real setup"
-    Omarchy Tweaker is my evolving collection of configurations, scripts, automation, and system customizations for Omarchy on Arch Linux.
+    Omarchy Tweaker is an evolving toolkit for customizing, automating, and maintaining a personal Omarchy installation. It is intentionally opinionated and terminal-first.
 
-    It reflects my personal workflow and preferences. It is not intended to be a universal configuration or one-size-fits-all installer.
+    It is not a universal Linux customization tool, a replacement for Omarchy, or a one-size-fits-all installer.
 
-</div>
+## What is Omarchy Tweaker?
 
-## About the Project
+Omarchy Tweaker is a Python command-line application that brings useful Omarchy tweaks, configuration workflows, maintenance tasks, and automation into one consistent interface.
 
-Omarchy Tweaker is my personal workspace for building a more personalized, consistent, and efficient Linux desktop experience.
-
-Built around [Omarchy](https://omarchy.org/), this project brings together the things I use to configure, maintain, and improve my environment.
-
-Instead of scattering scripts, configuration files, and setup instructions across different places, everything lives in one organized repository.
-
-From desktop customization and application configurations to bootstrap utilities and automation workflows, Omarchy Tweaker helps me keep my setup manageable, repeatable, and continuously evolving.
-
-## What's Inside?
+The project is currently in **early implementation**. The implemented surface is deliberately small and safe: it helps you inspect your system, create a restore point, and remove selected preinstalled Omarchy applications.
 
 <div class="grid cards" markdown>
 
--   :material-palette-swatch-outline: **Customization**
+-   :material-console: **Terminal-first**
 
     ---
 
-    Personal desktop tweaks, application preferences, visual adjustments, and configuration changes.
+    A focused Rich and InquirerPy interface designed for an interactive terminal, with clear prompts and visible command output.
 
--   :material-robot-outline: **Automation**
-
-    ---
-
-    Scripts and utilities that handle repetitive tasks and simplify everyday workflows.
-
--   :material-rocket-launch-outline: **Bootstrap & Setup**
+-   :material-shield-check-outline: **Safety-oriented**
 
     ---
 
-    Tools and scripts for preparing and configuring a fresh Omarchy installation.
+    Destructive actions require explicit selection and confirmation. Non-interactive runs skip steps instead of guessing.
 
--   :material-file-cog-outline: **Configuration Management**
-
-    ---
-
-    Organized configuration files, dotfiles, and application settings.
-
--   :material-console: **Developer Utilities**
+-   :material-package-variant-closed: **Omarchy-aware**
 
     ---
 
-    Useful tools and workflow improvements for a more productive development environment.
+    Discovers installed Omarchy packages, web apps, TUIs, and Mise wrappers using Omarchy's own conventions.
 
--   :material-book-open-page-variant-outline: **Documentation**
+-   :material-file-document-multiple-outline: **Observable**
 
     ---
 
-    Guides, notes, installation instructions, and technical references for maintaining the project.
+    Every session writes a structured log with application metadata, system details, and a shutdown report.
 
 </div>
 
-## Project Philosophy
+## What works today
 
-The idea behind Omarchy Tweaker is simple:
+| Area | Status | What it does |
+|:--|:--:|:--|
+| Default startup sequence | Implemented | Shows the banner, offers a snapshot, then offers cleanup. |
+| `welcome` command | Implemented | Displays the welcome screen and a system overview. |
+| `snapshot` command | Implemented | Runs `omarchy snapshot create` with confirmation and live output. |
+| `cleanup` command | Implemented | Removes only selected installed packages, web apps, TUIs, and Mise wrappers. |
+| Session logging | Implemented | Writes structured logs to the XDG state directory. |
+| Rich error handling | Implemented | Renders uncaught exceptions, thread errors, and syntax errors cleanly. |
+| Reusable UI toolkit | Implemented | Provides banners, panels, tables, prompts, progress, and virtual terminals. |
+| Package installation | Not implemented | Planned for a future iteration. |
+| Dotfile management | Not implemented | Planned for a future iteration. |
+| Theme and desktop automation | Not implemented | Planned for a future iteration. |
 
-- **Personalization over generalization** — Build around an actual workflow instead of trying to accommodate every possible setup.
-- **Automation over repetition** — Make recurring setup and maintenance tasks easier.
-- **Organization over clutter** — Keep scripts, configurations, and documentation in one place.
-- **Understandable over complicated** — Prefer practical solutions that are easy to inspect and maintain.
-- **Continuous improvement** — Refine the setup as requirements, tools, and workflows evolve.
+### Current surface
 
-## Getting Started
+```mermaid
+pie showData
+    title Implemented surface
+    "Implemented" : 7
+    "Planned" : 3
+```
 
-New to Omarchy Tweaker? Start here.
+!!! warning "Do not assume planned features exist"
+    The table above is the source of truth for the current documentation. If a workflow is not listed as implemented, treat it as unavailable.
+
+## Default workflow
+
+```mermaid
+timeline
+    title One invocation, three steps
+    Launch : Show the banner
+    Protect : Offer a snapshot
+    Clean : Select and remove
+```
+
+Each step can be skipped. See **[Getting Started](getting-started.md)** for the full first-run flow.
+
+## Safety first
+
+!!! warning "System-changing workflow"
+    Snapshot and cleanup act on the host. Read **[Cleanup](cleanup.md)** and the **[Security Policy](security.md)** before removing anything.
+
+    The default sequence offers a snapshot before cleanup. Running `omarchy-tweaker cleanup` directly does **not** create a snapshot automatically.
+
+## Documentation map
 
 <div class="grid cards" markdown>
 
--   :material-download: **Installation**
+-   :material-rocket-launch-outline: **Getting Started**
 
     ---
 
-    Get the project and prepare your environment.
+    Requirements, installation, first run, and logs.
 
-    [Installation Guide]()
+    [Open Getting Started](getting-started.md)
 
--   :material-book-open-variant: **Documentation**
-
-    ---
-
-    Explore the available guides and project structure.
-
-    [Browse Documentation]()
-
--   :material-new-box: **Release Notes**
+-   :material-console-line: **Commands**
 
     ---
 
-    Discover what's new, what's improved, and what has changed.
+    Command reference, options, exit codes, and examples.
 
-    [View Release Notes](release-notes.md)
+    [Open Commands](commands.md)
 
--   :material-history: **Changelog**
+-   :material-delete-sweep-outline: **Cleanup**
 
     ---
 
-    Follow the project's development history and notable changes.
+    What cleanup discovers, how removal works, and how to stay safe.
 
-    [View Changelog](changelog.md)
+    [Open Cleanup](cleanup.md)
+
+-   :material-sitemap-outline: **Architecture**
+
+    ---
+
+    Runtime flow, module responsibilities, logging, and extension points.
+
+    [Open Architecture](architecture.md)
+
+-   :material-tools: **Development**
+
+    ---
+
+    Local setup, tooling, tests, Git hooks, and release workflow.
+
+    [Open Development](development.md)
+
+-   :material-source-pull: **Contributing**
+
+    ---
+
+    Workflow, standards, and review expectations for changes.
+
+    [Open Contributing](contributing.md)
+
+-   :material-shield-lock-outline: **Security**
+
+    ---
+
+    Safety model, supported versions, and private vulnerability reporting.
+
+    [Open Security](security.md)
+
+-   :material-help-circle-outline: **Troubleshooting**
+
+    ---
+
+    Common issues with terminals, Omarchy commands, snapshots, and cleanup.
+
+    [Open Troubleshooting](troubleshooting.md)
 
 </div>
 
-## Project Resources
+### Docs at a glance
 
-| Resource | Description |
-|:--|:--|
-| [GitHub Repository](https://github.com/Armoghans-Organization/Omarchy-Tweaker) | Browse source code and configurations. |
-| [GitHub Issues](https://github.com/Armoghans-Organization/Omarchy-Tweaker/issues) | Report bugs or suggest improvements. |
-| [GitHub Releases](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases) | Explore published releases. |
-| [Changelog](changelog.md) | Review the project's development history. |
-| [Release Notes](release-notes.md) | Read generated release summaries. |
+```mermaid
+mindmap
+  root((Omarchy Tweaker))
+    Getting Started
+      Requirements
+      Install
+      First run
+    Usage
+      Commands
+      Cleanup
+    Project
+      Architecture
+      Development
+      Contributing
+      Security
+    Troubleshooting
+    Changelog
+    Release Notes
+```
 
-## Before You Begin
+## Project resources
 
-!!! warning "Review before applying"
-    Omarchy Tweaker contains personal configurations and utilities that may modify your system.
-
-    - Back up important configuration files.
-    - Review scripts and commands before executing them.
-    - Check compatibility with your current Omarchy installation.
-    - Understand what a script changes before applying it.
-
-    Not every configuration or customization will be suitable for every system.
+[GitHub Repository](https://github.com/Armoghans-Organization/Omarchy-Tweaker) · [Changelog](changelog.md) · [Release Notes](release-notes.md)
 
 ---
 
 <div align="center" markdown="1">
 
-**Built with ❤️ for Omarchy.**
+**Built for a personal Omarchy setup.**
 
-<sub>Omarchy Tweaker · Personal customization and automation toolkit</sub>
+<sub>Omarchy Tweaker · Customization, automation, and maintenance</sub>
 
 [![GitHub](https://img.shields.io/badge/GITHUB-REPOSITORY-181717?style=for-the-badge&logo=github)](https://github.com/Armoghans-Organization/Omarchy-Tweaker)
 [![Documentation](https://img.shields.io/badge/READ-DOCUMENTATION-2563eb?style=for-the-badge&logo=readthedocs&logoColor=white)](index.md)
-[![Releases](https://img.shields.io/badge/VIEW-RELEASES-16a34a?style=for-the-badge&logo=github)](https://github.com/Armoghans-Organization/Omarchy-Tweaker/releases)
 
 </div>

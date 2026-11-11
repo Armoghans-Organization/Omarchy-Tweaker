@@ -3,9 +3,10 @@
 {% block extrahead %}
   {{ super() }}
 
+  {% set page_description = page.meta.description if page.meta and page.meta.description else config.site_description %}
+
   <!-- SEO -->
   <meta name="author" content="Armoghan-ul-Mohmin">
-  <meta name="description" content="Omarchy Tweaker - Personal Omarchy customization and automation toolkit.">
 
   <!-- Theme color -->
   <meta name="theme-color" content="#7c3aed">
@@ -14,15 +15,15 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Omarchy Tweaker">
   <meta property="og:title" content="{{ page.title }} - Omarchy Tweaker">
-  <meta property="og:description" content="Personal Omarchy customization and automation toolkit.">
+  <meta property="og:description" content="{{ page_description }}">
   <meta property="og:url" content="{{ page.canonical_url }}">
-  <meta property="og:image" content="https://armoghans-organization.github.io/Omarchy-Tweaker/assets/images/social-preview.png">
+  <meta property="og:image" content="https://armoghans-organization.github.io/Omarchy-Tweaker/images/Banner.png">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{{ page.title }} - Omarchy Tweaker">
-  <meta name="twitter:description" content="Personal Omarchy customization and automation toolkit.">
-  <meta name="twitter:image" content="https://armoghans-organization.github.io/Omarchy-Tweaker/assets/images/social-preview.png">
+  <meta name="twitter:description" content="{{ page_description }}">
+  <meta name="twitter:image" content="https://armoghans-organization.github.io/Omarchy-Tweaker/images/Banner.png">
 
 
   <!-- Favicons  -->
@@ -36,4 +37,14 @@
 
   <link rel="apple-touch-icon" href="{{ 'favicons/apple-touch-icon.png' | url }}">
 
+{% endblock %}
+
+{% block content %}
+  {% if page.meta and page.meta.mermaid %}
+    <div hidden aria-hidden="true">
+      <pre class="mermaid">flowchart LR
+      A-->B</pre>
+    </div>
+  {% endif %}
+  {{ super() }}
 {% endblock %}

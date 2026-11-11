@@ -182,7 +182,9 @@ repos:
           - toml
           - yaml
           - shell
-        args: [--write-changes]
+        args:
+          - --write-changes
+          - --ignore-words-list=OT
         verbose: true
 
   # ===========================================================

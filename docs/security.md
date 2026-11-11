@@ -1,7 +1,48 @@
+---
+description: System safety model, supported versions, and private vulnerability reporting for Omarchy Tweaker.
+icon: material/shield-lock
+subtitle: Safety and reporting
+mermaid: true
+---
+
 # Security Policy
 
 The security of **Omarchy Tweaker** and its users is important. Responsible security
 research is appreciated, and vulnerabilities should be reported privately and responsibly.
+
+---
+
+## System Safety Model
+
+Omarchy Tweaker performs system-level operations, including package removal and snapshot
+creation.
+
+```mermaid
+flowchart LR
+    U[User] --> CLI[Typer CLI]
+    CLI --> V[Validation and confirmation]
+    V --> O[Omarchy commands]
+    V --> FS[User files]
+    O --> P[sudo pacman]
+    CLI --> L[XDG state logs]
+```
+
+| Risk | Control |
+|:--|:--|
+| Accidental removal | Explicit selection, separate category lists, final confirmation. |
+| Non-interactive guessing | Interactive steps skip when no TTY is available. |
+| Shell injection | External commands use argument lists, never `shell=True`. |
+| Hung commands | Snapshot and removal operations have explicit timeouts. |
+| Broad package removal | Candidates are limited to Omarchy preinstalls and installed packages. |
+| Unsafe wrapper deletion | Mise paths must be absolute, name a file, and resolve inside the home directory. |
+| Silent partial failure | Cleanup reports failed items and exits non-zero. |
+| Noisy notifications | `OMARCHY_REMOVE_NOTIFY=false` suppresses per-item notifications. |
+
+Omarchy Tweaker does not log passwords, authentication tokens, private keys, or secret
+configuration values. Review logs before sharing them publicly, since they include command
+arguments and system details.
+
+See [Cleanup](cleanup.md) for the full destructive-operation workflow.
 
 ---
 
@@ -34,6 +75,15 @@ Use one of the following methods instead:
 - **Private Contact:** Contact the repository owner through GitHub if private
   vulnerability reporting is unavailable.
 
+```mermaid
+flowchart LR
+    A[Find issue] --> B[Private report]
+    B --> C[Acknowledge]
+    C --> D[Investigate]
+    D --> E[Fix and verify]
+    E --> F[Publish advisory]
+```
+
 ### What to Include
 
 To help investigate and resolve the issue, please provide:
@@ -63,6 +113,20 @@ Please allow reasonable time for investigation and remediation before publicly d
 a vulnerability.
 
 ---
+
+### Coordinated disclosure
+
+```mermaid
+sequenceDiagram
+    actor Reporter
+    participant Maintainer
+    participant Advisory as Security advisory
+    Reporter->>Maintainer: Private report
+    Maintainer-->>Reporter: Acknowledge
+    Maintainer->>Maintainer: Investigate and fix
+    Maintainer->>Advisory: Publish advisory
+    Advisory-->>Reporter: Credit and resolution
+```
 
 ## Security Tooling in This Repository
 

@@ -15,11 +15,18 @@ repo_url = "https://github.com/Armoghans-Organization/Omarchy-Tweaker"
 
 nav = [
     {"Home" = "index.md"},
-    {"Contributing" = [
+    {"Getting Started" = "getting-started.md"},
+    {"Usage" = [
+        {"Commands" = "commands.md"},
+        {"Cleanup" = "cleanup.md"},
+    ]},
+    {"Project" = [
+        {"Architecture" = "architecture.md"},
         {"Development" = "development.md"},
         {"Contributing" = "contributing.md"},
         {"Security" = "security.md"},
     ]},
+    {"Troubleshooting" = "troubleshooting.md"},
     {"Changelog" = "changelog.md"},
     {"Release Notes" = "release-notes.md"},
 ]
@@ -28,34 +35,37 @@ extra_css = [
     "stylesheets/extra.css",
 ]
 
+extra_javascript = [
+    "javascripts/mermaid-theme.js",
+]
+
 [project.theme]
 custom_dir = "docs/overrides"
+favicon = "favicons/favicon.ico"
 features = [
     "announce.dismiss",
+    "content.action.edit",
+    "content.action.view",
     "content.code.annotate",
     "content.code.copy",
     "content.code.select",
     "content.footnote.tooltips",
     "content.tabs.link",
     "content.tooltips",
-    "header.autohide",
-    "navigation.expand",
     "navigation.footer",
-    "navigation.indexes",
     "navigation.instant",
     "navigation.instant.prefetch",
     "navigation.instant.progress",
     "navigation.path",
+    "navigation.expand",
     "navigation.prune",
     "navigation.sections",
+    "navigation.tabs",
     "navigation.tabs.sticky",
+    "toc.follow",
+    "navigation.top",
     "navigation.tracking",
     "search.highlight",
-    "toc.follow",
-    "toc.integrate",
-    "navigation.tabs",
-    "navigation.sections",
-    "navigation.expand"
 ]
 
 language = "en"
@@ -64,6 +74,8 @@ variant = "modern"
 [project.theme.icon]
 logo = "simple/archlinux"
 repo = "fontawesome/brands/github"
+edit = "material/pencil"
+view = "material/eye"
 
 [project.theme.font]
 code = "Fira Code"
@@ -107,13 +119,14 @@ pymdownx.magiclink = {}
 pymdownx.mark = {}
 pymdownx.smartsymbols = {}
 pymdownx.superfences.custom_fences = [
-    {name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format"},
+    {name = "mermaid", class = "mermaid-chart", format = "pymdownx.superfences.fence_code_format"},
 ]
 pymdownx.tabbed.alternate_style = true
 pymdownx.tabbed.combine_header_slug = true
 pymdownx.tasklist.custom_checkbox = true
 pymdownx.tilde = {}
 toc.permalink = true
+toc.toc_depth = 2
 
 [project.plugins.offline]
 enabled = true

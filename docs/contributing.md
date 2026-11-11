@@ -1,3 +1,10 @@
+---
+description: Contribution workflow, coding standards, and review expectations for Omarchy Tweaker.
+icon: material/source-pull
+subtitle: Workflow and standards
+mermaid: true
+---
+
 # Contributing
 
 Thank you for your interest in contributing to **Omarchy Tweaker**.
@@ -8,49 +15,18 @@ maintainer's personal environment and is **not** intended as a universal, one-si
 installer.
 
 !!! note "Project status"
-    The repository is in the scaffolding stage. The CLI entry point and the complete
-    tooling pipeline exist; feature modules are still being built. Please do not assume a
-    planned feature is implemented.
+    The repository is in early implementation. The CLI, default startup sequence, snapshot
+    workflow, cleanup workflow, session logging, Rich error handling, and terminal UI
+    toolkit are implemented and tested. Planned features such as package installation and
+    dotfile management are not implemented. Please do not assume a planned feature exists.
 
 ---
 
 ## Getting Started
 
-1. Ensure you have **Python 3.13+** and **uv** installed.
-2. Clone the repository.
-
-   ```bash
-   git clone https://github.com/Armoghans-Organization/Omarchy-Tweaker.git
-   cd Omarchy-Tweaker
-   ```
-
-3. Install all dependency groups.
-
-   ```bash
-   uv sync --all-groups
-   ```
-
-4. Install the Git hooks.
-
-   ```bash
-   uv run pre-commit install --install-hooks
-   ```
-
-5. Run the quality checks.
-
-   ```bash
-   uv run poe check
-   ```
-
-For changes affecting packaging, documentation, or the complete development pipeline, also
-run:
-
-```bash
-uv run poe ci
-```
-
-See the [Development Guide](development.md) for the full environment, tooling, and workflow
-reference.
+Follow the [Development Guide](development.md#quick-start) to clone the repository, install
+dependencies, install Git hooks, and run the initial quality checks. Once the environment is
+ready, start with a focused change and run `uv run poe check` before committing.
 
 ---
 
@@ -116,13 +92,10 @@ uv run poe coverage
 
 ## System Safety
 
-- Destructive operations require validation, confirmation, and safeguards.
-- Never execute privileged or destructive operations without authorization.
-- Prefer reversible, transparent, and well-documented operations.
-- Preserve existing configuration and create backups before overwriting important files.
-
 This project interacts directly with system configurations and package management. Treat
-all system modifications as potentially destructive.
+all system modifications as potentially destructive. Never execute privileged or destructive
+operations without authorization, and follow the safeguards in the [Security Policy](security.md)
+and `AGENTS.md`.
 
 ---
 
@@ -151,6 +124,30 @@ Mark breaking changes with `!` after the type or scope, and/or a `BREAKING CHANG
 ---
 
 ## Pull Requests
+
+```mermaid
+flowchart LR
+    A[Focused change] --> B[Tests and docs]
+    B --> C[uv run poe check]
+    C --> D{Packaging, docs, or pipeline?}
+    D -- Yes --> E[uv run poe ci]
+    D -- No --> F[Commit]
+    E --> F
+    F --> G[Open pull request]
+```
+
+### Pull request lifecycle
+
+```mermaid
+timeline
+    title From idea to merge
+    Discuss : Open or comment on an issue
+    Branch : Create a focused branch
+    Implement : Add tests and docs
+    Verify : uv run poe check
+    Review : Address feedback
+    Merge : Squash or merge
+```
 
 Before opening a pull request, ensure that:
 

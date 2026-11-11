@@ -172,6 +172,13 @@ def test_welcome_command_shows_welcome() -> None:
     assert "Welcome to Omarchy Tweaker!" in result.output
 
 
+def test_welcome_command_shows_banner_once() -> None:
+    result = runner.invoke(app, ["welcome"])
+
+    assert result.exit_code == 0
+    assert result.output.count("Customize. Automate. Maintain.") == 1
+
+
 def test_help_lists_commands() -> None:
     result = runner.invoke(app, ["--help"])
 
