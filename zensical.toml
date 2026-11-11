@@ -127,7 +127,7 @@ pymdownx.tabbed.combine_header_slug = true
 pymdownx.tasklist.custom_checkbox = true
 pymdownx.tilde = {}
 toc.permalink = true
-toc.toc_depth = 2
+toc.toc_depth = 3
 
 [project.plugins.offline]
 enabled = true
