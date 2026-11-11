@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 import omarchy_tweaker.cli as cli_module
 import omarchy_tweaker.commands.cleanup as cleanup_command
 import omarchy_tweaker.commands.snapshot as snapshot_command
+import omarchy_tweaker.functions.cleanup as cleanup_module
 import omarchy_tweaker.startup as startup_module
 from omarchy_tweaker.cli import app
 from omarchy_tweaker.functions.cleanup import CleanupResult, run_cleanup_step
@@ -15,7 +16,11 @@ from omarchy_tweaker.screens.banner import show_banner
 runner = CliRunner()
 
 
-def test_cli_without_arguments_shows_banner_and_snapshot_step() -> None:
+def test_cli_without_arguments_shows_banner_and_snapshot_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cleanup_module, "available_cleanup_items", lambda **kwargs: ())
+
     result = runner.invoke(app, [])
 
     assert result.exit_code == 0
@@ -23,7 +28,7 @@ def test_cli_without_arguments_shows_banner_and_snapshot_step() -> None:
     assert "SYSTEM SNAPSHOT" in result.output
     assert "Snapshot skipped" in result.output
     assert "CLEANUP" in result.output
-    assert "Cleanup skipped" in result.output
+    assert "No installed cleanup items were found." in result.output
 
 
 def test_cli_without_arguments_runs_default_sequence(

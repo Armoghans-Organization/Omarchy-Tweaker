@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import omarchy_tweaker.functions.cleanup as cleanup_module
 from omarchy_tweaker import main
 from omarchy_tweaker.functions.logger import LOG_DIR_ENV_VAR
 
@@ -15,6 +16,7 @@ def test_main_prints_banner_and_snapshot_step(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(LOG_DIR_ENV_VAR, str(tmp_path))
+    monkeypatch.setattr(cleanup_module, "available_cleanup_items", lambda **kwargs: ())
 
     main([])
 
@@ -23,7 +25,7 @@ def test_main_prints_banner_and_snapshot_step(
     assert "SYSTEM SNAPSHOT" in captured.out
     assert "Snapshot skipped" in captured.out
     assert "CLEANUP" in captured.out
-    assert "Cleanup skipped" in captured.out
+    assert "No installed cleanup items were found." in captured.out
     assert captured.err == ""
 
     log_files = list(tmp_path.glob("*.log"))
