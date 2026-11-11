@@ -51,10 +51,11 @@ The repository is in the **early implementation stage**.
 - The console entry point is implemented in `src/omarchy_tweaker_bootstrap/__init__.py` and delegates to `src/omarchy_tweaker/__init__.py`.
 - The Typer application is initialized in `src/omarchy_tweaker/cli.py`; the root callback shows the banner before every subcommand.
 - Individual commands live in separate modules under `src/omarchy_tweaker/commands/`.
-- The default invocation runs the ordered `DEFAULT_SEQUENCE` in `src/omarchy_tweaker/startup.py` without importing Typer; it currently shows the banner, offers the snapshot step, and then offers the cleanup step.
+- The default invocation runs the ordered `DEFAULT_SEQUENCE` in `src/omarchy_tweaker/startup.py` without importing Typer; it currently shows the banner, offers the snapshot step, offers the cleanup step, and then offers the directory setup step.
 - The `welcome` command displays the welcome screen explicitly through `src/omarchy_tweaker/screens/welcome.py`.
 - The `snapshot` command creates a system snapshot through `omarchy snapshot create`.
 - The `cleanup` command discovers installed Omarchy packages, web app launchers, TUI launchers, and Mise wrappers, presents separate selectable lists per type, and removes only the items the user explicitly selects and confirms.
+- The `directories` command creates the fixed workspace directories (`~/Github`, `~/Github/Clone`, `~/Projects`, `~/Projects/Containers`, `~/.ISO`, `~/.VM`, `~/.Cloud`) after per-path confirmation and never overwrites existing paths.
 - Reusable UI, logging, metadata, and Rich error-handling utilities are implemented.
 
 Do not assume that a feature is implemented because it is described here, planned here, or referenced in this file. Treat any behavior not explicitly listed here as **not implemented**.
@@ -177,6 +178,7 @@ Before adding a dependency:
 │   │   ├── commands/
 │   │   │   ├── __init__.py      [IMPLEMENTED] Command registration.
 │   │   │   ├── cleanup.py       [IMPLEMENTED] Cleanup command wrapper.
+│   │   │   ├── directory.py     [IMPLEMENTED] Directories command wrapper.
 │   │   │   ├── snapshot.py      [IMPLEMENTED] Snapshot command wrapper.
 │   │   │   └── welcome.py       [IMPLEMENTED] Welcome command wrapper.
 │   │   ├── screens/
@@ -186,6 +188,7 @@ Before adding a dependency:
 │   │   └── functions/
 │   │       ├── __init__.py      [IMPLEMENTED] Reusable function exports.
 │   │       ├── cleanup.py       [IMPLEMENTED] Cleanup selection and removal workflow.
+│   │       ├── directory.py     [IMPLEMENTED] Workspace directory creation workflow.
 │   │       ├── logger.py        [IMPLEMENTED] Session logging utilities.
 │   │       ├── snapshot.py      [IMPLEMENTED] Snapshot creation workflow.
 │   │       ├── system_info.py   [IMPLEMENTED] OS and hardware information helpers.
@@ -198,6 +201,7 @@ Before adding a dependency:
 │   ├── test_bootstrap.py
 │   ├── test_cleanup.py
 │   ├── test_cli.py
+│   ├── test_directory.py
 │   ├── test_error_handling.py
 │   ├── test_logger.py
 │   ├── test_main.py

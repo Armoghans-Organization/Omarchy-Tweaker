@@ -26,6 +26,8 @@ def test_main_prints_banner_and_snapshot_step(
     assert "Snapshot skipped" in captured.out
     assert "CLEANUP" in captured.out
     assert "No installed cleanup items were found." in captured.out
+    assert "REQUIRED DIRECTORIES" in captured.out
+    assert "Directory setup skipped" in captured.out
     assert captured.err == ""
 
     log_files = list(tmp_path.glob("*.log"))
@@ -33,6 +35,7 @@ def test_main_prints_banner_and_snapshot_step(
     content = log_files[0].read_text(encoding="utf-8")
     assert "Snapshot step skipped" in content
     assert "Cleanup step skipped" in content
+    assert "Directory step skipped" in content
     assert "APPLICATION SHUTDOWN REPORT" in content
 
 

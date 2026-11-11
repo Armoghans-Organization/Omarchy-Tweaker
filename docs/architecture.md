@@ -26,9 +26,10 @@ flowchart TD
     G --> H[Banner]
     H --> I[Snapshot step]
     I --> J[Cleanup step]
+    J --> O[Directory step]
     F -- Yes --> K[Typer CLI]
     K --> L[Root callback shows banner]
-    L --> M[welcome / snapshot / cleanup]
+    L --> M[welcome / snapshot / cleanup / directories]
     E --> N[Write shutdown report]
 ```
 
@@ -46,7 +47,7 @@ sequenceDiagram
     App->>Logger: application_session()
     alt No arguments
         App->>Step: run_default()
-        Step->>Step: Banner, snapshot, cleanup
+        Step->>Step: Banner, snapshot, cleanup, directories
     else Subcommand
         App->>CLI: Dispatch command
         CLI->>Step: Run selected command
@@ -80,6 +81,7 @@ src/
 │   ├── commands/
 │   │   ├── __init__.py          # Command registration
 │   │   ├── cleanup.py           # cleanup command wrapper
+│   │   ├── directory.py         # directories command wrapper
 │   │   ├── snapshot.py          # snapshot command wrapper
 │   │   └── welcome.py           # welcome command wrapper
 │   ├── screens/
@@ -89,6 +91,7 @@ src/
 │   └── functions/
 │       ├── __init__.py          # Logger exports
 │       ├── cleanup.py           # Cleanup discovery and removal
+│       ├── directory.py         # Workspace directory setup
 │       ├── logger.py            # Session logging
 │       ├── snapshot.py          # Snapshot workflow
 │       ├── system_info.py       # OS and hardware information
@@ -107,9 +110,9 @@ The layout is flat by design. There is no implemented `cli/`, `core/`, or `model
 ```mermaid
 pie showData
     title Source modules by area
-    "Functions" : 6
+    "Functions" : 7
     "Entry and core" : 6
-    "Commands" : 4
+    "Commands" : 5
     "Screens" : 3
     "Bootstrap" : 2
 ```
@@ -125,6 +128,7 @@ pie showData
 | `commands/*` | Thin CLI wrappers around function modules. |
 | `screens/*` | Reusable screen-level presentation. |
 | `functions/cleanup.py` | Discover installed cleanup targets and remove selected items. |
+| `functions/directory.py` | Create the fixed workspace directories after per-path confirmation. |
 | `functions/snapshot.py` | Confirm and run `omarchy snapshot create`. |
 | `functions/system_info.py` | Collect OS, CPU, GPU, memory, disk, and uptime data. |
 | `functions/logger.py` | Write structured session logs. |
@@ -144,6 +148,7 @@ DEFAULT_SEQUENCE = (
     show_banner,
     run_snapshot_step,
     run_cleanup_step,
+    run_directory_step,
 )
 ```
 

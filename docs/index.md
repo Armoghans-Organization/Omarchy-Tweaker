@@ -83,10 +83,11 @@ The project is currently in **early implementation**. The implemented surface is
 
 | Area | Status | What it does |
 |:--|:--:|:--|
-| Default startup sequence | Implemented | Shows the banner, offers a snapshot, then offers cleanup. |
+| Default startup sequence | Implemented | Shows the banner, offers a snapshot, offers cleanup, then offers directory setup. |
 | `welcome` command | Implemented | Displays the welcome screen and a system overview. |
 | `snapshot` command | Implemented | Runs `omarchy snapshot create` with confirmation and live output. |
 | `cleanup` command | Implemented | Removes only selected installed packages, web apps, TUIs, and Mise wrappers. |
+| `directories` command | Implemented | Creates the standard workspace directories after per-path confirmation. |
 | Session logging | Implemented | Writes structured logs to the XDG state directory. |
 | Rich error handling | Implemented | Renders uncaught exceptions, thread errors, and syntax errors cleanly. |
 | Reusable UI toolkit | Implemented | Provides banners, panels, tables, prompts, progress, and virtual terminals. |
@@ -99,7 +100,7 @@ The project is currently in **early implementation**. The implemented surface is
 ```mermaid
 pie showData
     title Implemented surface
-    "Implemented" : 7
+    "Implemented" : 8
     "Planned" : 3
 ```
 
@@ -110,10 +111,11 @@ pie showData
 
 ```mermaid
 timeline
-    title One invocation, three steps
+    title One invocation, four steps
     Launch : Show the banner
     Protect : Offer a snapshot
     Clean : Select and remove
+    Organize : Create workspace folders
 ```
 
 Each step can be skipped. See **[Getting Started](getting-started.md)** for the full first-run flow.
@@ -121,9 +123,9 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
 ## Safety first
 
 !!! warning "System-changing workflow"
-    Snapshot and cleanup act on the host. Read **[Cleanup](cleanup.md)** and the **[Security Policy](security.md)** before removing anything.
+    Snapshot, cleanup, and directory setup act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, and the **[Security Policy](security.md)** before making changes.
 
-    The default sequence offers a snapshot before cleanup. Running `omarchy-tweaker cleanup` directly does **not** create a snapshot automatically.
+    The default sequence offers a snapshot before cleanup, then offers workspace directory setup. Running `omarchy-tweaker cleanup` directly does **not** create a snapshot automatically.
 
 ## Documentation map
 
@@ -152,6 +154,14 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
     What cleanup discovers, how removal works, and how to stay safe.
 
     [Open Cleanup](cleanup.md)
+
+-   :material-folder-multiple-outline: **Directories**
+
+    ---
+
+    Create the standard workspace folders safely, one path at a time.
+
+    [Open Directories](directories.md)
 
 -   :material-sitemap-outline: **Architecture**
 
@@ -207,6 +217,7 @@ mindmap
     Usage
       Commands
       Cleanup
+      Directories
     Project
       Architecture
       Development

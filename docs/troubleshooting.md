@@ -1,5 +1,5 @@
 ---
-description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, and documentation builds.
+description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, and documentation builds.
 icon: material/help-circle
 subtitle: Fixes and diagnosis
 mermaid: true
@@ -17,20 +17,23 @@ flowchart TD
     D -- Yes --> E[Use an interactive terminal]
     D -- No --> F{Omarchy command found?}
     F -- No --> G[Check PATH and Omarchy install]
-    F -- Yes --> H{Snapshot or cleanup?}
+    F -- Yes --> H{Snapshot, cleanup, or directories?}
     H -- Snapshot --> I[Run omarchy snapshot create]
     H -- Cleanup --> J[Check discovery rules]
     J --> K[See Cleanup]
+    H -- Directories --> L[Check home permissions]
+    L --> M[See Directories]
 ```
 
 | Symptom | Likely cause | Next step |
 |:--|:--|:--|
 | `omarchy-tweaker` not found | Checkout not on `PATH`, or tool bin directory missing | Run through `uv` or install globally. |
-| Snapshot or cleanup skipped | No interactive TTY | Run directly in a terminal. |
+| Snapshot, cleanup, or directory setup skipped | No interactive TTY | Run directly in a terminal. |
 | `omarchy` not found | Omarchy CLI not on `PATH` | Verify the Omarchy installation. |
 | Snapshot fails | Snapshot tooling, permissions, or disk space | Run `omarchy snapshot create` directly. |
 | Cleanup list is empty | Items do not match discovery rules | Check the category-specific commands below. |
 | Removal fails | `sudo`, package state, or package-manager lock | Run the underlying Omarchy command directly. |
+| Directory creation fails | Parent is missing, a file occupies the path, or home is not writable | Check the fixed targets and permissions below. |
 | Icons are missing | Terminal lacks a Nerd Font | Install and configure a Nerd Font. |
 | Docs build fails | Generated files or broken links | See [Development](development.md#troubleshooting). |
 
@@ -60,12 +63,13 @@ uv tool dir --bin
 
 ## Interactive steps are skipped
 
-Snapshot confirmation and cleanup selection require an interactive terminal. They check
-that both standard input and standard output are TTYs.
+Snapshot confirmation, cleanup selection, and directory creation require an interactive
+terminal. They check that both standard input and standard output are TTYs.
 
 ```text
 Snapshot skipped: confirmation requires an interactive terminal.
 Cleanup skipped: selecting items requires an interactive terminal.
+Directory setup skipped: creating directories requires an interactive terminal.
 ```
 
 Run the command directly in a terminal instead of through a pipe, IDE runner, CI job, or
@@ -75,7 +79,8 @@ non-interactive shell. For snapshot automation, use `--yes`:
 omarchy-tweaker snapshot --yes
 ```
 
-Cleanup intentionally has no non-interactive removal mode.
+Cleanup intentionally has no non-interactive removal mode. Directory setup intentionally
+has no non-interactive creation mode.
 
 ---
 
@@ -143,6 +148,29 @@ to remove it. Remove it manually after verifying the path.
 
 ---
 
+## Directory setup fails
+
+Directory setup uses fixed paths beneath your home directory. Check the target directly:
+
+```bash
+ls -ld ~/Github ~/Github/Clone ~/Projects ~/Projects/Containers ~/.ISO ~/.VM ~/.Cloud
+```
+
+Common causes:
+
+- The parent directory was declined, so its child is skipped.
+- A regular file or broken symlink already occupies the target path.
+- Your home directory is not writable.
+- The target path exists but is not a directory.
+
+Existing directories are left untouched. To resolve a file conflict, inspect and move the
+existing path manually before running `omarchy-tweaker directories` again. Directory setup
+does not use `sudo` and does not change ownership.
+
+See **[Directories](directories.md)** for the complete target list and safety model.
+
+---
+
 ## Icons look wrong or are missing
 
 The UI uses Nerd Font glyphs. Install a Nerd Font and configure your terminal to use it.
@@ -199,4 +227,5 @@ Report bugs at [GitHub Issues](https://github.com/Armoghans-Organization/Omarchy
 - [Getting Started](getting-started.md)
 - [Commands](commands.md)
 - [Cleanup](cleanup.md)
+- [Directories](directories.md)
 - [Development](development.md)

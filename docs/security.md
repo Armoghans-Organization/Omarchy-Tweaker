@@ -14,8 +14,8 @@ research is appreciated, and vulnerabilities should be reported privately and re
 
 ## System Safety Model
 
-Omarchy Tweaker performs system-level operations, including package removal and snapshot
-creation.
+Omarchy Tweaker performs system-level operations, including package removal, snapshot
+creation, and workspace directory creation.
 
 ```mermaid
 flowchart LR
@@ -35,14 +35,16 @@ flowchart LR
 | Hung commands | Snapshot and removal operations have explicit timeouts. |
 | Broad package removal | Candidates are limited to Omarchy preinstalls and installed packages. |
 | Unsafe wrapper deletion | Mise paths must be absolute, name a file, and resolve inside the home directory. |
-| Silent partial failure | Cleanup reports failed items and exits non-zero. |
+| Unintended directory creation | Fixed home-relative targets, per-path confirmation, and no overwrite of existing paths. |
+| Silent partial failure | Cleanup and directory setup report failed items and exit non-zero. |
 | Noisy notifications | `OMARCHY_REMOVE_NOTIFY=false` suppresses per-item notifications. |
 
 Omarchy Tweaker does not log passwords, authentication tokens, private keys, or secret
 configuration values. Review logs before sharing them publicly, since they include command
 arguments and system details.
 
-See [Cleanup](cleanup.md) for the full destructive-operation workflow.
+See [Cleanup](cleanup.md) for the full destructive-operation workflow and
+[Directories](directories.md) for workspace path rules.
 
 ---
 

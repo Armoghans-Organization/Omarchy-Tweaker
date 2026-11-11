@@ -25,7 +25,8 @@ general-purpose Linux administration tool and is not tested on other distributio
 | **uv** | The supported way to install dependencies, run tasks, and build the project. |
 | **`omarchy` on `PATH`** | Snapshot and cleanup delegate work to Omarchy commands. |
 | **`pacman`** | Cleanup checks which Omarchy packages are actually installed. |
-| **Interactive terminal** | Snapshot confirmation and cleanup selection use TTY prompts. |
+| **Writable home directory** | Directory setup creates fixed workspace folders beneath `$HOME`. |
+| **Interactive terminal** | Snapshot confirmation, cleanup selection, and directory creation use TTY prompts. |
 | **Nerd Font** *(recommended)* | The UI uses Nerd Font glyphs for icons. |
 
 !!! warning "Omarchy only"
@@ -75,6 +76,7 @@ timeline
     Sync : uv sync --all-groups
     Verify : uv run omarchy-tweaker --help
     Run : uv run omarchy-tweaker
+    Organize : Confirm workspace directories
 ```
 
 ## First run
@@ -97,7 +99,12 @@ flowchart LR
     G --> H{Interactive?}
     H -- Yes --> I[Select and remove]
     H -- No --> J[Skip cleanup]
-    B -- Yes --> K[Typer command]
+    I --> K[Offer directories]
+    J --> K
+    K --> L{Interactive?}
+    L -- Yes --> M[Confirm each directory]
+    L -- No --> N[Skip directories]
+    B -- Yes --> O[Typer command]
 ```
 
 The default sequence is:
@@ -106,10 +113,11 @@ The default sequence is:
 2. **Snapshot** — asks whether to create a system snapshot with
    `omarchy snapshot create`.
 3. **Cleanup** — discovers installed Omarchy cleanup targets and asks what to remove.
+4. **Directories** — asks whether to create each missing workspace folder.
 
-Every step can be skipped. If the terminal is not interactive, the snapshot and cleanup
-steps skip safely instead of guessing. See **[Commands](commands.md)** for per-command
-rules.
+Every step can be skipped. If the terminal is not interactive, the snapshot, cleanup, and
+directory steps skip safely instead of guessing. See **[Commands](commands.md)** for
+per-command rules.
 
 ### Explore commands
 
@@ -118,6 +126,7 @@ uv run omarchy-tweaker --help
 uv run omarchy-tweaker welcome
 uv run omarchy-tweaker snapshot --help
 uv run omarchy-tweaker cleanup --help
+uv run omarchy-tweaker directories --help
 ```
 
 The `welcome` command shows the banner plus a system overview containing OS, kernel,
@@ -159,5 +168,6 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 
 - [Commands](commands.md) — full CLI reference.
 - [Cleanup](cleanup.md) — discovery and removal details.
+- [Directories](directories.md) — workspace folder targets and safety rules.
 - [Architecture](architecture.md) — how the application works internally.
 - [Troubleshooting](troubleshooting.md) — common problems and fixes.

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from omarchy_tweaker.functions.cleanup import run_cleanup_step
+from omarchy_tweaker.functions.directory import run_directory_step
 from omarchy_tweaker.functions.logger import get_session
 from omarchy_tweaker.functions.snapshot import run_snapshot_step
 from omarchy_tweaker.screens.banner import show_banner
@@ -13,6 +14,7 @@ DEFAULT_SEQUENCE: tuple[Callable[[], object], ...] = (
     show_banner,
     run_snapshot_step,
     run_cleanup_step,
+    run_directory_step,
 )
 
 

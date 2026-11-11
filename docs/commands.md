@@ -1,5 +1,5 @@
 ---
-description: Complete reference for the welcome, snapshot, and cleanup commands in Omarchy Tweaker.
+description: Complete reference for the welcome, snapshot, cleanup, and directory commands in Omarchy Tweaker.
 icon: material/console-line
 subtitle: CLI reference
 mermaid: true
@@ -15,6 +15,7 @@ Complete reference for the currently implemented Omarchy Tweaker commands.
 | `welcome` | No | No | — |
 | `snapshot` | Yes | Unless `--yes` | `--yes`, `-y` |
 | `cleanup` | Yes | Yes | — |
+| `directories` | Yes | Yes | — |
 
 ```mermaid
 flowchart TD
@@ -29,6 +30,9 @@ flowchart TD
     B -- cleanup --> J{TTY?}
     J -- Yes --> K[Select, confirm, remove]
     J -- No --> L[Skip with warning]
+    B -- directories --> M{TTY?}
+    M -- Yes --> N[Confirm each missing directory]
+    M -- No --> O[Skip with warning]
 ```
 
 ---
@@ -41,7 +45,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 
 | Behavior | Details |
 |:--|:--|
-| No arguments | Runs the default sequence: banner, snapshot step, cleanup step. |
+| No arguments | Runs the default sequence: banner, snapshot step, cleanup step, directory step. |
 | With a subcommand | Shows the banner, then runs the selected command. |
 | `--help` | Shows global help and the available commands. |
 | Completion | Disabled. |
@@ -57,7 +61,8 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Inspect the system and confirm the installation works | `omarchy-tweaker welcome` |
 | Create a recovery point before making changes | `omarchy-tweaker snapshot` |
 | Review and remove selected packages or launchers | `omarchy-tweaker cleanup` |
-| Run the guided snapshot-then-cleanup sequence | `omarchy-tweaker` |
+| Create the standard workspace directories | `omarchy-tweaker directories` |
+| Run the guided snapshot, cleanup, and directory sequence | `omarchy-tweaker` |
 | See every command and option | `omarchy-tweaker --help` |
 
 ### Exit codes
@@ -65,9 +70,9 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Code | Meaning |
 |:--:|:--|
 | `0` | The command completed, or the step was skipped safely. |
-| `1` | A selected operation failed, such as snapshot creation or item removal. |
+| `1` | A selected operation failed, such as snapshot creation, item removal, or directory creation. |
 
-A skipped step is not a failure. For example, declining a snapshot or running cleanup without a TTY exits successfully.
+A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, or declining every directory exits successfully.
 
 ---
 
@@ -195,6 +200,52 @@ See **[Cleanup](cleanup.md)** for discovery rules, removal commands, and safety 
 
 ---
 
+## `directories`
+
+Create the standard workspace directories used by this personal Omarchy setup.
+
+```bash
+omarchy-tweaker directories
+```
+
+Directories has no command-line options. It asks about each missing target individually.
+
+### Behavior
+
+1. Inspects the fixed target paths beneath your home directory.
+2. Leaves existing directories untouched.
+3. Asks for confirmation before creating each missing directory.
+4. Creates accepted directories one level at a time.
+5. Skips children when their parent is unavailable.
+6. Reports created, existing, skipped, and failed paths.
+
+### Targets
+
+| Path | Purpose |
+|:--|:--|
+| `~/Github` | Git repositories. |
+| `~/Github/Clone` | Cloned repositories. |
+| `~/Projects` | Personal projects. |
+| `~/Projects/Containers` | Container projects. |
+| `~/.ISO` | ISO images. |
+| `~/.VM` | Virtual machines. |
+| `~/.Cloud` | Cloud storage. |
+
+### Non-interactive use
+
+`omarchy-tweaker directories` requires an interactive terminal for missing directories.
+Without one, it prints a warning and skips without creating anything. Existing directories
+are recognized without prompting.
+
+### Failure handling
+
+An existing file, broken symlink, or creation error at a target path is reported as a
+failure and exits with code `1`. Existing directories are never overwritten.
+
+See **[Directories](directories.md)** for the full workflow and safety model.
+
+---
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -229,6 +280,12 @@ omarchy-tweaker cleanup
 
 Then press ++enter++ at each prompt without selecting items. Nothing is removed when the final selection is empty.
 
+### Create the workspace directories
+
+```bash
+omarchy-tweaker directories
+```
+
 ### Show global help
 
 ```bash
@@ -241,4 +298,5 @@ omarchy-tweaker --help
 
 - [Getting Started](getting-started.md)
 - [Cleanup](cleanup.md)
+- [Directories](directories.md)
 - [Troubleshooting](troubleshooting.md)
