@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from omarchy_tweaker.commands import register_commands
+from omarchy_tweaker.screens.banner import show_banner
 from omarchy_tweaker.startup import run_default
 
 app = typer.Typer(
@@ -26,6 +27,9 @@ def callback(ctx: typer.Context) -> None:
     """
     if ctx.invoked_subcommand is None:
         run_default()
+        return
+
+    show_banner()
 
 
 register_commands(app)

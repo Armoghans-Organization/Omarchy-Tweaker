@@ -22,12 +22,15 @@ def test_main_prints_banner_and_snapshot_step(
     assert "Omarchy Tweaker" in captured.out
     assert "SYSTEM SNAPSHOT" in captured.out
     assert "Snapshot skipped" in captured.out
+    assert "CLEANUP" in captured.out
+    assert "Cleanup skipped" in captured.out
     assert captured.err == ""
 
     log_files = list(tmp_path.glob("*.log"))
     assert len(log_files) == 1
     content = log_files[0].read_text(encoding="utf-8")
     assert "Snapshot step skipped" in content
+    assert "Cleanup step skipped" in content
     assert "APPLICATION SHUTDOWN REPORT" in content
 
 

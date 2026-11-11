@@ -49,14 +49,15 @@ The project brings useful system tweaks, configuration management, automation ro
 The repository is in the **early implementation stage**.
 
 - The console entry point is implemented in `src/omarchy_tweaker_bootstrap/__init__.py` and delegates to `src/omarchy_tweaker/__init__.py`.
-- The Typer application is initialized in `src/omarchy_tweaker/cli.py`.
+- The Typer application is initialized in `src/omarchy_tweaker/cli.py`; the root callback shows the banner before every subcommand.
 - Individual commands live in separate modules under `src/omarchy_tweaker/commands/`.
-- The default invocation runs the ordered `DEFAULT_SEQUENCE` in `src/omarchy_tweaker/startup.py` without importing Typer; it currently shows the banner followed by the welcome screen and system overview.
-- The `welcome` command displays the same welcome screen explicitly through `src/omarchy_tweaker/screens/welcome.py`.
+- The default invocation runs the ordered `DEFAULT_SEQUENCE` in `src/omarchy_tweaker/startup.py` without importing Typer; it currently shows the banner, offers the snapshot step, and then offers the cleanup step.
+- The `welcome` command displays the welcome screen explicitly through `src/omarchy_tweaker/screens/welcome.py`.
+- The `snapshot` command creates a system snapshot through `omarchy snapshot create`.
+- The `cleanup` command discovers installed Omarchy packages, web app launchers, TUI launchers, and Mise wrappers, presents separate selectable lists per type, and removes only the items the user explicitly selects and confirms.
 - Reusable UI, logging, metadata, and Rich error-handling utilities are implemented.
-- No system-modifying commands or package-management operations are implemented yet.
 
-Do not assume that a feature is implemented because it is described here, planned here, or referenced in this file. Treat all system-modifying behavior as **not implemented**.
+Do not assume that a feature is implemented because it is described here, planned here, or referenced in this file. Treat any behavior not explicitly listed here as **not implemented**.
 
 ### Primary Objectives
 
@@ -175,6 +176,8 @@ Before adding a dependency:
 │   │   ├── error_handling.py    [IMPLEMENTED] Compatibility re-exports for error handling.
 │   │   ├── commands/
 │   │   │   ├── __init__.py      [IMPLEMENTED] Command registration.
+│   │   │   ├── cleanup.py       [IMPLEMENTED] Cleanup command wrapper.
+│   │   │   ├── snapshot.py      [IMPLEMENTED] Snapshot command wrapper.
 │   │   │   └── welcome.py       [IMPLEMENTED] Welcome command wrapper.
 │   │   ├── screens/
 │   │   │   ├── __init__.py      [IMPLEMENTED] Reusable terminal screens.
@@ -182,7 +185,9 @@ Before adding a dependency:
 │   │   │   └── welcome.py       [IMPLEMENTED] Welcome screen and system overview.
 │   │   └── functions/
 │   │       ├── __init__.py      [IMPLEMENTED] Reusable function exports.
+│   │       ├── cleanup.py       [IMPLEMENTED] Cleanup selection and removal workflow.
 │   │       ├── logger.py        [IMPLEMENTED] Session logging utilities.
+│   │       ├── snapshot.py      [IMPLEMENTED] Snapshot creation workflow.
 │   │       ├── system_info.py   [IMPLEMENTED] OS and hardware information helpers.
 │   │       └── ui.py            [IMPLEMENTED] Rich and InquirerPy UI toolkit.
 │   └── omarchy_tweaker_bootstrap/
@@ -191,10 +196,12 @@ Before adding a dependency:
 ├── tests/
 │   ├── test_app_metadata.py
 │   ├── test_bootstrap.py
+│   ├── test_cleanup.py
 │   ├── test_cli.py
 │   ├── test_error_handling.py
 │   ├── test_logger.py
 │   ├── test_main.py
+│   ├── test_snapshot.py
 │   ├── test_system_info.py
 │   └── test_ui.py
 └── .github/
