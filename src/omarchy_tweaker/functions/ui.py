@@ -37,7 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from rich import box
 from rich.color import Color
 from rich.columns import Columns
-from rich.console import Console
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.json import JSON
 from rich.live import Live
 from rich.markdown import Markdown
@@ -861,6 +861,7 @@ class VirtualTerminal:
         self._buffer: deque[Text] = deque(maxlen=self.config.max_lines)
         self._line_count = 0
         self._live: Live | None = None
+        self._live_renderable: RenderableType | None = None
 
     @property
     def height(self) -> int:
@@ -1143,9 +1144,9 @@ class VirtualTerminal:
             return
 
         self._live = Live(
-            self.render(),
+            self._live_renderable or self.render(),
             console=self._console,
-            auto_refresh=False,
+            auto_refresh=self._live_renderable is not None,
             transient=False,
         )
         self._live.start(refresh=False)
@@ -1163,7 +1164,8 @@ class VirtualTerminal:
     def refresh(self) -> None:
         """Redraw the terminal when the live display is running."""
         if self._live is not None:
-            self._live.update(self.render(), refresh=True)
+            renderable = self._live_renderable or self.render()
+            self._live.update(renderable, refresh=self._live_renderable is None)
 
     def _append(self, line: str | Text, style: str | None = None) -> None:
         if isinstance(line, Text):
@@ -1183,6 +1185,72 @@ class VirtualTerminal:
         traceback: TracebackType | None,
     ) -> None:
         self.stop()
+
+
+class _TerminalProgressRenderable:
+    """Render a virtual terminal and a progress display in one live view."""
+
+    def __init__(self, terminal: VirtualTerminal, progress: Progress) -> None:
+        self._terminal = terminal
+        self._progress = progress
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        yield Group(self._progress.get_renderable(), self._terminal.render())
+
+
+@contextmanager
+def terminal_with_progress(
+    *,
+    height: int = 10,
+    max_lines: int = 1000,
+    title: str = "Terminal",
+    show_line_numbers: bool = False,
+    border_style: str = THEME.border,
+    console: Console | None = None,
+) -> Iterator[tuple[VirtualTerminal, Progress]]:
+    """Run a virtual terminal and progress bar inside one live display.
+
+    Keeping both renderables in a single Rich ``Live`` avoids nested live
+    displays, which can produce a terminal panel inside another terminal panel.
+
+    Args:
+        height: Number of terminal lines visible at once.
+        max_lines: Maximum number of terminal lines kept in scrollback.
+        title: Panel title.
+        show_line_numbers: Prefix each visible line with its line number.
+        border_style: Rich style for the panel border.
+        console: Optional console to render with.
+
+    Yields:
+        The running virtual terminal and its associated progress display.
+    """
+    output = _resolve_console(console)
+    terminal = VirtualTerminal(
+        height=height,
+        max_lines=max_lines,
+        title=title,
+        show_line_numbers=show_line_numbers,
+        border_style=border_style,
+        console=output,
+    )
+    progress = Progress(
+        SpinnerColumn(style=THEME.accent),
+        TextColumn("[progress.description]{task.description}", style=THEME.text),
+        BarColumn(bar_width=None, style=THEME.muted, complete_style=THEME.success),
+        TaskProgressColumn(style=THEME.primary),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=output,
+        transient=True,
+    )
+    terminal._live_renderable = _TerminalProgressRenderable(terminal, progress)
+
+    with terminal:
+        yield terminal, progress
 
 
 @contextmanager

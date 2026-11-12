@@ -18,6 +18,7 @@ nav = [
     {"Getting Started" = "getting-started.md"},
     {"Usage" = [
         {"Commands" = "commands.md"},
+        {"Packages" = "packages.md"},
         {"Cleanup" = "cleanup.md"},
         {"Directories" = "directories.md"},
     ]},

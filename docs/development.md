@@ -13,8 +13,8 @@ quality tooling is configured, and how to work on the project day to day.
 Omarchy Tweaker is a terminal-first, Python 3.13+ toolkit for customizing and automating
 personal Omarchy (Arch Linux) installations. The repository is in **early implementation**:
 the CLI, default startup workflow, snapshot step, cleanup workflow, directory setup,
-session logging, Rich error handling, and reusable terminal UI toolkit are implemented and
-tested.
+package installation, session logging, Rich error handling, and reusable terminal UI toolkit
+are implemented and tested.
 
 The project is intentionally small. New behavior should follow the existing module patterns
 rather than introducing a new framework or a speculative package layout.
@@ -144,6 +144,7 @@ Omarchy-Tweaker/
 │   ├── commands.md                 # CLI reference
 │   ├── cleanup.md                  # Cleanup workflow reference
 │   ├── directories.md              # Workspace directory reference
+│   ├── packages.md                 # Package installation reference
 │   ├── development.md              # This page
 │   ├── getting-started.md          # Installation and first run
 │   ├── index.md                    # Documentation home
@@ -163,7 +164,7 @@ Omarchy-Tweaker/
 │   │   ├── startup.py              # Typer-free default sequence
 │   │   ├── commands/               # Thin CLI command wrappers
 │   │   ├── screens/                # Banner and welcome screens
-│   │   └── functions/              # Cleanup, directories, snapshot, logging, UI, system info
+│   │   └── functions/              # Cleanup, directories, packages, snapshot, logging, UI, system info
 │   └── omarchy_tweaker_bootstrap/
 │       ├── __init__.py             # Early entry point
 │       └── error_handling.py       # Rich exception rendering
@@ -174,6 +175,7 @@ Omarchy-Tweaker/
 │   ├── test_directory.py
 │   ├── test_logger.py
 │   ├── test_main.py
+│   ├── test_packages.py
 │   ├── test_snapshot.py
 │   ├── test_system_info.py
 │   └── test_ui.py
@@ -456,8 +458,9 @@ Run a single test or file directly:
 ```bash
 uv run pytest tests/test_main.py -v
 uv run pytest tests/test_directory.py -v
+uv run pytest tests/test_packages.py -v
 uv run pytest tests/test_cleanup.py::test_run_cleanup_step_removes_only_selected_items -v
-uv run pytest -k "cleanup or directory" -v
+uv run pytest -k "cleanup or directory or packages" -v
 ```
 
 ### Guidelines
@@ -472,18 +475,19 @@ uv run pytest -k "cleanup or directory" -v
 
 ### Current Coverage
 
-The suite currently contains **179 tests** covering:
+The suite currently contains **201 tests** covering:
 
 ```mermaid
 pie showData
     title Tests by area
-    "UI" : 64
+    "UI" : 65
     "Logging" : 27
-    "CLI and startup" : 21
+    "CLI and startup" : 23
     "Cleanup" : 16
     "System info" : 15
     "Snapshot" : 10
     "Directories" : 10
+    "Packages" : 19
     "Error handling" : 7
     "Metadata and bootstrap" : 9
 ```
@@ -494,6 +498,7 @@ pie showData
 - Snapshot success, skip, timeout, missing-command, and OS-error paths.
 - Cleanup discovery, selection, removal, path validation, and failure reporting.
 - Directory targets, creation, parent checks, conflict handling, and non-interactive skips.
+- Package group selection, confirmation, single-command installation, and failure paths.
 - Session logging, log-directory resolution, shutdown reports, and interrupt handling.
 - Rich error handling for main-thread, thread, unraisable, and syntax errors.
 - System information formatting and fallbacks.
@@ -546,7 +551,7 @@ Documentation is built with [Zensical](https://zensical.org/docs) and configured
 
 - Home → `index.md`
 - Getting Started → `getting-started.md`
-- Usage → `commands.md`, `cleanup.md`, and `directories.md`
+- Usage → `commands.md`, `packages.md`, `cleanup.md`, and `directories.md`
 - Project → `architecture.md`, `development.md`, `contributing.md`, and `security.md`
 - Troubleshooting → `troubleshooting.md`
 - Changelog → `changelog.md` (generated)

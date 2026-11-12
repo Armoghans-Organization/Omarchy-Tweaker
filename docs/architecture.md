@@ -29,7 +29,7 @@ flowchart TD
     J --> O[Directory step]
     F -- Yes --> K[Typer CLI]
     K --> L[Root callback shows banner]
-    L --> M[welcome / snapshot / cleanup / directories]
+    L --> M[welcome / snapshot / cleanup / directories / packages]
     E --> N[Write shutdown report]
 ```
 
@@ -82,6 +82,7 @@ src/
 │   │   ├── __init__.py          # Command registration
 │   │   ├── cleanup.py           # cleanup command wrapper
 │   │   ├── directory.py         # directories command wrapper
+│   │   ├── packages.py          # packages command wrapper
 │   │   ├── snapshot.py          # snapshot command wrapper
 │   │   └── welcome.py           # welcome command wrapper
 │   ├── screens/
@@ -93,6 +94,7 @@ src/
 │       ├── cleanup.py           # Cleanup discovery and removal
 │       ├── directory.py         # Workspace directory setup
 │       ├── logger.py            # Session logging
+│       ├── packages.py          # Pacman and AUR package installation
 │       ├── snapshot.py          # Snapshot workflow
 │       ├── system_info.py       # OS and hardware information
 │       └── ui.py                # Rich and InquirerPy UI toolkit
@@ -110,9 +112,9 @@ The layout is flat by design. There is no implemented `cli/`, `core/`, or `model
 ```mermaid
 pie showData
     title Source modules by area
-    "Functions" : 7
+    "Functions" : 8
     "Entry and core" : 6
-    "Commands" : 5
+    "Commands" : 6
     "Screens" : 3
     "Bootstrap" : 2
 ```
@@ -129,6 +131,7 @@ pie showData
 | `screens/*` | Reusable screen-level presentation. |
 | `functions/cleanup.py` | Discover installed cleanup targets and remove selected items. |
 | `functions/directory.py` | Create the fixed workspace directories after per-path confirmation. |
+| `functions/packages.py` | Present Pacman and AUR package groups, confirm selections, and install each group. |
 | `functions/snapshot.py` | Confirm and run `omarchy snapshot create`. |
 | `functions/system_info.py` | Collect OS, CPU, GPU, memory, disk, and uptime data. |
 | `functions/logger.py` | Write structured session logs. |
@@ -153,6 +156,9 @@ DEFAULT_SEQUENCE = (
 ```
 
 `run_default()` logs each step and calls them in order. A step can skip itself without raising an exception.
+
+Package installation is intentionally **not** part of the default sequence. It is available
+as the standalone `packages` command so package changes stay explicit.
 
 The banner is part of the default sequence. For subcommands, the Typer root callback shows the banner instead, so it is not duplicated.
 
@@ -205,7 +211,7 @@ Display helpers accept an optional `console` argument, which makes them testable
 
 `VirtualTerminal` keeps a bounded scrollback buffer and redraws the most recent lines in place. It runs commands without a shell, merges stdout and stderr, supports timeouts, and can stream output while a command is still running.
 
-Snapshot and package removal use the virtual terminal so long-running command output stays visible without flooding the terminal.
+Snapshot and package removal use the virtual terminal so long-running command output stays visible without flooding the terminal. Package installation combines the virtual terminal and progress display in one live view to avoid nested terminal panels.
 
 ---
 
@@ -250,7 +256,7 @@ Rich tracebacks include locals by default, with bounded value lengths and string
 | System behavior | Lives in `functions/`; subprocess calls stay mockable and testable. |
 | Terminal presentation | Lives in `functions/ui.py`; command modules do not build Rich or InquirerPy setup directly. |
 | Destructive actions | Explicit selection, confirmation, path validation, and partial-failure reporting. |
-| Omarchy integration | Snapshot and cleanup delegate to Omarchy instead of reimplementing package or snapshot logic. |
+| Omarchy integration | Snapshot and cleanup delegate to Omarchy; package installation calls `pacman` and `yay` directly instead of reimplementing package-manager behavior. |
 
 ---
 
@@ -281,5 +287,6 @@ Use `screens/` for screen-level composition that is reused by multiple commands.
 
 - [Commands](commands.md)
 - [Cleanup](cleanup.md)
+- [Packages](packages.md)
 - [Development](development.md)
 - [Security Policy](security.md)

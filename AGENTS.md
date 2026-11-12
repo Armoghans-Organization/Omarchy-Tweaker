@@ -56,6 +56,7 @@ The repository is in the **early implementation stage**.
 - The `snapshot` command creates a system snapshot through `omarchy snapshot create`.
 - The `cleanup` command discovers installed Omarchy packages, web app launchers, TUI launchers, and Mise wrappers, presents separate selectable lists per type, and removes only the items the user explicitly selects and confirms.
 - The `directories` command creates the fixed workspace directories (`~/Github`, `~/Github/Clone`, `~/Projects`, `~/Projects/Containers`, `~/.ISO`, `~/.VM`, `~/.Cloud`) after per-path confirmation and never overwrites existing paths.
+- The `packages` command presents fixed Pacman and AUR package groups, installs selected packages with `sudo pacman -S --noconfirm --needed --noprogressbar` and `yay -S --noconfirm --needed --noprogressbar`, and is not part of the default sequence.
 - Reusable UI, logging, metadata, and Rich error-handling utilities are implemented.
 
 Do not assume that a feature is implemented because it is described here, planned here, or referenced in this file. Treat any behavior not explicitly listed here as **not implemented**.
@@ -179,6 +180,7 @@ Before adding a dependency:
 │   │   │   ├── __init__.py      [IMPLEMENTED] Command registration.
 │   │   │   ├── cleanup.py       [IMPLEMENTED] Cleanup command wrapper.
 │   │   │   ├── directory.py     [IMPLEMENTED] Directories command wrapper.
+│   │   │   ├── packages.py      [IMPLEMENTED] Packages command wrapper.
 │   │   │   ├── snapshot.py      [IMPLEMENTED] Snapshot command wrapper.
 │   │   │   └── welcome.py       [IMPLEMENTED] Welcome command wrapper.
 │   │   ├── screens/
@@ -190,6 +192,7 @@ Before adding a dependency:
 │   │       ├── cleanup.py       [IMPLEMENTED] Cleanup selection and removal workflow.
 │   │       ├── directory.py     [IMPLEMENTED] Workspace directory creation workflow.
 │   │       ├── logger.py        [IMPLEMENTED] Session logging utilities.
+│   │       ├── packages.py      [IMPLEMENTED] Pacman and AUR package installation workflow.
 │   │       ├── snapshot.py      [IMPLEMENTED] Snapshot creation workflow.
 │   │       ├── system_info.py   [IMPLEMENTED] OS and hardware information helpers.
 │   │       └── ui.py            [IMPLEMENTED] Rich and InquirerPy UI toolkit.
@@ -205,6 +208,7 @@ Before adding a dependency:
 │   ├── test_error_handling.py
 │   ├── test_logger.py
 │   ├── test_main.py
+│   ├── test_packages.py
 │   ├── test_snapshot.py
 │   ├── test_system_info.py
 │   └── test_ui.py

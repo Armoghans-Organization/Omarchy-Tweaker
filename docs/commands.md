@@ -1,5 +1,5 @@
 ---
-description: Complete reference for the welcome, snapshot, cleanup, and directory commands in Omarchy Tweaker.
+description: Complete reference for the welcome, snapshot, cleanup, directory, and package commands in Omarchy Tweaker.
 icon: material/console-line
 subtitle: CLI reference
 mermaid: true
@@ -16,6 +16,7 @@ Complete reference for the currently implemented Omarchy Tweaker commands.
 | `snapshot` | Yes | Unless `--yes` | `--yes`, `-y` |
 | `cleanup` | Yes | Yes | — |
 | `directories` | Yes | Yes | — |
+| `packages` | Yes | Yes | — |
 
 ```mermaid
 flowchart TD
@@ -33,6 +34,9 @@ flowchart TD
     B -- directories --> M{TTY?}
     M -- Yes --> N[Confirm each missing directory]
     M -- No --> O[Skip with warning]
+    B -- packages --> P{TTY?}
+    P -- Yes --> Q[Select, confirm, install]
+    P -- No --> R[Skip with warning]
 ```
 
 ---
@@ -62,6 +66,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Create a recovery point before making changes | `omarchy-tweaker snapshot` |
 | Review and remove selected packages or launchers | `omarchy-tweaker cleanup` |
 | Create the standard workspace directories | `omarchy-tweaker directories` |
+| Install selected Pacman and AUR packages | `omarchy-tweaker packages` |
 | Run the guided snapshot, cleanup, and directory sequence | `omarchy-tweaker` |
 | See every command and option | `omarchy-tweaker --help` |
 
@@ -70,9 +75,9 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Code | Meaning |
 |:--:|:--|
 | `0` | The command completed, or the step was skipped safely. |
-| `1` | A selected operation failed, such as snapshot creation, item removal, or directory creation. |
+| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, or package installation. |
 
-A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, or declining every directory exits successfully.
+A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, or selecting no packages exits successfully.
 
 ---
 
@@ -246,6 +251,55 @@ See **[Directories](directories.md)** for the full workflow and safety model.
 
 ---
 
+## `packages`
+
+Install selected Pacman and AUR packages from a fixed catalog.
+
+```bash
+omarchy-tweaker packages
+```
+
+Packages has no command-line options. It always uses the interactive selection workflow.
+Package installation is standalone and is **not** part of the default sequence.
+
+### Behavior
+
+1. Lets you select Pacman packages.
+2. Summarizes the selection and asks for confirmation.
+3. Runs `sudo -v` so the password prompt appears before the live display starts, then
+   verifies the cached timestamp with `sudo -n -v`.
+4. Installs selected Pacman packages with
+   `sudo pacman -S --noconfirm --needed --noprogressbar <packages...>`.
+5. Lets you select AUR packages.
+6. Summarizes the selection and asks for confirmation.
+7. Installs selected AUR packages with
+   `yay -S --noconfirm --needed --noprogressbar <packages...>`.
+8. Reports success or failure for each group.
+
+Each group runs inside a virtual terminal with a progress display in the same live view. A
+failure in one group does not prevent the other group from being offered.
+
+### Non-interactive use
+
+`omarchy-tweaker packages` requires an interactive terminal. Without one, it prints a
+warning and skips without installing anything.
+
+### Failure handling
+
+If any selected package group fails, packages reports the failure and exits with code `1`.
+Each group has a **900 second** timeout.
+
+### Requirements
+
+- `pacman` must be on `PATH`.
+- `yay` must be on `PATH` for the AUR group.
+- `sudo` may be required for the Pacman group.
+- Package repositories and the AUR must be reachable.
+
+See **[Packages](packages.md)** for the full package catalog and safety details.
+
+---
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -286,6 +340,12 @@ Then press ++enter++ at each prompt without selecting items. Nothing is removed 
 omarchy-tweaker directories
 ```
 
+### Install selected packages
+
+```bash
+omarchy-tweaker packages
+```
+
 ### Show global help
 
 ```bash
@@ -299,4 +359,5 @@ omarchy-tweaker --help
 - [Getting Started](getting-started.md)
 - [Cleanup](cleanup.md)
 - [Directories](directories.md)
+- [Packages](packages.md)
 - [Troubleshooting](troubleshooting.md)

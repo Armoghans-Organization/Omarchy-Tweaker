@@ -1,5 +1,5 @@
 ---
-description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, and documentation builds.
+description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, package installation, and documentation builds.
 icon: material/help-circle
 subtitle: Fixes and diagnosis
 mermaid: true
@@ -17,23 +17,27 @@ flowchart TD
     D -- Yes --> E[Use an interactive terminal]
     D -- No --> F{Omarchy command found?}
     F -- No --> G[Check PATH and Omarchy install]
-    F -- Yes --> H{Snapshot, cleanup, or directories?}
+    F -- Yes --> H{Snapshot, cleanup, directories, or packages?}
     H -- Snapshot --> I[Run omarchy snapshot create]
     H -- Cleanup --> J[Check discovery rules]
     J --> K[See Cleanup]
     H -- Directories --> L[Check home permissions]
     L --> M[See Directories]
+    H -- Packages --> N[Run sudo pacman -S or yay -S]
+    N --> O[See Packages]
 ```
 
 | Symptom | Likely cause | Next step |
 |:--|:--|:--|
 | `omarchy-tweaker` not found | Checkout not on `PATH`, or tool bin directory missing | Run through `uv` or install globally. |
-| Snapshot, cleanup, or directory setup skipped | No interactive TTY | Run directly in a terminal. |
+| Snapshot, cleanup, directory setup, or package installation skipped | No interactive TTY | Run directly in a terminal. |
 | `omarchy` not found | Omarchy CLI not on `PATH` | Verify the Omarchy installation. |
+| `pacman` or `yay` not found | Package manager or AUR helper missing from `PATH` | Install the missing command or fix `PATH`. |
 | Snapshot fails | Snapshot tooling, permissions, or disk space | Run `omarchy snapshot create` directly. |
 | Cleanup list is empty | Items do not match discovery rules | Check the category-specific commands below. |
 | Removal fails | `sudo`, package state, or package-manager lock | Run the underlying Omarchy command directly. |
 | Directory creation fails | Parent is missing, a file occupies the path, or home is not writable | Check the fixed targets and permissions below. |
+| Package installation fails | `sudo`, `yay`, network, package state, or package-manager lock | Run the underlying `pacman` or `yay` command directly. |
 | Icons are missing | Terminal lacks a Nerd Font | Install and configure a Nerd Font. |
 | Docs build fails | Generated files or broken links | See [Development](development.md#troubleshooting). |
 
@@ -63,12 +67,13 @@ uv tool dir --bin
 
 ## Interactive steps are skipped
 
-Snapshot confirmation, cleanup selection, and directory creation require an interactive
-terminal. They check that both standard input and standard output are TTYs.
+Snapshot confirmation, cleanup selection, package selection, and directory creation require
+an interactive terminal. They check that both standard input and standard output are TTYs.
 
 ```text
 Snapshot skipped: confirmation requires an interactive terminal.
 Cleanup skipped: selecting items requires an interactive terminal.
+Package installation skipped: selecting packages requires an interactive terminal.
 Directory setup skipped: creating directories requires an interactive terminal.
 ```
 
@@ -79,8 +84,9 @@ non-interactive shell. For snapshot automation, use `--yes`:
 omarchy-tweaker snapshot --yes
 ```
 
-Cleanup intentionally has no non-interactive removal mode. Directory setup intentionally
-has no non-interactive creation mode.
+Cleanup intentionally has no non-interactive removal mode. Package installation
+intentionally has no non-interactive mode. Directory setup intentionally has no
+non-interactive creation mode.
 
 ---
 
@@ -137,6 +143,22 @@ omarchy pkg drop <package>
 Common causes include a `sudo` password prompt or expired authentication, a package that is
 no longer installed, another package-manager process holding a lock, or a package required
 by another installed package. Cleanup reports failed items and exits with code `1`.
+
+---
+
+## Package installation fails
+
+Run the underlying command directly:
+
+```bash
+sudo pacman -S --noconfirm --needed --noprogressbar <package>
+yay -S --noconfirm --needed --noprogressbar <package>
+```
+
+Common causes include a `sudo` password prompt or expired authentication, a missing `yay`
+AUR helper, network problems, another package-manager process holding a lock, or a package
+conflict. Each package group has a **900 second** timeout. Package installation reports
+failures and exits with code `1`.
 
 ---
 
@@ -228,4 +250,5 @@ Report bugs at [GitHub Issues](https://github.com/Armoghans-Organization/Omarchy
 - [Commands](commands.md)
 - [Cleanup](cleanup.md)
 - [Directories](directories.md)
+- [Packages](packages.md)
 - [Development](development.md)

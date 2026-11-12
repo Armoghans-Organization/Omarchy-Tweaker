@@ -24,9 +24,10 @@ general-purpose Linux administration tool and is not tested on other distributio
 | **Python 3.13+** | The project targets Python 3.13 and uses modern typing syntax. |
 | **uv** | The supported way to install dependencies, run tasks, and build the project. |
 | **`omarchy` on `PATH`** | Snapshot and cleanup delegate work to Omarchy commands. |
-| **`pacman`** | Cleanup checks which Omarchy packages are actually installed. |
+| **`pacman`** | Package installation uses Pacman directly; cleanup checks installed packages. |
+| **`yay`** | Package installation uses `yay` for the AUR group. |
 | **Writable home directory** | Directory setup creates fixed workspace folders beneath `$HOME`. |
-| **Interactive terminal** | Snapshot confirmation, cleanup selection, and directory creation use TTY prompts. |
+| **Interactive terminal** | Snapshot confirmation, cleanup selection, package selection, and directory creation use TTY prompts. |
 | **Nerd Font** *(recommended)* | The UI uses Nerd Font glyphs for icons. |
 
 !!! warning "Omarchy only"
@@ -40,7 +41,7 @@ general-purpose Linux administration tool and is not tested on other distributio
   `Unknown` GPU value.
 - `snapper` and Omarchy's snapshot configuration — required for `omarchy snapshot create`
   to succeed.
-- `sudo` — package removal through `omarchy pkg drop` uses `sudo pacman -Rns`.
+- `sudo` — package installation and removal may prompt for elevated privileges.
 
 ---
 
@@ -119,6 +120,9 @@ Every step can be skipped. If the terminal is not interactive, the snapshot, cle
 directory steps skip safely instead of guessing. See **[Commands](commands.md)** for
 per-command rules.
 
+Package installation is standalone: run `omarchy-tweaker packages` when you want to install
+from the fixed Pacman and AUR catalog. It is not part of the default sequence.
+
 ### Explore commands
 
 ```bash
@@ -127,6 +131,7 @@ uv run omarchy-tweaker welcome
 uv run omarchy-tweaker snapshot --help
 uv run omarchy-tweaker cleanup --help
 uv run omarchy-tweaker directories --help
+uv run omarchy-tweaker packages --help
 ```
 
 The `welcome` command shows the banner plus a system overview containing OS, kernel,
@@ -169,5 +174,6 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Commands](commands.md) — full CLI reference.
 - [Cleanup](cleanup.md) — discovery and removal details.
 - [Directories](directories.md) — workspace folder targets and safety rules.
+- [Packages](packages.md) — package catalog and installation workflow.
 - [Architecture](architecture.md) — how the application works internally.
 - [Troubleshooting](troubleshooting.md) — common problems and fixes.

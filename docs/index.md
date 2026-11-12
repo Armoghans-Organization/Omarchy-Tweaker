@@ -49,7 +49,7 @@ mermaid: true
 
 Omarchy Tweaker is a Python command-line application that brings useful Omarchy tweaks, configuration workflows, maintenance tasks, and automation into one consistent interface.
 
-The project is currently in **early implementation**. The implemented surface is deliberately small and safe: it helps you inspect your system, create a restore point, and remove selected preinstalled Omarchy applications.
+The project is currently in **early implementation**. The implemented surface is deliberately small and safe: it helps you inspect your system, create a restore point, install selected packages, remove selected preinstalled Omarchy applications, and create workspace folders.
 
 <div class="grid cards" markdown>
 
@@ -69,7 +69,7 @@ The project is currently in **early implementation**. The implemented surface is
 
     ---
 
-    Discovers installed Omarchy packages, web apps, TUIs, and Mise wrappers using Omarchy's own conventions.
+    Installs selected Pacman and AUR packages, and discovers installed Omarchy packages, web apps, TUIs, and Mise wrappers using Omarchy's own conventions.
 
 -   :material-file-document-multiple-outline: **Observable**
 
@@ -88,10 +88,10 @@ The project is currently in **early implementation**. The implemented surface is
 | `snapshot` command | Implemented | Runs `omarchy snapshot create` with confirmation and live output. |
 | `cleanup` command | Implemented | Removes only selected installed packages, web apps, TUIs, and Mise wrappers. |
 | `directories` command | Implemented | Creates the standard workspace directories after per-path confirmation. |
+| `packages` command | Implemented | Installs selected Pacman and AUR packages from a fixed catalog. |
 | Session logging | Implemented | Writes structured logs to the XDG state directory. |
 | Rich error handling | Implemented | Renders uncaught exceptions, thread errors, and syntax errors cleanly. |
 | Reusable UI toolkit | Implemented | Provides banners, panels, tables, prompts, progress, and virtual terminals. |
-| Package installation | Not implemented | Planned for a future iteration. |
 | Dotfile management | Not implemented | Planned for a future iteration. |
 | Theme and desktop automation | Not implemented | Planned for a future iteration. |
 
@@ -100,8 +100,8 @@ The project is currently in **early implementation**. The implemented surface is
 ```mermaid
 pie showData
     title Implemented surface
-    "Implemented" : 8
-    "Planned" : 3
+    "Implemented" : 9
+    "Planned" : 2
 ```
 
 !!! warning "Do not assume planned features exist"
@@ -123,9 +123,9 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
 ## Safety first
 
 !!! warning "System-changing workflow"
-    Snapshot, cleanup, and directory setup act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, and the **[Security Policy](security.md)** before making changes.
+    Snapshot, cleanup, directory setup, and package installation act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, **[Packages](packages.md)**, and the **[Security Policy](security.md)** before making changes.
 
-    The default sequence offers a snapshot before cleanup, then offers workspace directory setup. Running `omarchy-tweaker cleanup` directly does **not** create a snapshot automatically.
+    The default sequence offers a snapshot before cleanup, then offers workspace directory setup. Running `omarchy-tweaker cleanup` or `omarchy-tweaker packages` directly does **not** create a snapshot automatically.
 
 ## Documentation map
 
@@ -162,6 +162,14 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
     Create the standard workspace folders safely, one path at a time.
 
     [Open Directories](directories.md)
+
+-   :material-package-variant-closed: **Packages**
+
+    ---
+
+    Install selected Pacman and AUR packages from a fixed catalog.
+
+    [Open Packages](packages.md)
 
 -   :material-sitemap-outline: **Architecture**
 
@@ -216,6 +224,7 @@ mindmap
       First run
     Usage
       Commands
+      Packages
       Cleanup
       Directories
     Project

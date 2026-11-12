@@ -926,6 +926,51 @@ def test_virtual_terminal_context_manager_function(
     assert terminal.lines == ("hello",)
 
 
+def test_terminal_with_progress_uses_single_live_display(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeLive:
+        def __init__(self, renderable: object, **kwargs: object) -> None:
+            self.renderable = renderable
+            self.kwargs = kwargs
+            self.started = False
+            self.stopped = False
+
+        def start(self, refresh: bool = True) -> None:
+            self.started = True
+            self.start_refresh = refresh
+
+        def update(self, renderable: object, *, refresh: bool = False) -> None:
+            return None
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    created: list[FakeLive] = []
+
+    def fake_live(renderable: object, **kwargs: object) -> FakeLive:
+        live = FakeLive(renderable, **kwargs)
+        created.append(live)
+        return live
+
+    monkeypatch.setattr(ui, "Live", fake_live)
+    console, _ = _make_console()
+
+    with ui.terminal_with_progress(height=3, title="Install", console=console) as (
+        terminal,
+        progress,
+    ):
+        assert isinstance(terminal, ui.VirtualTerminal)
+        task_id = progress.add_task("Installing", total=1)
+        progress.advance(task_id)
+        terminal.writeline("output")
+
+    assert len(created) == 1
+    assert created[0].kwargs["auto_refresh"] is True
+    assert created[0].started is True
+    assert created[0].stopped is True
+
+
 def test_virtual_terminal_run_streams_output_and_echoes_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
