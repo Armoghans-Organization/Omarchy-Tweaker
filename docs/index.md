@@ -49,7 +49,7 @@ mermaid: true
 
 Omarchy Tweaker is a Python command-line application that brings useful Omarchy tweaks, configuration workflows, maintenance tasks, and automation into one consistent interface.
 
-The project is currently in **early implementation**. The implemented surface is deliberately small and safe: it helps you inspect your system, create a restore point, install selected packages, remove selected preinstalled Omarchy applications, and create workspace folders.
+The project is currently in **early implementation**. The implemented surface is deliberately small and safe: it helps you inspect your system, create a restore point, install selected packages and Omarchy shell plugins, remove selected preinstalled Omarchy applications, and create workspace folders.
 
 <div class="grid cards" markdown>
 
@@ -69,7 +69,7 @@ The project is currently in **early implementation**. The implemented surface is
 
     ---
 
-    Installs selected Pacman and AUR packages, and discovers installed Omarchy packages, web apps, TUIs, and Mise wrappers using Omarchy's own conventions.
+    Installs selected Pacman and AUR packages and Omarchy shell plugins. It also discovers installed Omarchy packages, web apps, TUIs, and Mise wrappers using Omarchy's own conventions.
 
 -   :material-file-document-multiple-outline: **Observable**
 
@@ -83,12 +83,13 @@ The project is currently in **early implementation**. The implemented surface is
 
 | Area | Status | What it does |
 |:--|:--:|:--|
-| Default startup sequence | Implemented | Shows the banner, offers a snapshot, offers cleanup, then offers directory setup. |
+| Default startup sequence | Implemented | Shows the banner, offers a snapshot, cleanup, directory setup, package installation, and plugin installation. |
 | `welcome` command | Implemented | Displays the welcome screen and a system overview. |
 | `snapshot` command | Implemented | Runs `omarchy snapshot create` with confirmation and live output. |
 | `cleanup` command | Implemented | Removes only selected installed packages, web apps, TUIs, and Mise wrappers. |
 | `directories` command | Implemented | Creates the standard workspace directories after per-path confirmation. |
 | `packages` command | Implemented | Installs selected Pacman and AUR packages from a fixed catalog. |
+| `plugins` command | Implemented | Installs selected Omarchy shell plugins from a fixed catalog, applies optional patches, and installs the bundled shell configuration. |
 | Session logging | Implemented | Writes structured logs to the XDG state directory. |
 | Rich error handling | Implemented | Renders uncaught exceptions, thread errors, and syntax errors cleanly. |
 | Reusable UI toolkit | Implemented | Provides banners, panels, tables, prompts, progress, and virtual terminals. |
@@ -100,7 +101,7 @@ The project is currently in **early implementation**. The implemented surface is
 ```mermaid
 pie showData
     title Implemented surface
-    "Implemented" : 9
+    "Implemented" : 10
     "Planned" : 2
 ```
 
@@ -123,9 +124,9 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
 ## Safety first
 
 !!! warning "System-changing workflow"
-    Snapshot, cleanup, directory setup, and package installation act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, **[Packages](packages.md)**, and the **[Security Policy](security.md)** before making changes.
+    Snapshot, cleanup, directory setup, package installation, and plugin installation act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, **[Packages](packages.md)**, **[Plugins](plugins.md)**, and the **[Security Policy](security.md)** before making changes.
 
-    The default sequence offers a snapshot before cleanup, then offers workspace directory setup. Running `omarchy-tweaker cleanup` or `omarchy-tweaker packages` directly does **not** create a snapshot automatically.
+    The default sequence offers a snapshot before cleanup, then offers workspace directory setup, package installation, and plugin installation. Running `omarchy-tweaker cleanup`, `omarchy-tweaker packages`, or `omarchy-tweaker plugins` directly does **not** create a snapshot automatically.
 
 ## Documentation map
 
@@ -170,6 +171,15 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
     Install selected Pacman and AUR packages from a fixed catalog.
 
     [Open Packages](packages.md)
+
+-   :material-puzzle: **Plugins**
+
+    ---
+
+    Install selected Omarchy shell plugins, apply optional patches, and install the bundled
+    shell configuration.
+
+    [Open Plugins](plugins.md)
 
 -   :material-sitemap-outline: **Architecture**
 
@@ -225,6 +235,7 @@ mindmap
     Usage
       Commands
       Packages
+      Plugins
       Cleanup
       Directories
     Project

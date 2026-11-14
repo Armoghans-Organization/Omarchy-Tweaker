@@ -19,6 +19,7 @@ nav = [
     {"Usage" = [
         {"Commands" = "commands.md"},
         {"Packages" = "packages.md"},
+        {"Plugins" = "plugins.md"},
         {"Cleanup" = "cleanup.md"},
         {"Directories" = "directories.md"},
     ]},

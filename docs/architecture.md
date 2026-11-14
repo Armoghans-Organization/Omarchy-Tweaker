@@ -29,7 +29,7 @@ flowchart TD
     J --> O[Directory step]
     F -- Yes --> K[Typer CLI]
     K --> L[Root callback shows banner]
-    L --> M[welcome / snapshot / cleanup / directories / packages]
+    L --> M[welcome / snapshot / cleanup / directories / packages / plugins]
     E --> N[Write shutdown report]
 ```
 
@@ -78,11 +78,14 @@ src/
 │   ├── cli.py                   # Typer application and root callback
 │   ├── startup.py               # Typer-free default sequence
 │   ├── error_handling.py        # Compatibility re-exports
+│   ├── config/
+│   │   └── plugins.ini          # Fixed Omarchy shell plugin catalog
 │   ├── commands/
 │   │   ├── __init__.py          # Command registration
 │   │   ├── cleanup.py           # cleanup command wrapper
 │   │   ├── directory.py         # directories command wrapper
 │   │   ├── packages.py          # packages command wrapper
+│   │   ├── plugins.py           # plugins command wrapper
 │   │   ├── snapshot.py          # snapshot command wrapper
 │   │   └── welcome.py           # welcome command wrapper
 │   ├── screens/
@@ -95,6 +98,7 @@ src/
 │       ├── directory.py         # Workspace directory setup
 │       ├── logger.py            # Session logging
 │       ├── packages.py          # Pacman and AUR package installation
+│       ├── plugins.py           # Omarchy shell plugin installation
 │       ├── snapshot.py          # Snapshot workflow
 │       ├── system_info.py       # OS and hardware information
 │       └── ui.py                # Rich and InquirerPy UI toolkit
@@ -112,9 +116,9 @@ The layout is flat by design. There is no implemented `cli/`, `core/`, or `model
 ```mermaid
 pie showData
     title Source modules by area
-    "Functions" : 8
+    "Functions" : 9
     "Entry and core" : 6
-    "Commands" : 6
+    "Commands" : 7
     "Screens" : 3
     "Bootstrap" : 2
 ```
@@ -132,6 +136,9 @@ pie showData
 | `functions/cleanup.py` | Discover installed cleanup targets and remove selected items. |
 | `functions/directory.py` | Create the fixed workspace directories after per-path confirmation. |
 | `functions/packages.py` | Present Pacman and AUR package groups, confirm selections, and install each group. |
+| `functions/plugins.py` | Load the fixed plugin catalog, confirm selections, install plugins, apply positions, run optional patches, and replace `~/.config/omarchy/shell.json`. |
+| `config/plugins.ini` | Fixed Omarchy shell plugin catalog, placement, and patch metadata. |
+| `config/shell.json` | Bundled Omarchy shell configuration for bar layout and plugin list. |
 | `functions/snapshot.py` | Confirm and run `omarchy snapshot create`. |
 | `functions/system_info.py` | Collect OS, CPU, GPU, memory, disk, and uptime data. |
 | `functions/logger.py` | Write structured session logs. |
@@ -152,13 +159,15 @@ DEFAULT_SEQUENCE = (
     run_snapshot_step,
     run_cleanup_step,
     run_directory_step,
+    run_packages_step,
+    run_plugins_step,
 )
 ```
 
 `run_default()` logs each step and calls them in order. A step can skip itself without raising an exception.
 
-Package installation is intentionally **not** part of the default sequence. It is available
-as the standalone `packages` command so package changes stay explicit.
+Package installation and plugin installation run after directory setup in the default
+sequence. They are also available as the standalone `packages` and `plugins` commands.
 
 The banner is part of the default sequence. For subcommands, the Typer root callback shows the banner instead, so it is not duplicated.
 
@@ -211,7 +220,7 @@ Display helpers accept an optional `console` argument, which makes them testable
 
 `VirtualTerminal` keeps a bounded scrollback buffer and redraws the most recent lines in place. It runs commands without a shell, merges stdout and stderr, supports timeouts, and can stream output while a command is still running.
 
-Snapshot and package removal use the virtual terminal so long-running command output stays visible without flooding the terminal. Package installation combines the virtual terminal and progress display in one live view to avoid nested terminal panels.
+Snapshot, package removal, and plugin installation use the virtual terminal so long-running command output stays visible without flooding the terminal. Package and plugin installation combine the virtual terminal and progress display in one live view to avoid nested terminal panels.
 
 ---
 
@@ -288,5 +297,6 @@ Use `screens/` for screen-level composition that is reused by multiple commands.
 - [Commands](commands.md)
 - [Cleanup](cleanup.md)
 - [Packages](packages.md)
+- [Plugins](plugins.md)
 - [Development](development.md)
 - [Security Policy](security.md)

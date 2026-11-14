@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from omarchy_tweaker.commands import cleanup, directory, packages, snapshot, welcome
+from omarchy_tweaker.commands import cleanup, directory, packages, plugins, snapshot, welcome
 
 
 def register_commands(app: typer.Typer) -> None:
@@ -16,5 +16,6 @@ def register_commands(app: typer.Typer) -> None:
     cleanup.register(app)
     directory.register(app)
     packages.register(app)
+    plugins.register(app)
     snapshot.register(app)
     welcome.register(app)

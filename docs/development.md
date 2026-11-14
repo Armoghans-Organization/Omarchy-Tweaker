@@ -145,6 +145,7 @@ Omarchy-Tweaker/
 │   ├── cleanup.md                  # Cleanup workflow reference
 │   ├── directories.md              # Workspace directory reference
 │   ├── packages.md                 # Package installation reference
+│   ├── plugins.md                  # Shell plugin installation reference
 │   ├── development.md              # This page
 │   ├── getting-started.md          # Installation and first run
 │   ├── index.md                    # Documentation home
@@ -162,9 +163,10 @@ Omarchy-Tweaker/
 │   │   ├── app_metadata.py         # Name and version metadata
 │   │   ├── cli.py                  # Typer application and callback
 │   │   ├── startup.py              # Typer-free default sequence
+│   │   ├── config/                 # Bundled plugin catalog and shell config
 │   │   ├── commands/               # Thin CLI command wrappers
 │   │   ├── screens/                # Banner and welcome screens
-│   │   └── functions/              # Cleanup, directories, packages, snapshot, logging, UI, system info
+│   │   └── functions/              # Cleanup, directories, packages, plugins, snapshot, logging, UI, system info
 │   └── omarchy_tweaker_bootstrap/
 │       ├── __init__.py             # Early entry point
 │       └── error_handling.py       # Rich exception rendering
@@ -176,6 +178,7 @@ Omarchy-Tweaker/
 │   ├── test_logger.py
 │   ├── test_main.py
 │   ├── test_packages.py
+│   ├── test_plugins.py
 │   ├── test_snapshot.py
 │   ├── test_system_info.py
 │   └── test_ui.py
@@ -190,6 +193,7 @@ Omarchy-Tweaker/
 ├── pyproject.toml                  # Project metadata, tooling, and Poe tasks
 ├── Readme.md
 ├── SECURITY.md
+├── patches/                        # Optional plugin patch scripts
 ├── session.kdl / session.sh        # Optional Zellij developer workspace
 ├── SUPPORT.md
 ├── uv.lock                         # Locked dependency graph
@@ -459,8 +463,9 @@ Run a single test or file directly:
 uv run pytest tests/test_main.py -v
 uv run pytest tests/test_directory.py -v
 uv run pytest tests/test_packages.py -v
+uv run pytest tests/test_plugins.py -v
 uv run pytest tests/test_cleanup.py::test_run_cleanup_step_removes_only_selected_items -v
-uv run pytest -k "cleanup or directory or packages" -v
+uv run pytest -k "cleanup or directory or packages or plugins" -v
 ```
 
 ### Guidelines
@@ -475,16 +480,17 @@ uv run pytest -k "cleanup or directory or packages" -v
 
 ### Current Coverage
 
-The suite currently contains **201 tests** covering:
+The suite currently contains **221 tests** covering:
 
 ```mermaid
 pie showData
     title Tests by area
     "UI" : 65
     "Logging" : 27
-    "CLI and startup" : 23
+    "CLI and startup" : 25
     "Cleanup" : 16
     "System info" : 15
+    "Plugins" : 18
     "Snapshot" : 10
     "Directories" : 10
     "Packages" : 19
@@ -499,6 +505,7 @@ pie showData
 - Cleanup discovery, selection, removal, path validation, and failure reporting.
 - Directory targets, creation, parent checks, conflict handling, and non-interactive skips.
 - Package group selection, confirmation, single-command installation, and failure paths.
+- Plugin catalog loading, selection, non-interactive installation, placement, patch execution, and failure paths.
 - Session logging, log-directory resolution, shutdown reports, and interrupt handling.
 - Rich error handling for main-thread, thread, unraisable, and syntax errors.
 - System information formatting and fallbacks.
@@ -551,7 +558,7 @@ Documentation is built with [Zensical](https://zensical.org/docs) and configured
 
 - Home → `index.md`
 - Getting Started → `getting-started.md`
-- Usage → `commands.md`, `packages.md`, `cleanup.md`, and `directories.md`
+- Usage → `commands.md`, `packages.md`, `plugins.md`, `cleanup.md`, and `directories.md`
 - Project → `architecture.md`, `development.md`, `contributing.md`, and `security.md`
 - Troubleshooting → `troubleshooting.md`
 - Changelog → `changelog.md` (generated)

@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FILE="$HOME/.config/omarchy/plugins/mash2rafi.kronos/BarWidget.qml"
+BACKUP="$FILE.bak"
+
+# ─────────────────────────────────────────────
+# Colors / UI
+# ─────────────────────────────────────────────
+
+if ! command -v gum &>/dev/null; then
+    echo "Error: gum is not installed."
+    exit 1
+fi
+
+gum style \
+    --border double \
+    --border-foreground 212 \
+    --padding "1 2" \
+    --margin "1" \
+    "Kronos Bar Widget Hider" \
+    "" \
+    "Hide the clock widget from the Omarchy bar."
+
+echo
+
+# ─────────────────────────────────────────────
+# Check plugin
+# ─────────────────────────────────────────────
+
+if [[ ! -f "$FILE" ]]; then
+    gum style \
+        --foreground 196 \
+        "✗ Kronos BarWidget.qml not found." \
+        "$FILE"
+    exit 1
+fi
+
+# ─────────────────────────────────────────────
+# Detect patch state
+# ─────────────────────────────────────────────
+
+if grep -Fq 'visible: false' "$FILE" &&
+   grep -Fq 'implicitWidth: 0' "$FILE" &&
+   grep -Fq 'implicitHeight: 0' "$FILE" &&
+   grep -Fq 'text: ""' "$FILE"; then
+
+    gum style \
+        --foreground 82 \
+        "✓ Clock widget is already hidden."
+
+    echo
+    gum style --foreground 240 "No changes made."
+    exit 0
+fi
+
+if ! grep -Fq 'implicitWidth: button.implicitWidth' "$FILE" ||
+   ! grep -Fq 'implicitHeight: button.implicitHeight' "$FILE" ||
+   ! grep -Fq 'text: "󰥔"' "$FILE"; then
+
+    gum style \
+        --foreground 196 \
+        "✗ Expected original widget code was not found." \
+        "" \
+        "The plugin may have changed after an update." \
+        "No changes were made."
+    exit 1
+fi
+
+# ─────────────────────────────────────────────
+# Show planned changes
+# ─────────────────────────────────────────────
+
+gum style \
+    --border rounded \
+    --border-foreground 240 \
+    --padding "1 2" \
+    "Patch: Hide Kronos Clock Widget" \
+    "" \
+    "✓ Set implicitWidth to 0" \
+    "✓ Set implicitHeight to 0" \
+    "✓ Set visible to false" \
+    "✓ Remove the clock icon text"
+
+echo
+
+if ! gum confirm "Apply the Kronos widget patch?"; then
+    gum style --foreground 240 "Cancelled."
+    exit 0
+fi
+
+# ─────────────────────────────────────────────
+# Create backup
+# ─────────────────────────────────────────────
+
+if [[ ! -f "$BACKUP" ]]; then
+    cp -p "$FILE" "$BACKUP"
+    gum style --foreground 82 "✓ Backup created: $BACKUP"
+else
+    if gum confirm "Backup already exists. Replace it with the current file?"; then
+        cp -p "$FILE" "$BACKUP"
+        gum style --foreground 82 "✓ Backup updated."
+    else
+        gum style --foreground 214 "Keeping existing backup."
+    fi
+fi
+
+# ─────────────────────────────────────────────
+# Apply patch
+# ─────────────────────────────────────────────
+
+python - "$FILE" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+content = path.read_text()
+
+replacements = {
+    'implicitWidth: button.implicitWidth':
+        '//implicitWidth: button.implicitWidth',
+
+    'implicitHeight: button.implicitHeight':
+        '//implicitHeight: button.implicitHeight',
+
+    'text: "󰥔"':
+        '//text: "󰥔"',
+}
+
+for old, new in replacements.items():
+    if content.count(old) != 1:
+        print(f"Error: Expected exactly one occurrence of: {old}")
+        sys.exit(1)
+
+for old, new in replacements.items():
+    content = content.replace(old, new, 1)
+
+needle = '//implicitHeight: button.implicitHeight\n'
+
+addition = (
+    needle
+    + 'implicitWidth: 0\n'
+    + 'implicitHeight: 0\n'
+    + 'visible: false\n'
+)
+
+if content.count(needle) != 1:
+    print("Error: Could not locate widget dimensions.")
+    sys.exit(1)
+
+content = content.replace(needle, addition, 1)
+
+needle = '//text: "󰥔"\n'
+
+if content.count(needle) != 1:
+    print("Error: Could not locate clock icon text.")
+    sys.exit(1)
+
+content = content.replace(needle, needle + 'text: ""\n', 1)
+
+path.write_text(content)
+PY
+
+# ─────────────────────────────────────────────
+# Verify patch
+# ─────────────────────────────────────────────
+
+if grep -Fq 'visible: false' "$FILE" &&
+   grep -Fq 'implicitWidth: 0' "$FILE" &&
+   grep -Fq 'implicitHeight: 0' "$FILE" &&
+   grep -Fq 'text: ""' "$FILE"; then
+
+    gum style \
+        --border rounded \
+        --border-foreground 82 \
+        --padding "1 2" \
+        --foreground 82 \
+        "✓ Patch applied successfully!" \
+        "" \
+        "Kronos clock widget is now hidden." \
+        "" \
+        "File:   $FILE" \
+        "Backup: $BACKUP"
+else
+    cp "$BACKUP" "$FILE"
+    gum style \
+        --foreground 196 \
+        "✗ Verification failed. Restored the backup."
+    exit 1
+fi
+
+echo
+
+# ─────────────────────────────────────────────
+# Finish
+# ─────────────────────────────────────────────
+
+gum style \
+    --foreground 214 \
+    "Reload the Omarchy bar/plugin to apply the changes."

@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FILE="$HOME/.config/omarchy/plugins/org.lsong.window-switcher/Switcher.qml"
+BACKUP="$FILE.bak"
+
+# ─────────────────────────────────────────────
+# Colors / UI
+# ─────────────────────────────────────────────
+
+if ! command -v gum &>/dev/null; then
+    echo "Error: gum is not installed."
+    exit 1
+fi
+
+gum style \
+    --border double \
+    --border-foreground 212 \
+    --padding "1 2" \
+    --margin "1" \
+    "Window Switcher Workspace Fixer" \
+    "" \
+    "Show only windows from the current workspace" \
+    "in the Omarchy window switcher."
+
+echo
+
+# ─────────────────────────────────────────────
+# Check plugin
+# ─────────────────────────────────────────────
+
+if [[ ! -f "$FILE" ]]; then
+    gum style \
+        --foreground 196 \
+        "✗ Window switcher plugin not found." \
+        "$FILE"
+    exit 1
+fi
+
+# ─────────────────────────────────────────────
+# Detect patch state
+# ─────────────────────────────────────────────
+
+if grep -Fq \
+    'if (workspaceId !== currentWorkspaceId) continue' "$FILE"; then
+
+    gum style \
+        --foreground 82 \
+        "✓ Current-workspace filter is already enabled."
+
+    echo
+    gum style --foreground 240 "No changes made."
+    exit 0
+fi
+
+if ! grep -Fq \
+    'var workspaceId = Number(client.workspace ? client.workspace.id : -1)' \
+    "$FILE"; then
+
+    gum style \
+        --foreground 196 \
+        "✗ Expected workspace code was not found." \
+        "" \
+        "The plugin may have changed after an update." \
+        "No changes were made."
+    exit 1
+fi
+
+# ─────────────────────────────────────────────
+# Show planned changes
+# ─────────────────────────────────────────────
+
+gum style \
+    --border rounded \
+    --border-foreground 240 \
+    --padding "1 2" \
+    "Patch: Current workspace only" \
+    "" \
+    "✓ Keep the existing workspace validation" \
+    "✓ Detect the currently focused workspace" \
+    "✓ Skip windows belonging to other workspaces"
+
+echo
+
+if ! gum confirm "Apply the current-workspace filter?"; then
+    gum style --foreground 240 "Cancelled."
+    exit 0
+fi
+
+# ─────────────────────────────────────────────
+# Create backup
+# ─────────────────────────────────────────────
+
+if [[ ! -f "$BACKUP" ]]; then
+    cp -p "$FILE" "$BACKUP"
+    gum style --foreground 82 "✓ Backup created: $BACKUP"
+else
+    if gum confirm "Backup already exists. Replace it with the current file?"; then
+        cp -p "$FILE" "$BACKUP"
+        gum style --foreground 82 "✓ Backup updated."
+    else
+        gum style --foreground 214 "Keeping existing backup."
+    fi
+fi
+
+# ─────────────────────────────────────────────
+# Apply patch
+# ─────────────────────────────────────────────
+
+python - "$FILE" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+content = path.read_text()
+
+needle = '      if (workspaceId <= 0) continue\n'
+addition = (
+    '      if (workspaceId <= 0) continue\n'
+    '\n'
+    '      var currentWorkspaceId = Number(\n'
+    '        Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1\n'
+    '      )\n'
+    '      if (workspaceId !== currentWorkspaceId) continue\n'
+)
+
+if content.count(needle) != 1:
+    print("Error: Expected exactly one workspace validation line.")
+    sys.exit(1)
+
+if 'if (workspaceId !== currentWorkspaceId) continue' in content:
+    print("Error: Workspace filter already exists.")
+    sys.exit(1)
+
+path.write_text(content.replace(needle, addition, 1))
+PY
+
+# ─────────────────────────────────────────────
+# Verify patch
+# ─────────────────────────────────────────────
+
+if grep -Fq \
+    'if (workspaceId !== currentWorkspaceId) continue' "$FILE"; then
+
+    gum style \
+        --border rounded \
+        --border-foreground 82 \
+        --padding "1 2" \
+        --foreground 82 \
+        "✓ Patch applied successfully!" \
+        "" \
+        "Window switcher now filters windows" \
+        "to the focused workspace." \
+        "" \
+        "File:   $FILE" \
+        "Backup: $BACKUP"
+else
+    cp "$BACKUP" "$FILE"
+    gum style \
+        --foreground 196 \
+        "✗ Verification failed. Restored the backup."
+    exit 1
+fi
+
+echo
+
+# ─────────────────────────────────────────────
+# Finish
+# ─────────────────────────────────────────────
+
+gum style \
+    --foreground 214 \
+    "Restart or reload the Omarchy plugin to apply the changes."

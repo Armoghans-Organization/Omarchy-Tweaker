@@ -14,8 +14,8 @@ you want, and installs each selected group with a single package-manager command
 omarchy-tweaker packages
 ```
 
-Package installation is a standalone command. It is **not** part of the default startup
-sequence.
+Package installation runs in the default startup sequence and is also available as the
+standalone `packages` command.
 
 !!! warning "System-changing command"
     Installing packages can invoke `sudo`, modify the package database, and pull software
@@ -200,6 +200,7 @@ yay --help
 ## Related pages
 
 - [Commands](commands.md)
+- [Plugins](plugins.md)
 - [Cleanup](cleanup.md)
 - [Getting Started](getting-started.md)
 - [Architecture](architecture.md)

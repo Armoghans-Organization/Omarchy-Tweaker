@@ -51,12 +51,13 @@ The repository is in the **early implementation stage**.
 - The console entry point is implemented in `src/omarchy_tweaker_bootstrap/__init__.py` and delegates to `src/omarchy_tweaker/__init__.py`.
 - The Typer application is initialized in `src/omarchy_tweaker/cli.py`; the root callback shows the banner before every subcommand.
 - Individual commands live in separate modules under `src/omarchy_tweaker/commands/`.
-- The default invocation runs the ordered `DEFAULT_SEQUENCE` in `src/omarchy_tweaker/startup.py` without importing Typer; it currently shows the banner, offers the snapshot step, offers the cleanup step, and then offers the directory setup step.
+- The default invocation runs the ordered `DEFAULT_SEQUENCE` in `src/omarchy_tweaker/startup.py` without importing Typer; it currently shows the banner, offers the snapshot step, offers the cleanup step, offers the directory setup step, offers package installation, and then offers plugin installation.
 - The `welcome` command displays the welcome screen explicitly through `src/omarchy_tweaker/screens/welcome.py`.
 - The `snapshot` command creates a system snapshot through `omarchy snapshot create`.
 - The `cleanup` command discovers installed Omarchy packages, web app launchers, TUI launchers, and Mise wrappers, presents separate selectable lists per type, and removes only the items the user explicitly selects and confirms.
 - The `directories` command creates the fixed workspace directories (`~/Github`, `~/Github/Clone`, `~/Projects`, `~/Projects/Containers`, `~/.ISO`, `~/.VM`, `~/.Cloud`) after per-path confirmation and never overwrites existing paths.
-- The `packages` command presents fixed Pacman and AUR package groups, installs selected packages with `sudo pacman -S --noconfirm --needed --noprogressbar` and `yay -S --noconfirm --needed --noprogressbar`, and is not part of the default sequence.
+- The `packages` command presents fixed Pacman and AUR package groups and installs selected packages with `sudo pacman -S --noconfirm --needed --noprogressbar` and `yay -S --noconfirm --needed --noprogressbar`.
+- The `plugins` command loads a fixed plugin catalog from `src/omarchy_tweaker/config/plugins.ini`, installs selected Omarchy shell plugins with `omarchy plugin add <url> --yes --enable`, skips already-installed plugins by repository URL, applies configured bar positions, runs optional patch scripts from `patches/`, and replaces `~/.config/omarchy/shell.json` with the bundled configuration after successful installation.
 - Reusable UI, logging, metadata, and Rich error-handling utilities are implemented.
 
 Do not assume that a feature is implemented because it is described here, planned here, or referenced in this file. Treat any behavior not explicitly listed here as **not implemented**.
@@ -66,6 +67,7 @@ Do not assume that a feature is implemented because it is described here, planne
 - Provide a centralized interface for managing Omarchy customizations.
 - Automate repetitive system configuration and maintenance tasks.
 - Simplify installation, removal, and management of selected packages.
+- Install and configure selected Omarchy shell plugins from a curated catalog.
 - Provide reusable utilities for interacting with the underlying Linux system.
 - Make system customization safer, more predictable, and easier to maintain.
 - Keep the application modular, extensible, and maintainable.
@@ -164,6 +166,7 @@ Before adding a dependency:
 ├── zensical.toml
 ├── session.sh                    [DEV WORKSPACE] Zellij session launcher.
 ├── session.kdl                   [DEV WORKSPACE] Zellij layout definition.
+├── patches/                      [IMPLEMENTED] Optional plugin patch scripts.
 ├── docs/
 │   ├── index.md
 │   ├── changelog.md
@@ -176,11 +179,15 @@ Before adding a dependency:
 │   │   ├── cli.py               [IMPLEMENTED] Typer application and root callback.
 │   │   ├── startup.py           [IMPLEMENTED] Typer-free default startup sequence.
 │   │   ├── error_handling.py    [IMPLEMENTED] Compatibility re-exports for error handling.
+│   │   ├── config/
+│   │   │   ├── plugins.ini      [IMPLEMENTED] Fixed Omarchy shell plugin catalog.
+│   │   │   └── shell.json       [IMPLEMENTED] Bundled Omarchy shell configuration.
 │   │   ├── commands/
 │   │   │   ├── __init__.py      [IMPLEMENTED] Command registration.
 │   │   │   ├── cleanup.py       [IMPLEMENTED] Cleanup command wrapper.
 │   │   │   ├── directory.py     [IMPLEMENTED] Directories command wrapper.
 │   │   │   ├── packages.py      [IMPLEMENTED] Packages command wrapper.
+│   │   │   ├── plugins.py       [IMPLEMENTED] Plugins command wrapper.
 │   │   │   ├── snapshot.py      [IMPLEMENTED] Snapshot command wrapper.
 │   │   │   └── welcome.py       [IMPLEMENTED] Welcome command wrapper.
 │   │   ├── screens/
@@ -193,6 +200,7 @@ Before adding a dependency:
 │   │       ├── directory.py     [IMPLEMENTED] Workspace directory creation workflow.
 │   │       ├── logger.py        [IMPLEMENTED] Session logging utilities.
 │   │       ├── packages.py      [IMPLEMENTED] Pacman and AUR package installation workflow.
+│   │       ├── plugins.py       [IMPLEMENTED] Plugin installation, patching, and shell config workflow.
 │   │       ├── snapshot.py      [IMPLEMENTED] Snapshot creation workflow.
 │   │       ├── system_info.py   [IMPLEMENTED] OS and hardware information helpers.
 │   │       └── ui.py            [IMPLEMENTED] Rich and InquirerPy UI toolkit.
@@ -209,6 +217,7 @@ Before adding a dependency:
 │   ├── test_logger.py
 │   ├── test_main.py
 │   ├── test_packages.py
+│   ├── test_plugins.py
 │   ├── test_snapshot.py
 │   ├── test_system_info.py
 │   └── test_ui.py

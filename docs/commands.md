@@ -1,5 +1,5 @@
 ---
-description: Complete reference for the welcome, snapshot, cleanup, directory, and package commands in Omarchy Tweaker.
+description: Complete reference for the welcome, snapshot, cleanup, directory, package, and plugin commands in Omarchy Tweaker.
 icon: material/console-line
 subtitle: CLI reference
 mermaid: true
@@ -17,6 +17,7 @@ Complete reference for the currently implemented Omarchy Tweaker commands.
 | `cleanup` | Yes | Yes | — |
 | `directories` | Yes | Yes | — |
 | `packages` | Yes | Yes | — |
+| `plugins` | Yes | Yes | — |
 
 ```mermaid
 flowchart TD
@@ -37,6 +38,9 @@ flowchart TD
     B -- packages --> P{TTY?}
     P -- Yes --> Q[Select, confirm, install]
     P -- No --> R[Skip with warning]
+    B -- plugins --> S{TTY?}
+    S -- Yes --> T[Select, confirm, install plugins and shell config]
+    S -- No --> U[Skip with warning]
 ```
 
 ---
@@ -49,7 +53,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 
 | Behavior | Details |
 |:--|:--|
-| No arguments | Runs the default sequence: banner, snapshot step, cleanup step, directory step. |
+| No arguments | Runs the default sequence: banner, snapshot, cleanup, directories, packages, and plugins. |
 | With a subcommand | Shows the banner, then runs the selected command. |
 | `--help` | Shows global help and the available commands. |
 | Completion | Disabled. |
@@ -67,6 +71,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Review and remove selected packages or launchers | `omarchy-tweaker cleanup` |
 | Create the standard workspace directories | `omarchy-tweaker directories` |
 | Install selected Pacman and AUR packages | `omarchy-tweaker packages` |
+| Install selected Omarchy shell plugins | `omarchy-tweaker plugins` |
 | Run the guided snapshot, cleanup, and directory sequence | `omarchy-tweaker` |
 | See every command and option | `omarchy-tweaker --help` |
 
@@ -75,9 +80,9 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Code | Meaning |
 |:--:|:--|
 | `0` | The command completed, or the step was skipped safely. |
-| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, or package installation. |
+| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, package installation, or plugin installation. |
 
-A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, or selecting no packages exits successfully.
+A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, selecting no packages, or selecting no plugins exits successfully.
 
 ---
 
@@ -260,7 +265,7 @@ omarchy-tweaker packages
 ```
 
 Packages has no command-line options. It always uses the interactive selection workflow.
-Package installation is standalone and is **not** part of the default sequence.
+Package installation runs in the default sequence and is also available as the standalone `packages` command.
 
 ### Behavior
 
@@ -300,6 +305,63 @@ See **[Packages](packages.md)** for the full package catalog and safety details.
 
 ---
 
+## `plugins`
+
+Install selected Omarchy shell plugins from a fixed catalog.
+
+```bash
+omarchy-tweaker plugins
+```
+
+Plugins has no command-line options. It always uses the interactive selection workflow.
+Plugin installation runs in the default sequence and is also available as the standalone `plugins` command.
+
+### Behavior
+
+1. Loads the bundled plugin catalog from `src/omarchy_tweaker/config/plugins.ini`.
+2. Lets you select plugins.
+3. Asks for confirmation before cloning anything.
+4. Installs each selected plugin with `omarchy plugin add <url> --yes --enable`.
+   Plugins that are already installed are detected by repository URL and skipped.
+5. Applies a configured `position` with `omarchy plugin enable <id> --section <position>`.
+6. Runs the matching patch from `patches/` when the catalog enables one.
+7. Reports success or failure for each plugin.
+8. Replaces `~/.config/omarchy/shell.json` with the bundled shell configuration after
+   successful installation, backing up any existing file first.
+
+Each plugin runs inside a virtual terminal with a progress display in the same live view. A
+failure in one plugin does not prevent the remaining selected plugins from being processed.
+
+### Non-interactive use
+
+`omarchy-tweaker plugins` requires an interactive terminal. Without one, it prints a
+warning and skips without installing anything. The underlying `omarchy plugin add` command
+is invoked non-interactively with `--yes`.
+
+### Failure handling
+
+If any selected plugin fails, plugins reports the failure and exits with code `1`. An
+already-installed plugin is not a failure; it is reported and skipped. Plugin add operations
+have a **300 second** timeout, enable operations have a **60 second** timeout, and patch
+scripts have a **120 second** timeout.
+
+If shell config installation fails, the plugin installation is still reported, but the
+command exits with code `1`. The existing shell config is backed up to
+`~/.config/omarchy/shell.json.bak.<timestamp>` before replacement, and the new file is made
+read-only (`root:root`, mode `444`).
+
+### Requirements
+
+- `omarchy` must be on `PATH`.
+- `git` must be available for `omarchy plugin add`.
+- `bash` and `gum` are required by the bundled patch scripts.
+- `sudo` is required to install and protect the shell configuration.
+- Plugin repositories must be reachable.
+
+See **[Plugins](plugins.md)** for the full catalog, placement rules, and patch details.
+
+---
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -307,6 +369,7 @@ See **[Packages](packages.md)** for the full package catalog and safety details.
 | `OMARCHY_TWEAKER_LOG_DIR` | Override the log directory. |
 | `XDG_STATE_HOME` | Base directory for logs when the override is unset. |
 | `OMARCHY_REMOVE_NOTIFY` | Set to `false` internally during removal to suppress Omarchy removal notifications. |
+| `OMARCHY_TWEAKER_PATCHES_DIR` | Override the directory used for plugin patch scripts. |
 
 Logs default to `$XDG_STATE_HOME/omarchy_tweaker/logs/` or `~/.local/state/omarchy_tweaker/logs/`.
 
@@ -346,6 +409,12 @@ omarchy-tweaker directories
 omarchy-tweaker packages
 ```
 
+### Install selected plugins
+
+```bash
+omarchy-tweaker plugins
+```
+
 ### Show global help
 
 ```bash
@@ -360,4 +429,5 @@ omarchy-tweaker --help
 - [Cleanup](cleanup.md)
 - [Directories](directories.md)
 - [Packages](packages.md)
+- [Plugins](plugins.md)
 - [Troubleshooting](troubleshooting.md)

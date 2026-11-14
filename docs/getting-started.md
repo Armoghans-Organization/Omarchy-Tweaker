@@ -26,8 +26,11 @@ general-purpose Linux administration tool and is not tested on other distributio
 | **`omarchy` on `PATH`** | Snapshot and cleanup delegate work to Omarchy commands. |
 | **`pacman`** | Package installation uses Pacman directly; cleanup checks installed packages. |
 | **`yay`** | Package installation uses `yay` for the AUR group. |
+| **`git`** | Plugin installation clones repositories through `omarchy plugin add`. |
+| **`bash` and `gum`** | Bundled plugin patch scripts use Bash and Gum. |
+| **`sudo`** | Package installation/removal and shell config installation use elevated privileges. |
 | **Writable home directory** | Directory setup creates fixed workspace folders beneath `$HOME`. |
-| **Interactive terminal** | Snapshot confirmation, cleanup selection, package selection, and directory creation use TTY prompts. |
+| **Interactive terminal** | Snapshot confirmation, cleanup selection, package and plugin selection, and directory creation use TTY prompts. |
 | **Nerd Font** *(recommended)* | The UI uses Nerd Font glyphs for icons. |
 
 !!! warning "Omarchy only"
@@ -41,7 +44,6 @@ general-purpose Linux administration tool and is not tested on other distributio
   `Unknown` GPU value.
 - `snapper` and Omarchy's snapshot configuration — required for `omarchy snapshot create`
   to succeed.
-- `sudo` — package installation and removal may prompt for elevated privileges.
 
 ---
 
@@ -115,13 +117,16 @@ The default sequence is:
    `omarchy snapshot create`.
 3. **Cleanup** — discovers installed Omarchy cleanup targets and asks what to remove.
 4. **Directories** — asks whether to create each missing workspace folder.
+5. **Packages** — offers the fixed Pacman and AUR package groups.
+6. **Plugins** — offers the fixed Omarchy shell plugin catalog and installs the bundled
+   shell configuration after successful installation.
 
-Every step can be skipped. If the terminal is not interactive, the snapshot, cleanup, and
-directory steps skip safely instead of guessing. See **[Commands](commands.md)** for
-per-command rules.
+Every step can be skipped. If the terminal is not interactive, interactive steps skip
+safely instead of guessing. See **[Commands](commands.md)** for per-command rules.
 
-Package installation is standalone: run `omarchy-tweaker packages` when you want to install
-from the fixed Pacman and AUR catalog. It is not part of the default sequence.
+Package and plugin installation also run in the default sequence. Run
+`omarchy-tweaker packages` or `omarchy-tweaker plugins` directly when you want to install
+from either catalog without running the earlier steps.
 
 ### Explore commands
 
@@ -132,6 +137,7 @@ uv run omarchy-tweaker snapshot --help
 uv run omarchy-tweaker cleanup --help
 uv run omarchy-tweaker directories --help
 uv run omarchy-tweaker packages --help
+uv run omarchy-tweaker plugins --help
 ```
 
 The `welcome` command shows the banner plus a system overview containing OS, kernel,
@@ -175,5 +181,6 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Cleanup](cleanup.md) — discovery and removal details.
 - [Directories](directories.md) — workspace folder targets and safety rules.
 - [Packages](packages.md) — package catalog and installation workflow.
+- [Plugins](plugins.md) — shell plugin catalog, placement, and patch workflow.
 - [Architecture](architecture.md) — how the application works internally.
 - [Troubleshooting](troubleshooting.md) — common problems and fixes.

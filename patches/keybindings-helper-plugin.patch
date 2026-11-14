@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FILE="$HOME/.config/omarchy/plugins/nejcc.keybindings-hint/KeybindingsHint.qml"
+BACKUP="$FILE.bak"
+OLD_TIMEOUT=6000
+NEW_TIMEOUT=2500
+
+# ─────────────────────────────────────────────
+# Colors / UI
+# ─────────────────────────────────────────────
+
+if ! command -v gum &>/dev/null; then
+    echo "Error: gum is not installed."
+    exit 1
+fi
+
+gum style \
+    --border double \
+    --border-foreground 212 \
+    --padding "1 2" \
+    --margin "1" \
+    "Keybindings Hint Timeout Fixer" \
+    "" \
+    "Customize the auto-hide timeout" \
+    "for the Omarchy keybindings helper."
+
+echo
+
+# ─────────────────────────────────────────────
+# Check plugin
+# ─────────────────────────────────────────────
+
+if [[ ! -f "$FILE" ]]; then
+    gum style \
+        --foreground 196 \
+        "✗ Keybindings hint plugin not found." \
+        "$FILE"
+    exit 1
+fi
+
+# ─────────────────────────────────────────────
+# Detect current timeout
+# ─────────────────────────────────────────────
+
+CURRENT_TIMEOUT=$(
+    sed -nE \
+        's/^[[:space:]]*readonly property int autoHideMs: ([0-9]+).*$/\1/p' \
+        "$FILE"
+)
+
+if [[ -z "$CURRENT_TIMEOUT" ]]; then
+    gum style \
+        --foreground 196 \
+        "✗ Could not detect autoHideMs in the plugin." \
+        "" \
+        "The plugin code may have changed."
+    exit 1
+fi
+
+gum style \
+    --border rounded \
+    --border-foreground 240 \
+    --padding "1 2" \
+    "Current timeout: ${CURRENT_TIMEOUT} ms" \
+    "Target timeout:  ${NEW_TIMEOUT} ms"
+
+echo
+
+# ─────────────────────────────────────────────
+# Already configured?
+# ─────────────────────────────────────────────
+
+if [[ "$CURRENT_TIMEOUT" == "$NEW_TIMEOUT" ]]; then
+    gum style \
+        --foreground 82 \
+        "✓ Timeout is already set to 2.5 second."
+    exit 0
+fi
+
+# ─────────────────────────────────────────────
+# Confirmation
+# ─────────────────────────────────────────────
+
+echo
+
+gum style \
+    --foreground 214 \
+    "⚠ This edits the plugin's QML file." \
+    "" \
+    "Plugin updates may overwrite this change."
+
+echo
+
+if ! gum confirm \
+    "Change timeout from ${CURRENT_TIMEOUT} ms to ${NEW_TIMEOUT} ms?"; then
+    gum style --foreground 240 "Cancelled."
+    exit 0
+fi
+
+# ─────────────────────────────────────────────
+# Backup
+# ─────────────────────────────────────────────
+
+echo
+
+if [[ ! -f "$BACKUP" ]]; then
+    cp -p "$FILE" "$BACKUP"
+    gum style --foreground 82 "✓ Backup created: $BACKUP"
+else
+    if gum confirm "Backup already exists. Replace it with the current file?"; then
+        cp -p "$FILE" "$BACKUP"
+        gum style --foreground 82 "✓ Backup updated."
+    else
+        gum style --foreground 240 \
+            "Keeping the existing backup."
+    fi
+fi
+
+# ─────────────────────────────────────────────
+# Apply change
+# ─────────────────────────────────────────────
+
+if ! sed -i \
+    "s/readonly property int autoHideMs: ${CURRENT_TIMEOUT}/readonly property int autoHideMs: ${NEW_TIMEOUT}/" \
+    "$FILE"; then
+    gum style --foreground 196 "✗ Failed to update the timeout."
+    exit 1
+fi
+
+# Verify the edit
+UPDATED_TIMEOUT=$(
+    sed -nE \
+        's/^[[:space:]]*readonly property int autoHideMs: ([0-9]+).*$/\1/p' \
+        "$FILE"
+)
+
+if [[ "$UPDATED_TIMEOUT" != "$NEW_TIMEOUT" ]]; then
+    cp "$BACKUP" "$FILE"
+    gum style \
+        --foreground 196 \
+        "✗ Verification failed." \
+        "The backup was restored."
+    exit 1
+fi
+
+gum style \
+    --border rounded \
+    --border-foreground 82 \
+    --padding "1 2" \
+    --foreground 82 \
+    "✓ Timeout updated successfully!" \
+    "" \
+    "Previous: ${CURRENT_TIMEOUT} ms" \
+    "New:      ${UPDATED_TIMEOUT} ms" \
+    "File:     $FILE"
+
+echo
+# ─────────────────────────────────────────────
+# Finish
+# ─────────────────────────────────────────────
+
+gum style \
+    --foreground 214 \
+    "Restart or reload the Omarchy plugin to apply the changes."

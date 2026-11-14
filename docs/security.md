@@ -14,8 +14,8 @@ research is appreciated, and vulnerabilities should be reported privately and re
 
 ## System Safety Model
 
-Omarchy Tweaker performs system-level operations, including package installation, package
-removal, snapshot creation, and workspace directory creation.
+Omarchy Tweaker performs system-level operations, including package installation, plugin
+installation, package removal, snapshot creation, and workspace directory creation.
 
 ```mermaid
 flowchart LR
@@ -23,32 +23,37 @@ flowchart LR
     CLI --> V[Validation and confirmation]
     V --> O[Omarchy commands]
     V --> PM[Pacman and yay]
+    V --> PL[Omarchy plugin add and patches]
     V --> FS[User files]
     O --> S[sudo commands]
     PM --> P[sudo pacman / yay]
+    PL --> Q[omarchy plugin add / bash patch]
     CLI --> L[XDG state logs]
 ```
 
 | Risk | Control |
 |:--|:--|
-| Accidental installation | Fixed package catalog, separate Pacman and AUR lists, per-group confirmation. |
+| Accidental installation | Fixed package and plugin catalogs, explicit selection, and confirmation before installation. |
+| Untrusted plugin code | Plugins run unsandboxed; only the fixed catalog is offered and every selected plugin is confirmed. |
+| Plugin patch changes | Patches come from the configured patch directory, run non-interactively, and create backups. |
+| Shell configuration replacement | The existing `shell.json` is backed up before replacement, and the new file is made read-only (`root:root`, mode `444`). |
 | Accidental removal | Explicit selection, separate category lists, final confirmation. |
 | Non-interactive guessing | Interactive steps skip when no TTY is available. |
 | Shell injection | External commands use argument lists, never `shell=True`. |
-| Hung commands | Snapshot, package installation, and removal operations have explicit timeouts. |
+| Hung commands | Snapshot, package installation, plugin installation, patch execution, and removal operations have explicit timeouts. |
 | Broad package removal | Candidates are limited to Omarchy preinstalls and installed packages. |
 | Unsafe wrapper deletion | Mise paths must be absolute, name a file, and resolve inside the home directory. |
 | Unintended directory creation | Fixed home-relative targets, per-path confirmation, and no overwrite of existing paths. |
-| Silent partial failure | Package installation, cleanup, and directory setup report failures and exit non-zero. |
+| Silent partial failure | Package installation, plugin installation, cleanup, and directory setup report failures and exit non-zero. |
 | Noisy notifications | `OMARCHY_REMOVE_NOTIFY=false` suppresses per-item notifications. |
 
 Omarchy Tweaker does not log passwords, authentication tokens, private keys, or secret
 configuration values. Review logs before sharing them publicly, since they include command
 arguments and system details.
 
-See [Packages](packages.md) for package installation details, [Cleanup](cleanup.md) for the
-full destructive-operation workflow, and [Directories](directories.md) for workspace path
-rules.
+See [Packages](packages.md) for package installation details, [Plugins](plugins.md) for the
+plugin and patch workflow, [Cleanup](cleanup.md) for the full destructive-operation workflow,
+and [Directories](directories.md) for workspace path rules.
 
 ---
 

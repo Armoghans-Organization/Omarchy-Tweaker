@@ -1,5 +1,5 @@
 ---
-description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, package installation, and documentation builds.
+description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, package installation, plugin installation, and documentation builds.
 icon: material/help-circle
 subtitle: Fixes and diagnosis
 mermaid: true
@@ -17,7 +17,7 @@ flowchart TD
     D -- Yes --> E[Use an interactive terminal]
     D -- No --> F{Omarchy command found?}
     F -- No --> G[Check PATH and Omarchy install]
-    F -- Yes --> H{Snapshot, cleanup, directories, or packages?}
+    F -- Yes --> H{Snapshot, cleanup, directories, packages, or plugins?}
     H -- Snapshot --> I[Run omarchy snapshot create]
     H -- Cleanup --> J[Check discovery rules]
     J --> K[See Cleanup]
@@ -25,12 +25,14 @@ flowchart TD
     L --> M[See Directories]
     H -- Packages --> N[Run sudo pacman -S or yay -S]
     N --> O[See Packages]
+    H -- Plugins --> P[Run omarchy plugin add]
+    P --> Q[See Plugins]
 ```
 
 | Symptom | Likely cause | Next step |
 |:--|:--|:--|
 | `omarchy-tweaker` not found | Checkout not on `PATH`, or tool bin directory missing | Run through `uv` or install globally. |
-| Snapshot, cleanup, directory setup, or package installation skipped | No interactive TTY | Run directly in a terminal. |
+| Snapshot, cleanup, directory setup, package installation, or plugin installation skipped | No interactive TTY | Run directly in a terminal. |
 | `omarchy` not found | Omarchy CLI not on `PATH` | Verify the Omarchy installation. |
 | `pacman` or `yay` not found | Package manager or AUR helper missing from `PATH` | Install the missing command or fix `PATH`. |
 | Snapshot fails | Snapshot tooling, permissions, or disk space | Run `omarchy snapshot create` directly. |
@@ -38,6 +40,8 @@ flowchart TD
 | Removal fails | `sudo`, package state, or package-manager lock | Run the underlying Omarchy command directly. |
 | Directory creation fails | Parent is missing, a file occupies the path, or home is not writable | Check the fixed targets and permissions below. |
 | Package installation fails | `sudo`, `yay`, network, package state, or package-manager lock | Run the underlying `pacman` or `yay` command directly. |
+| Plugin installation fails | `omarchy`, `git`, network, validation, or an existing plugin ID | Run `omarchy plugin add` directly and inspect its output. |
+| Plugin patch fails | Missing patch file, `bash`, `gum`, or an unexpected plugin version | Run the patch script directly or inspect the plugin file. |
 | Icons are missing | Terminal lacks a Nerd Font | Install and configure a Nerd Font. |
 | Docs build fails | Generated files or broken links | See [Development](development.md#troubleshooting). |
 
@@ -74,6 +78,7 @@ an interactive terminal. They check that both standard input and standard output
 Snapshot skipped: confirmation requires an interactive terminal.
 Cleanup skipped: selecting items requires an interactive terminal.
 Package installation skipped: selecting packages requires an interactive terminal.
+Plugin installation skipped: selecting plugins requires an interactive terminal.
 Directory setup skipped: creating directories requires an interactive terminal.
 ```
 
@@ -84,8 +89,8 @@ non-interactive shell. For snapshot automation, use `--yes`:
 omarchy-tweaker snapshot --yes
 ```
 
-Cleanup intentionally has no non-interactive removal mode. Package installation
-intentionally has no non-interactive mode. Directory setup intentionally has no
+Cleanup intentionally has no non-interactive removal mode. Package and plugin installation
+intentionally have no non-interactive mode. Directory setup intentionally has no
 non-interactive creation mode.
 
 ---
@@ -159,6 +164,51 @@ Common causes include a `sudo` password prompt or expired authentication, a miss
 AUR helper, network problems, another package-manager process holding a lock, or a package
 conflict. Each package group has a **900 second** timeout. Package installation reports
 failures and exits with code `1`.
+
+---
+
+## Plugin installation fails
+
+Run the underlying plugin command directly:
+
+```bash
+omarchy plugin add <url> --yes --enable
+```
+
+Common causes include `omarchy` not being on `PATH`, `git` being unavailable, network
+problems, plugin validation failure, an already-installed plugin ID, or a repository that is
+not reachable. Omarchy Tweaker uses a **300 second** timeout for plugin add operations and a
+**60 second** timeout for placement.
+
+If a configured position was not applied, verify the plugin ID and placement manually:
+
+```bash
+omarchy plugin list
+omarchy plugin enable <id> --section left
+```
+
+See **[Plugins](plugins.md)** for the catalog and placement rules.
+
+---
+
+## Plugin patch fails
+
+Run the patch script directly to inspect the error:
+
+```bash
+bash patches/<patch-file>
+```
+
+The bundled patches require `gum` and `bash`. They also expect the plugin's original file to
+contain the exact code they patch. If the plugin was updated, the expected code may have
+changed; review the patch and the plugin file before applying it manually. Patch scripts
+create a `.bak` backup and restore it when verification fails.
+
+If the repository-level `patches/` directory is not available, set:
+
+```bash
+OMARCHY_TWEAKER_PATCHES_DIR=/path/to/patches omarchy-tweaker plugins
+```
 
 ---
 
@@ -251,4 +301,5 @@ Report bugs at [GitHub Issues](https://github.com/Armoghans-Organization/Omarchy
 - [Cleanup](cleanup.md)
 - [Directories](directories.md)
 - [Packages](packages.md)
+- [Plugins](plugins.md)
 - [Development](development.md)

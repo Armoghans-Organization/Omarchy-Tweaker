@@ -1,0 +1,254 @@
+{
+    "version": 1,
+    "idle": {
+        "screensaver": 150,
+        "lock": 300
+    },
+    "bar": {
+        "position": "top",
+        "transparent": false,
+        "layout": {
+            "left": [
+                {
+                    "id": "omarchy.menu"
+                },
+                {
+                    "id": "omarchy.workspaces"
+                },
+                {
+                    "id": "mash2rafi.kronos",
+                    "scale": 0.8,
+                    "hourScale": 0.75,
+                    "dateScale": 1,
+                    "subtimeScale": 1,
+                    "ringLabelScale": 1,
+                    "minuteCapsuleScale": 1.7,
+                    "secondCapsuleScale": 1,
+                    "hourColor": "",
+                    "dateColor": "",
+                    "minuteCapsuleColor": "",
+                    "secondCapsuleColor": "",
+                    "minuteRingColor": "",
+                    "secondRingColor": "",
+                    "ringLabelColor": "",
+                    "hourFont": "Adwaita Sans",
+                    "dateFont": "",
+                    "minuteCapsuleFont": "Nimbus Sans",
+                    "secondCapsuleFont": "Noto Sans",
+                    "showHour": true,
+                    "showMinuteCapsule": true,
+                    "showSecondCapsule": true,
+                    "showRingLabels": true,
+                    "showRings": true,
+                    "hourOffsetX": 0,
+                    "hourOffsetY": 0,
+                    "dateOffsetX": 0,
+                    "dateOffsetY": 0,
+                    "minuteCapsuleAngleOffset": 12,
+                    "secondCapsuleAngleOffset": -18,
+                    "minuteCapsuleRadiusOffset": 1,
+                    "secondCapsuleRadiusOffset": 0,
+                    "ringRotationOffset": -3,
+                    "position": "top-right",
+                    "centerLayout": "orbit",
+                    "use24h": false,
+                    "showSeconds": true,
+                    "lowPower": true,
+                    "renderer": "shader",
+                    "compactSurface": true,
+                    "showDate": false,
+                    "clockEnabled": true,
+                    "accentMode": "accent",
+                    "margin": 12,
+                    "barPadding": 0,
+                    "clockFont": "Liberation Sans",
+                    "labelFont": "JetBrainsMono Nerd Font,JetBrainsMono NF",
+                    "ringDiameter": 0.31,
+                    "ringGap": 59,
+                    "ringArcDegrees": 120,
+                    "ringTransparency": 1,
+                    "minuteRingOpacity": 1,
+                    "secondRingOpacity": 1,
+                    "screenMode": "all",
+                    "selectedMonitors": [],
+                    "perMonitorScale": false,
+                    "scaleReferenceHeight": 1080,
+                    "savedLayouts": []
+                },
+                {
+                    "id": "omarchy.active-window"
+                }
+            ],
+            "center": [
+                {
+                    "id": "omarchy.clock",
+                    "format": "dddd HH:mm",
+                    "formatAlt": "d MMMM 'W'ww yyyy",
+                    "verticalFormat": "HH\n—\nmm"
+                }
+            ],
+            "right": [
+                {
+                    "id": "io.github.tyrichards.tray",
+                    "widgets": [
+                        {
+                            "entry": {
+                                "id": "robzolkos.github"
+                            },
+                            "listed": true
+                        },
+                        {
+                            "entry": {
+                                "id": "io.github.ayandexyz.close-guard"
+                            },
+                            "listed": true
+                        },
+                        {
+                            "entry": {
+                                "id": "agf.agent-activity"
+                            },
+                            "listed": true
+                        },
+                        {
+                            "entry": {
+                                "id": "poipoi.omawall"
+                            },
+                            "listed": true
+                        }
+                    ],
+                    "order": [
+                        "poipoi.omawall",
+                        "agf.agent-activity",
+                        "robzolkos.github",
+                        "io.github.ayandexyz.close-guard",
+                        "superwhisper"
+                    ]
+                },
+                {
+                    "id": "omarchy.spacer"
+                },
+                {
+                    "id": "omarchy.keyboard-layout"
+                },
+                {
+                    "id": "omarchy.agents"
+                },
+                {
+                    "id": "omarchy.monitor"
+                },
+                {
+                    "id": "omarchy.microphone"
+                },
+                {
+                    "id": "omarchy.audio"
+                },
+                {
+                    "id": "omarchy.bluetooth"
+                },
+                {
+                    "id": "omarchy.network"
+                },
+                {
+                    "id": "omarchy.power"
+                },
+                {
+                    "id": "io.github.twiking.omasettings"
+                },
+                {
+                    "id": "io.github.iammhador.notification-pulse"
+                }
+            ],
+            "centerBegin": [
+                {
+                    "id": "aryal.control-center"
+                },
+                {
+                    "id": "omarchy.indicators"
+                }
+            ],
+            "centerEnd": [
+                {
+                    "id": "omarchy.weather"
+                },
+                {
+                    "id": "rimuru.screentime",
+                    "iconOnly": true
+                },
+                {
+                    "id": "omarchy.spacer"
+                },
+                {
+                    "id": "omarchy.system-update"
+                }
+            ],
+            "tray": [
+                {
+                    "id": "superwhisper.panel"
+                }
+            ]
+        }
+    },
+    "plugins": [
+        {
+            "id": "io.github.mtolhuys.fathom"
+        },
+        {
+            "id": "matthewjaybarr.app-grid"
+        },
+        {
+            "id": "org.lsong.window-switcher"
+        },
+        {
+            "id": "nejcc.keybindings-hint"
+        },
+        {
+            "id": "io.github.maajix.spotlight"
+        },
+        {
+            "id": "alanfortlink.clipboard"
+        },
+        {
+            "id": "fkcodes.key-promoter"
+        },
+        {
+            "id": "io.github.signaldirective.radial-menu"
+        },
+        {
+            "id": "io.github.sirjul1337.lock-explorer",
+            "avatar": "",
+            "blankMs": 30000,
+            "boot": "follow",
+            "clock12": true,
+            "design": "editorial",
+            "powerActions": true,
+            "reduceMotion": "battery",
+            "unlock": "fade",
+            "wallpaperBlur": "sharp",
+            "openAs": "full"
+        },
+        {
+            "id": "robzolkos.github"
+        },
+        {
+            "id": "io.github.ayandexyz.close-guard"
+        },
+        {
+            "id": "agf.agent-activity"
+        },
+        {
+            "id": "poipoi.omawall"
+        }
+    ],
+    "disabledPlugins": [
+        "omarchy.clipboard",
+        "omarchy.elsewhen",
+        "omarchy.lock",
+        "omarchy.background",
+        "omarchy.tray"
+    ],
+    "cloneSourceRestores": [
+        "alanfortlink.clipboard",
+        "io.github.sirjul1337.lock-explorer",
+        "poipoi.omawall"
+    ]
+}

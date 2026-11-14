@@ -7,6 +7,7 @@ import omarchy_tweaker.cli as cli_module
 import omarchy_tweaker.commands.cleanup as cleanup_command
 import omarchy_tweaker.commands.directory as directory_command
 import omarchy_tweaker.commands.packages as packages_command
+import omarchy_tweaker.commands.plugins as plugins_command
 import omarchy_tweaker.commands.snapshot as snapshot_command
 import omarchy_tweaker.functions.cleanup as cleanup_module
 import omarchy_tweaker.startup as startup_module
@@ -14,6 +15,7 @@ from omarchy_tweaker.cli import app
 from omarchy_tweaker.functions.cleanup import CleanupResult, run_cleanup_step
 from omarchy_tweaker.functions.directory import DirectoryResult, run_directory_step
 from omarchy_tweaker.functions.packages import PackageResult
+from omarchy_tweaker.functions.plugins import PluginResult
 from omarchy_tweaker.functions.snapshot import SnapshotResult, run_snapshot_step
 from omarchy_tweaker.screens.banner import show_banner
 
@@ -231,6 +233,34 @@ def test_packages_command_exits_zero_when_skipped(
     )
 
     result = runner.invoke(app, ["packages"])
+
+    assert result.exit_code == 0
+
+
+def test_plugins_command_exits_nonzero_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        plugins_command,
+        "run_plugins_step",
+        lambda: PluginResult.FAILED,
+    )
+
+    result = runner.invoke(app, ["plugins"])
+
+    assert result.exit_code == 1
+
+
+def test_plugins_command_exits_zero_when_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        plugins_command,
+        "run_plugins_step",
+        lambda: PluginResult.SKIPPED,
+    )
+
+    result = runner.invoke(app, ["plugins"])
 
     assert result.exit_code == 0
 

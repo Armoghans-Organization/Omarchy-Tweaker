@@ -188,6 +188,7 @@ Cleanup is designed to be explicit and conservative:
 ## Related pages
 
 - [Commands](commands.md)
+- [Plugins](plugins.md)
 - [Packages](packages.md)
 - [Troubleshooting](troubleshooting.md)
 - [Architecture](architecture.md)
