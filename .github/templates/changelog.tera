@@ -217,7 +217,7 @@ were recorded in this release.
 
 {% endif %}
 
-{% if commit.footers | length > 0 %}
+{% if commit.footers is defined and commit.footers | length > 0 %}
 **Metadata**
 
 {% for footer in commit.footers %}
