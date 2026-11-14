@@ -1,0 +1,30 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:slim
+    container_name: OpenWebUi
+    restart: unless-stopped
+
+    network_mode: host
+
+    environment:
+      - PORT=${PORT:?set PORT in .env}
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:?set WEBUI_SECRET_KEY in .env}
+      - ENABLE_EASTER_EGGS=${ENABLE_EASTER_EGGS:-false}
+      - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-}
+      - OLLAMA_BASE_URLS=${OLLAMA_BASE_URL:-http://ollama.localhost}
+      - OPENAI_API_BASE_URL=${OMNIROUTE_URL:-http://omniroute.localhost}
+
+    volumes:
+      - ${HOME}/Projects/Containers/open-webui/data:/app/backend/data
+
+    init: true
+    pids_limit: 100
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

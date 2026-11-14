@@ -59,15 +59,6 @@ flowchart TD
 
 Each container lives in its own directory below `src/omarchy_tweaker/containers/`:
 
-```text
-containers/atuin/
-├── .env.example
-├── Caddyfile
-├── config.toml
-├── container.toml
-└── docker-compose.yml
-```
-
 | File | Required | Purpose |
 |:--|:--:|:--|
 | `docker-compose.yml` | Yes | Compose definition. Also identifies the directory as a container. |
@@ -75,6 +66,13 @@ containers/atuin/
 | `Caddyfile` | No | Reverse-proxy route for the host Caddy installation. |
 | `container.toml` | No | Display name, description, host symlinks, and generated secrets. |
 | Other files | No | Configuration files linked into the runtime directory. |
+
+The catalog currently contains two containers:
+
+| Container | Directory | Description |
+|:--|:--|:--|
+| Atuin AI Server | `containers/atuin/` | Atuin AI chat server with an OpenAI-compatible API. |
+| Open WebUI | `containers/open-webui/` | Web UI for local LLM inference with an OpenAI-compatible API. |
 
 ---
 
@@ -124,20 +122,12 @@ The manifest's `[symlinks]` table maps a file inside the container directory to 
 The host path becomes a symlink to the prepared runtime file. An existing destination is
 backed up first with a `.bak.<timestamp>` suffix.
 
-```toml
-[symlinks]
-"config.toml" = "~/.config/atuin-ai-server/config.toml"
-"atuin.toml" = "~/.config/atuin/config.toml"
-```
-
 Symlink sources must be plain file names inside the container directory. Relative
 destinations are resolved beneath the home directory.
 
 !!! warning "Symlinks replace host files"
-    Linking `atuin.toml` replaces `~/.config/atuin/config.toml` with a symlink to the
-    catalog file. The original is backed up first. Replace the placeholder
-    `api_token = "<ATUIN_API_KEY>"` in the catalog file with the real key from the
-    container's `.env` before relying on it.
+    A symlink replaces the destination with a link to the catalog file. The original is
+    backed up first. Review the catalog file for placeholder values before relying on it.
 
 ---
 
@@ -150,7 +140,6 @@ description = "Atuin AI chat server with an OpenAI-compatible API."
 
 [symlinks]
 "config.toml" = "~/.config/atuin-ai-server/config.toml"
-"atuin.toml" = "~/.config/atuin/config.toml"
 
 [env]
 generate = ["AUTH_TOKEN"]
@@ -160,11 +149,87 @@ The `container` section provides the display name and description. When omitted,
 directory name is converted into a display name. A malformed manifest causes that container to
 be skipped with a logged error.
 
-The bundled catalog currently contains one container:
+---
 
-| Container | Description |
+## Container: Atuin AI Server
+
+Atuin AI Server is an OpenAI-compatible chat backend for Atuin. Its directory is
+`src/omarchy_tweaker/containers/atuin/`.
+
+```text
+containers/atuin/
+├── .env.example
+├── atuin.toml
+├── Caddyfile
+├── config.toml
+├── container.toml
+└── docker-compose.yml
+```
+
+- Runtime directory: `~/Projects/Containers/atuin`.
+- Compose container name: `Atuin-Ai`.
+- Network: `network_mode: host`, proxying port `6900`.
+- Host symlinks:
+  - `config.toml` → `~/.config/atuin-ai-server/config.toml`
+  - `atuin.toml` → `~/.config/atuin/config.toml`
+- Generated secret: `AUTH_TOKEN`.
+- Prompted value: `ATUIN_API_KEY` (the OmniRoute API key).
+
+The `atuin.toml` symlink replaces `~/.config/atuin/config.toml` with a link to the catalog
+file, so the Atuin client and the AI server share one configuration. The original file is
+backed up first. Replace the placeholder `api_token = "<ATUIN_API_KEY>"` in the catalog file
+with the real key from the container's `.env` before relying on it.
+
+`config.toml` lists the OmniRoute models (`main`, `best-fast`, `best-free`, `smart`,
+`best-chat`, `best-reasoning`) and local Ollama models routed through OmniRoute.
+
+### Caddy routes
+
+| Domain | Path | Upstream |
+|:--|:--|:--|
+| `atuin-ai.localhost` | `/` | `127.0.0.1:6900` |
+| `chat.atuin-ai.localhost` | `/api/cli/chat` | `127.0.0.1:6900` |
+| `models.atuin-ai.localhost` | `/api/cli/models` | `127.0.0.1:6900` |
+
+Access log: `/var/log/caddy/atuin-ai.log`.
+
+---
+
+## Container: Open WebUI
+
+Open WebUI is a web interface for local LLM inference with an OpenAI-compatible API. Its
+directory is `src/omarchy_tweaker/containers/open-webui/`.
+
+```text
+containers/open-webui/
+├── .env.example
+├── Caddyfile
+├── container.toml
+└── docker-compose.yml
+```
+
+- Runtime directory: `~/Projects/Containers/open-webui`.
+- Compose container name: `OpenWebUi`.
+- Network: `network_mode: host`. The container listens on `PORT` from `.env`, which
+  defaults to `6901`.
+- Host symlinks: none.
+- Generated secret: `WEBUI_SECRET_KEY`.
+- Prompted value: `PORT`.
+- Optional values with defaults: `ENABLE_EASTER_EGGS`, `FORWARDED_ALLOW_IPS`,
+  `OLLAMA_BASE_URL` (mapped to `OLLAMA_BASE_URLS`), `OMNIROUTE_URL` (mapped to
+  `OPENAI_API_BASE_URL`).
+
+Open WebUI stores its database and uploads in `~/Projects/Containers/open-webui/data`. The
+compose file mounts that path directly, so it is not listed in `[symlinks]`. Create the
+directory before starting the container, or the bind mount will be created empty by Docker.
+
+### Caddy routes
+
+| Domain | Upstream |
 |:--|:--|
-| Atuin AI Server | Atuin AI chat server with an OpenAI-compatible API. |
+| `open-webui.localhost` | `127.0.0.1:6901` |
+
+Access log: `/var/log/caddy/open-webui.log`.
 
 ---
 
@@ -203,4 +268,4 @@ warning and skips without preparing or starting anything.
 
 A preparation, Caddy, or Docker Compose failure is reported and exits with code `1`. A
 failure for one container does not prevent the remaining selected containers from being
-processed.
+processed. Compose operations have a **900 second** timeout.

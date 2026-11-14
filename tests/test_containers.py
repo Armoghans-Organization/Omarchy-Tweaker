@@ -129,6 +129,47 @@ def test_bundled_atuin_manifest_exposes_expected_assets() -> None:
     assert atuin.caddyfile.is_file()
 
 
+def test_bundled_atuin_caddyfile_is_statically_valid() -> None:
+    atuin = next(spec for spec in load_container_specs() if spec.slug == "atuin")
+    caddyfile = atuin.caddyfile.read_text(encoding="utf-8")
+
+    assert "http://atuin-ai.localhost" in caddyfile
+    assert "reverse_proxy 127.0.0.1:6900" in caddyfile
+    assert "http://chat.atuin-ai.localhost" in caddyfile
+    assert "http://models.atuin-ai.localhost" in caddyfile
+    assert "rewrite /api/cli/chat" in caddyfile
+    assert "rewrite /api/cli/models" in caddyfile
+
+
+def test_bundled_open_webui_manifest_exposes_expected_assets() -> None:
+    specs = load_container_specs()
+    webui = next(spec for spec in specs if spec.slug == "open-webui")
+
+    assert webui.name == "Open WebUI"
+    assert webui.symlinks == ()
+    assert webui.generated_env == ("WEBUI_SECRET_KEY",)
+    assert webui.compose_file.is_file()
+    assert webui.env_example_file.is_file()
+    assert webui.caddyfile.is_file()
+
+
+def test_bundled_open_webui_compose_is_statically_valid() -> None:
+    webui = next(spec for spec in load_container_specs() if spec.slug == "open-webui")
+    compose = webui.compose_file.read_text(encoding="utf-8")
+
+    assert "container_name: OpenWebUi" in compose
+    assert "network_mode: host" in compose
+    assert "PORT=${PORT:?set PORT in .env}" in compose
+    assert "WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:?set WEBUI_SECRET_KEY in .env}" in compose
+    assert "OLLAMA_BASE_URLS=${OLLAMA_BASE_URL:-http://ollama.localhost}" in compose
+    assert "OPENAI_API_BASE_URL=${OMNIROUTE_URL:-http://omniroute.localhost}" in compose
+    assert "${HOME}/Projects/Containers/open-webui/data:/app/backend/data" in compose
+
+    caddyfile = webui.caddyfile.read_text(encoding="utf-8")
+    assert "http://open-webui.localhost" in caddyfile
+    assert "reverse_proxy 127.0.0.1:6901" in caddyfile
+
+
 def test_load_container_specs_rejects_unsafe_symlink_source(tmp_path: Path) -> None:
     catalog = _catalog(tmp_path)
     _write(

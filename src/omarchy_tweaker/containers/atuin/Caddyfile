@@ -13,7 +13,7 @@ http://atuin-ai.localhost {
 
 	# Access logs
 	log {
-		output file {$HOME}/Projects/Containers/atuin/caddy.log {
+		output file /var/log/caddy/atuin-ai.log {
 			roll_size 10MiB
 			roll_keep 2
 			roll_keep_for 7d

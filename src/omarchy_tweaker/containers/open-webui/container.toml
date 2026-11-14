@@ -1,0 +1,9 @@
+# Omarchy Tweaker container manifest.
+# See docs/containers.md for the available keys.
+
+[container]
+name = "Open WebUI"
+description = "Web UI for local LLM inference with an OpenAI-compatible API."
+
+[env]
+generate = ["WEBUI_SECRET_KEY"]

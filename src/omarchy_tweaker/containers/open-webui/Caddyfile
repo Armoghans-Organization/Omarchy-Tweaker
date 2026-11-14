@@ -1,0 +1,27 @@
+# Main Open WebUI domain
+http://open-webui.localhost {
+	# Reverse proxy
+	reverse_proxy 127.0.0.1:6901 {
+		# Forward original client information
+		header_up X-Real-IP {remote_host}
+	}
+
+	# Compression
+	encode zstd gzip
+
+	# Access logs
+	log {
+		output file /var/log/caddy/open-webui.log {
+			roll_size 10MiB
+			roll_keep 2
+			roll_keep_for 7d
+		}
+	}
+
+	# Response headers
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
