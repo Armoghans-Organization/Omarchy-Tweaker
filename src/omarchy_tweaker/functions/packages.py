@@ -50,6 +50,10 @@ PACMAN_PACKAGES: Final = (
     "zen-browser-bin",
     "zram-generator",
     "rclone",
+    "caddy",
+    "docker",
+    "docker-compose",
+    "docker-buildx",
 )
 
 AUR_PACKAGES: Final = (

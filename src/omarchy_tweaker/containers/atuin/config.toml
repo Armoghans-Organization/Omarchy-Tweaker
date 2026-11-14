@@ -1,0 +1,89 @@
+# ===================================================
+#          Atuin AI Server configuration
+# ===================================================
+
+# Internal container port
+port = 6900
+
+# The OpenAI-compatible chat-completions endpoint
+# Omniroute Running on Host machine
+endpoint = "http://127.0.0.1:20128/v1"
+
+# API key for the OpenAI-compatible endpoint.
+# Get one from the .env file
+[api_key]
+env = "ATUIN_API_KEY"
+
+# Default Model (From Omniroute)
+default_model = "main"
+
+# Optional extra chat-completions body fields for engines that take them.
+# stream/model/messages/tools are owned by the server and rejected here.
+# Most engines (Ollama, vLLM, ...) only report token usage on streams
+# when asked:
+[request.body]
+stream_options = { include_usage = true }
+
+# ===================================================
+#          OmniRoute Models
+# ===================================================
+
+[[models]]
+alias = "main"
+name = "OmniRoute"
+description = "Routed through OmniRoute"
+model = "auto"
+default_model = "omniroute"
+
+[[models]]
+alias = "best-fast"
+name = "Best Fast"
+description = "OmniRoute best fast model"
+model = "auto/best-fast"
+
+[[models]]
+alias = "best-free"
+name = "Best Free"
+description = "OmniRoute best free model"
+model = "auto/best-free"
+
+[[models]]
+alias = "smart"
+name = "Smart"
+description = "OmniRoute smart model"
+model = "auto/smart"
+
+[[models]]
+alias = "best-chat"
+name = "Best Chat"
+description = "OmniRoute top chat model"
+model = "auto/best-chat"
+
+[[models]]
+alias = "best-reasoning"
+name = "Best Reasoning"
+description = "OmniRoute top reasoning model"
+model = "auto/best-reasoning"
+
+
+# ===================================================
+#          Ollama Models (via OmniRoute)
+# ===================================================
+
+[[models]]
+alias = "ollama-tinyllama-1.1b"
+name = "Ollama TinyLlama 1.1B (local)"
+description = "Ollama TinyLlama 1.1B model"
+model = "ollama/tinyllama:1.1b"
+
+[[models]]
+alias = "ollama-tinyllama-latest"
+name = "Ollama TinyLlama Latest (local)"
+description = "Ollama TinyLlama Latest model"
+model = "ollama/tinyllama:latest"
+
+[[models]]
+alias = "ollama-dolphin-phi"
+name = "Ollama Dolphin Phi"
+description = "Ollama Dolphin Phi"
+model = "ollama/dolphin-phi:2.7b-v2.6-q3_K_S"

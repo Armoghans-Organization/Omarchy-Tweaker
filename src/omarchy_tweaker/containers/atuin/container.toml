@@ -1,0 +1,13 @@
+# Omarchy Tweaker container manifest.
+# See docs/containers.md for the available keys.
+
+[container]
+name = "Atuin AI Server"
+description = "Atuin AI chat server with an OpenAI-compatible API."
+
+[symlinks]
+"config.toml" = "~/.config/atuin-ai-server/config.toml"
+"atuin.toml" = "~/.config/atuin/config.toml"
+
+[env]
+generate = ["AUTH_TOKEN"]

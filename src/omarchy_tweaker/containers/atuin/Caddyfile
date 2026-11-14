@@ -1,0 +1,43 @@
+# Main Atuin domain
+http://atuin-ai.localhost {
+	# Reverse proxy
+	reverse_proxy 127.0.0.1:6900 {
+		# Forward original client information
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	# Compression
+	encode zstd gzip
+
+	# Access logs
+	log {
+		output file {$HOME}/Projects/Containers/atuin/caddy.log {
+			roll_size 10MiB
+			roll_keep 2
+			roll_keep_for 7d
+		}
+	}
+
+	# Response headers
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
+
+# Chat endpoint
+http://chat.atuin-ai.localhost {
+	reverse_proxy 127.0.0.1:6900 {
+		rewrite /api/cli/chat
+	}
+}
+
+# Models endpoint
+http://models.atuin-ai.localhost {
+	reverse_proxy 127.0.0.1:6900 {
+		rewrite /api/cli/models
+	}
+}

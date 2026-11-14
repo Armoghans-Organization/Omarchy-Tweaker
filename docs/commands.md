@@ -1,5 +1,5 @@
 ---
-description: Complete reference for the welcome, snapshot, cleanup, directory, package, and plugin commands in Omarchy Tweaker.
+description: Complete reference for the welcome, snapshot, cleanup, directory, package, container, and plugin commands in Omarchy Tweaker.
 icon: material/console-line
 subtitle: CLI reference
 mermaid: true
@@ -17,6 +17,7 @@ Complete reference for the currently implemented Omarchy Tweaker commands.
 | `cleanup` | Yes | Yes | — |
 | `directories` | Yes | Yes | — |
 | `packages` | Yes | Yes | — |
+| `containers` | Yes | Yes | — |
 | `plugins` | Yes | Yes | — |
 
 ```mermaid
@@ -38,9 +39,12 @@ flowchart TD
     B -- packages --> P{TTY?}
     P -- Yes --> Q[Select, confirm, install]
     P -- No --> R[Skip with warning]
-    B -- plugins --> S{TTY?}
-    S -- Yes --> T[Select, confirm, install plugins and shell config]
+    B -- containers --> S{TTY?}
+    S -- Yes --> T[Select, prepare, configure Caddy, start containers]
     S -- No --> U[Skip with warning]
+    B -- plugins --> V{TTY?}
+    V -- Yes --> W[Select, confirm, install plugins and shell config]
+    V -- No --> X[Skip with warning]
 ```
 
 ---
@@ -53,7 +57,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 
 | Behavior | Details |
 |:--|:--|
-| No arguments | Runs the default sequence: banner, snapshot, cleanup, directories, packages, and plugins. |
+| No arguments | Runs the default sequence: banner, snapshot, cleanup, directories, packages, containers, and plugins. |
 | With a subcommand | Shows the banner, then runs the selected command. |
 | `--help` | Shows global help and the available commands. |
 | Completion | Disabled. |
@@ -71,6 +75,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Review and remove selected packages or launchers | `omarchy-tweaker cleanup` |
 | Create the standard workspace directories | `omarchy-tweaker directories` |
 | Install selected Pacman and AUR packages | `omarchy-tweaker packages` |
+| Prepare and start selected Docker containers | `omarchy-tweaker containers` |
 | Install selected Omarchy shell plugins | `omarchy-tweaker plugins` |
 | Run the guided snapshot, cleanup, and directory sequence | `omarchy-tweaker` |
 | See every command and option | `omarchy-tweaker --help` |
@@ -80,9 +85,10 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Code | Meaning |
 |:--:|:--|
 | `0` | The command completed, or the step was skipped safely. |
-| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, package installation, or plugin installation. |
+| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, package installation, container setup, or plugin installation. |
 
-A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, selecting no packages, or selecting no plugins exits successfully.
+A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, selecting no packages, selecting no containers, or selecting no
+plugins exits successfully.
 
 ---
 
@@ -305,6 +311,60 @@ See **[Packages](packages.md)** for the full package catalog and safety details.
 
 ---
 
+## `containers`
+
+Prepare Docker Compose projects and start selected containers.
+
+```bash
+omarchy-tweaker containers
+```
+
+Containers has no command-line options. It always uses the interactive selection workflow.
+Container setup runs in the default sequence after packages and is also available as the
+standalone `containers` command.
+
+### Behavior
+
+1. Loads container definitions from `src/omarchy_tweaker/containers/`.
+2. Lets you select containers.
+3. Asks for confirmation before preparing anything.
+4. Creates `~/Projects/Containers/<container>`, copies the compose file, and links the
+   container's configuration files into the runtime directory.
+5. Creates `.env` from `.env.example`, offering automatic generation for secrets and
+   prompting for the remaining values. Existing `.env` files are kept and must not
+   reference unset variables.
+6. Creates configured host symlinks, backing up an existing destination first.
+7. Resolves Compose `container_name` conflicts by offering to stop and rename the
+   conflicting container.
+8. Optionally copies each container Caddyfile into `/etc/caddy/omarchy-tweaker/` and adds
+   a managed import block to the host Caddyfile.
+9. Starts and enables Caddy when needed, then reloads it after the configuration changes.
+10. Starts each prepared container with `docker compose up -d --remove-orphans`.
+
+Each container runs inside a virtual terminal with a progress display in the same live view.
+
+### Non-interactive use
+
+`omarchy-tweaker containers` requires an interactive terminal. Without one, it prints a
+warning and skips without preparing or starting anything.
+
+### Failure handling
+
+A preparation, Caddy, or Docker Compose failure is reported and exits with code `1`. A
+failure for one container does not prevent the remaining selected containers from being
+processed. Compose operations have a **900 second** timeout.
+
+### Requirements
+
+- `docker` and the Docker Compose plugin must be on `PATH`.
+- Caddy must be installed for reverse-proxy configuration.
+- `sudo` is required to update the host Caddyfile and reload Caddy.
+
+See **[Containers](containers.md)** for the catalog layout, manifest format, symlinks, and
+Caddy details.
+
+---
+
 ## `plugins`
 
 Install selected Omarchy shell plugins from a fixed catalog.
@@ -370,6 +430,10 @@ See **[Plugins](plugins.md)** for the full catalog, placement rules, and patch d
 | `XDG_STATE_HOME` | Base directory for logs when the override is unset. |
 | `OMARCHY_REMOVE_NOTIFY` | Set to `false` internally during removal to suppress Omarchy removal notifications. |
 | `OMARCHY_TWEAKER_PATCHES_DIR` | Override the directory used for plugin patch scripts. |
+| `OMARCHY_TWEAKER_CONTAINERS_DIR` | Override the bundled container catalog directory. |
+| `OMARCHY_TWEAKER_CONTAINERS_ROOT` | Override the prepared-container directory. |
+| `OMARCHY_TWEAKER_CADDY_CONFIG` | Override the host Caddyfile path. |
+| `OMARCHY_TWEAKER_CADDY_DIR` | Override the managed Caddy snippet directory. |
 
 Logs default to `$XDG_STATE_HOME/omarchy_tweaker/logs/` or `~/.local/state/omarchy_tweaker/logs/`.
 

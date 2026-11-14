@@ -1,0 +1,26 @@
+services:
+  atuin:
+    image: ghcr.io/atuinsh/atuin-ai-server:latest
+    container_name: Atuin-Ai
+    restart: unless-stopped
+
+    network_mode: host
+
+    environment:
+      AUTH_TOKEN: ${AUTH_TOKEN:?set AUTH_TOKEN in .env}
+      ATUIN_API_KEY: ${ATUIN_API_KEY:?set ATUIN_API_KEY in .env}
+
+    volumes:
+      - ./config.toml:/etc/atuin-ai/config.toml:ro
+
+    init: true
+    pids_limit: 100
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

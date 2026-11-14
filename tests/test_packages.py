@@ -83,7 +83,9 @@ def test_package_catalog_uses_expected_groups_and_commands() -> None:
         ("yay", "-S", "--noconfirm", "--needed", "--noprogressbar"),
     ]
     assert PACMAN_PACKAGES[0] == "atuin"
-    assert PACMAN_PACKAGES[-1] == "rclone"
+    assert "rclone" in PACMAN_PACKAGES
+    assert "caddy" in PACMAN_PACKAGES
+    assert "docker" in PACMAN_PACKAGES
     assert AUR_PACKAGES == ("powershell-bin", "cyberchef-web", "anydesk-bin")
 
 
