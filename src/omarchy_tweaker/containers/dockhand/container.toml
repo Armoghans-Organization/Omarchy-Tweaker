@@ -1,0 +1,6 @@
+# Omarchy Tweaker container manifest.
+# See docs/containers.md for the available keys.
+
+[container]
+name = "Dockhand"
+description = "Web UI for managing Docker containers, images, and volumes."

@@ -67,12 +67,13 @@ Each container lives in its own directory below `src/omarchy_tweaker/containers/
 | `container.toml` | No | Display name, description, host symlinks, and generated secrets. |
 | Other files | No | Configuration files linked into the runtime directory. |
 
-The catalog currently contains two containers:
+The catalog currently contains three containers:
 
 | Container | Directory | Description |
 |:--|:--|:--|
 | Atuin AI Server | `containers/atuin/` | Atuin AI chat server with an OpenAI-compatible API. |
 | Open WebUI | `containers/open-webui/` | Web UI for local LLM inference with an OpenAI-compatible API. |
+| Dockhand | `containers/dockhand/` | Web UI for managing Docker containers, images, and volumes. |
 
 ---
 
@@ -230,6 +231,38 @@ directory before starting the container, or the bind mount will be created empty
 | `open-webui.localhost` | `127.0.0.1:6901` |
 
 Access log: `/var/log/caddy/open-webui.log`.
+
+---
+
+## Container: Dockhand
+
+Dockhand is a web UI for managing Docker containers, images, and volumes. Its directory is
+`src/omarchy_tweaker/containers/dockhand/`.
+
+```text
+containers/dockhand/
+├── .env.example
+├── Caddyfile
+├── container.toml
+└── docker-compose.yml
+```
+
+- Runtime directory: `~/Projects/Containers/dockhand`.
+- Compose container name: `dockhand`.
+- Network: `network_mode: host`. The container listens on `PORT` from `.env`, which
+  defaults to `6902`.
+- Host symlinks: none.
+- Prompted value: `PORT`.
+- Data is bind-mounted at `~/Projects/Containers/dockhand/data`, and the Docker socket is
+  mounted at `/var/run/docker.sock` so Dockhand can manage the host daemon.
+
+### Caddy routes
+
+| Domain | Upstream |
+|:--|:--|
+| `dockhand.localhost` | `127.0.0.1:6902` |
+
+Access log: `/var/log/caddy/dockhand.log`.
 
 ---
 
