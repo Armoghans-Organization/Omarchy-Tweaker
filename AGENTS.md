@@ -57,7 +57,7 @@ The repository is in the **early implementation stage**.
 - The `cleanup` command discovers installed Omarchy packages, web app launchers, TUI launchers, and Mise wrappers, presents separate selectable lists per type, and removes only the items the user explicitly selects and confirms.
 - The `directories` command creates the fixed workspace directories (`~/Github`, `~/Github/Clone`, `~/Projects`, `~/Projects/Containers`, `~/.ISO`, `~/.VM`, `~/.Cloud`) after per-path confirmation and never overwrites existing paths.
 - The `packages` command presents fixed Pacman and AUR package groups and installs selected packages with `sudo pacman -S --noconfirm --needed --noprogressbar` and `yay -S --noconfirm --needed --noprogressbar`.
-- The `containers` command loads container definitions from `src/omarchy_tweaker/containers/`, prepares selected containers below `~/Projects/Containers/<container>`, creates `.env` files from `.env.example` with optional secret generation, backs up and links configured host symlinks, resolves Compose container-name conflicts by stopping and renaming existing containers, links container Caddyfiles into a managed directory with an import block in the host Caddyfile, starts and enables Caddy when needed, and starts containers with `docker compose up -d`. The bundled catalog currently contains Atuin AI Server, Open WebUI, and Dockhand.
+- The `containers` command loads container definitions from `src/omarchy_tweaker/containers/`, prepares selected containers below `~/Projects/Containers/<container>`, creates `.env` files from `.env.example` with optional secret generation, backs up and links configured host symlinks, resolves Compose container-name conflicts by stopping and renaming existing containers, links container Caddyfiles into a managed directory with an import block in the host Caddyfile, starts and enables Caddy when needed, and starts containers with `docker compose up -d`. When OmniRoute is selected it also installs the host `omniroute` CLI with npm when missing or outdated, runs `discover.sh` to generate `compose.agents.yaml` (explicit `CLI_*_BIN` paths, `CLI_EXTRA_PATHS`, and AI agent configuration mounts, merged into the Compose start), pre-creates the writable runtime data directory, prints the one-time onboarding bootstrap token from the container logs, and offers to persist the `OMNIROUTE_BASE_URL`/`OMNIROUTE_API_KEY` exports in `~/.zshrc` or print them for manual entry. The bundled catalog currently contains Atuin AI Server, Open WebUI, Dockhand, and OmniRoute.
 - The `plugins` command loads a fixed plugin catalog from `src/omarchy_tweaker/config/plugins.ini`, installs selected Omarchy shell plugins with `omarchy plugin add <url> --yes --enable`, skips already-installed plugins by repository URL, applies configured bar positions, runs optional patch scripts from `patches/`, and replaces `~/.config/omarchy/shell.json` with the bundled configuration after successful installation.
 - Reusable UI, logging, metadata, and Rich error-handling utilities are implemented.
 
@@ -196,6 +196,12 @@ Before adding a dependency:
 │   │   │   │   ├── .env.example
 │   │   │   │   ├── Caddyfile
 │   │   │   │   ├── container.toml
+│   │   │   │   └── docker-compose.yml
+│   │   │   ├── omniroute/       [IMPLEMENTED] OmniRoute container definition.
+│   │   │   │   ├── .env.example
+│   │   │   │   ├── Caddyfile
+│   │   │   │   ├── container.toml
+│   │   │   │   ├── discover.sh
 │   │   │   │   └── docker-compose.yml
 │   │   │   └── open-webui/      [IMPLEMENTED] Open WebUI container definition.
 │   │   │       ├── .env.example

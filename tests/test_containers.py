@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import stat
 import subprocess
 from collections.abc import Iterator, Sequence
@@ -30,8 +31,18 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _completed(returncode: int = 0) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout="", stderr="")
+def _completed(
+    returncode: int = 0,
+    *,
+    stdout: str = "",
+    stderr: str = "",
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(
+        args=[],
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
 
 
 def _catalog(tmp_path: Path) -> Path:
@@ -55,6 +66,7 @@ def _catalog(tmp_path: Path) -> Path:
 [container]
 name = "Demo Service"
 description = "A demo container."
+directories = ["data"]
 
 [symlinks]
 "config.toml" = "~/.config/demo/config.toml"
@@ -94,6 +106,7 @@ def test_load_container_specs_reads_manifest_and_defaults(tmp_path: Path) -> Non
     assert [spec.slug for spec in specs] == ["demo-service", "plain"]
     assert specs[0].name == "Demo Service"
     assert specs[0].description == "A demo container."
+    assert specs[0].directories == ("data",)
     assert specs[0].symlinks == (("config.toml", "~/.config/demo/config.toml"),)
     assert specs[0].generated_env == ("AUTH_TOKEN",)
     assert specs[1].name == "Plain"
@@ -257,6 +270,7 @@ def test_prepare_container_creates_runtime_files_and_symlinks(
     assert (runtime / "Caddyfile").is_symlink()
     assert not (runtime / "container.toml").exists()
     assert not (runtime / ".env.example").exists()
+    assert (runtime / "data").is_dir()
 
     env_text = (runtime / ".env").read_text(encoding="utf-8")
     assert "AUTH_TOKEN=" in env_text
@@ -268,6 +282,70 @@ def test_prepare_container_creates_runtime_files_and_symlinks(
     assert destination.resolve() == (runtime / "config.toml").resolve()
     backups = list(destination.parent.glob("config.toml.bak.*"))
     assert len(backups) == 1
+
+
+def test_prepare_container_fixes_unwritable_runtime_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    spec = _spec(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    runtime = tmp_path / "root" / "demo-service"
+    (runtime / "data").mkdir(parents=True)
+    commands: list[Sequence[str]] = []
+
+    def fake_run(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return _completed()
+
+    monkeypatch.setattr(containers_module, "_directory_is_writable", lambda path: False)
+    monkeypatch.setattr(containers_module, "_run_process", fake_run)
+    monkeypatch.setattr(ui, "is_interactive", lambda: True)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: True)
+    monkeypatch.setattr(ui, "prompt_text", lambda *args, **kwargs: "real-api-key")
+
+    assert prepare_container(spec, home=home, containers_root=tmp_path / "root") is True
+    assert commands == [
+        [
+            "sudo",
+            "chown",
+            "-R",
+            f"{os.getuid()}:{os.getgid()}",
+            str(runtime / "data"),
+        ]
+    ]
+
+
+def test_prepare_container_keeps_unwritable_runtime_directory_when_declined(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    spec = _spec(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    runtime = tmp_path / "root" / "demo-service"
+    (runtime / "data").mkdir(parents=True)
+
+    monkeypatch.setattr(containers_module, "_directory_is_writable", lambda path: False)
+    monkeypatch.setattr(ui, "is_interactive", lambda: True)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: False)
+
+    assert prepare_container(spec, home=home, containers_root=tmp_path / "root") is False
+
+
+def test_load_container_specs_rejects_unsafe_directory_entry(tmp_path: Path) -> None:
+    catalog = _catalog(tmp_path)
+    _write(
+        catalog / "demo-service" / "container.toml",
+        """
+[container]
+name = "Demo Service"
+directories = ["../escape"]
+""",
+    )
+
+    assert load_container_specs(catalog) == ()
 
 
 def test_prepare_container_keeps_existing_env_file(
@@ -594,6 +672,694 @@ def test_run_containers_step_skips_when_confirmation_declined(
     assert containers_module.run_containers_step(containers=(spec,)) is ContainerResult.SKIPPED
 
 
+def test_bundled_omniroute_manifest_exposes_expected_assets() -> None:
+    specs = load_container_specs()
+    omniroute = next(spec for spec in specs if spec.slug == "omniroute")
+
+    assert omniroute.name == "OmniRoute"
+    assert omniroute.generated_env == ("OMNIROUTE_WS_BRIDGE_SECRET",)
+    assert omniroute.directories == ("data",)
+    assert omniroute.compose_file.is_file()
+    assert omniroute.env_example_file.is_file()
+    assert omniroute.caddyfile.is_file()
+    assert (omniroute.directory / "discover.sh").is_file()
+    assert not (omniroute.directory / "compose.agents.yaml").exists()
+
+
+def test_bundled_omniroute_compose_is_statically_valid() -> None:
+    omniroute = next(spec for spec in load_container_specs() if spec.slug == "omniroute")
+    compose = omniroute.compose_file.read_text(encoding="utf-8")
+
+    assert "container_name: omniroute" in compose
+    assert "network_mode: host" in compose
+    assert "CLI_MOUNTS_FILE" not in compose
+    assert "compose.agents.yaml:/app" not in compose
+    assert "/host-mise/installs" not in compose
+    assert 'CLI_EXTRA_PATHS: "/host-node/bin:/usr/local/bin:/host-local/bin"' in compose
+    assert "CLI_MODE: auto" in compose
+    assert "CLI_CONFIG_HOME: /home/node" in compose
+    assert "./data:/app/data" in compose
+    assert "./redis:/data" in compose
+    assert "${HOME}/Projects/Containers" not in compose
+    assert "/home/armoghan" not in compose
+
+
+def test_bundled_omniroute_env_example_has_no_machine_specific_paths() -> None:
+    omniroute = next(spec for spec in load_container_specs() if spec.slug == "omniroute")
+    template = omniroute.env_example_file.read_text(encoding="utf-8")
+
+    assert "/home/" not in template
+    assert "HOST_NODE_BIN=\n" in template
+
+
+def test_detect_host_node_bin_prefers_environment_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOST_NODE_BIN", "/custom/node/bin")
+
+    assert containers_module._detect_host_node_bin() == "/custom/node/bin"
+
+
+def test_detect_host_node_bin_falls_back_to_path_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HOST_NODE_BIN", raising=False)
+    monkeypatch.setattr(
+        "omarchy_tweaker.functions.containers.shutil.which",
+        lambda name: "/opt/node/bin/node" if name == "node" else None,
+    )
+
+    assert containers_module._detect_host_node_bin() == "/opt/node/bin"
+
+
+def test_detect_host_node_bin_returns_none_when_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HOST_NODE_BIN", raising=False)
+    monkeypatch.setattr(
+        "omarchy_tweaker.functions.containers.shutil.which",
+        lambda name: None,
+    )
+
+    assert containers_module._detect_host_node_bin() is None
+
+
+def test_auto_detect_env_default_maps_host_node_bin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        containers_module,
+        "_detect_host_node_bin",
+        lambda: "/detected/node/bin",
+    )
+
+    assert containers_module._auto_detect_env_default("HOST_NODE_BIN") == "/detected/node/bin"
+    assert containers_module._auto_detect_env_default("API_PORT") is None
+
+
+def test_ensure_omniroute_cli_returns_true_when_already_current(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(containers_module, "_installed_npm_version", lambda: "3.8.52")
+    monkeypatch.setattr(containers_module, "_npm_package_outdated", lambda package: False)
+
+    assert containers_module.ensure_omniroute_cli() is True
+
+
+def test_ensure_omniroute_cli_updates_when_outdated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[Sequence[str]] = []
+
+    def fake_run(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return _completed()
+
+    monkeypatch.setattr(containers_module, "_installed_npm_version", lambda: "3.8.0")
+    monkeypatch.setattr(containers_module, "_npm_package_outdated", lambda package: True)
+    monkeypatch.setattr(
+        "omarchy_tweaker.functions.containers.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+    monkeypatch.setattr(containers_module, "_run_process", fake_run)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: True)
+
+    assert containers_module.ensure_omniroute_cli() is True
+    assert ["/usr/bin/npm", "install", "-g", "omniroute"] in commands
+
+
+def test_ensure_omniroute_cli_keeps_installed_when_update_declined(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[Sequence[str]] = []
+
+    def fake_run(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return _completed()
+
+    monkeypatch.setattr(containers_module, "_installed_npm_version", lambda: "3.8.0")
+    monkeypatch.setattr(containers_module, "_npm_package_outdated", lambda package: True)
+    monkeypatch.setattr(containers_module, "_run_process", fake_run)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: False)
+
+    assert containers_module.ensure_omniroute_cli() is True
+    assert commands == []
+
+
+def test_ensure_omniroute_cli_installs_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[Sequence[str]] = []
+
+    def fake_run(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return _completed()
+
+    monkeypatch.setattr(containers_module, "_installed_npm_version", lambda: None)
+    monkeypatch.setattr(
+        "omarchy_tweaker.functions.containers.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+    monkeypatch.setattr(containers_module, "_run_process", fake_run)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: True)
+
+    assert containers_module.ensure_omniroute_cli() is True
+    assert ["/usr/bin/npm", "install", "-g", "omniroute"] in commands
+
+
+def test_ensure_omniroute_cli_returns_false_when_declined(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(containers_module, "_installed_npm_version", lambda: None)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: False)
+
+    assert containers_module.ensure_omniroute_cli() is False
+
+
+def test_ensure_omniroute_cli_returns_false_when_npm_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(containers_module, "_installed_npm_version", lambda: None)
+    monkeypatch.setattr(
+        "omarchy_tweaker.functions.containers.shutil.which",
+        lambda name: None,
+    )
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: True)
+
+    assert containers_module.ensure_omniroute_cli() is False
+
+
+def test_discover_agent_mounts_runs_discover_script(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    commands: list[Sequence[str]] = []
+
+    def fake_run(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return _completed()
+
+    _write(tmp_path / "discover.sh", "#!/usr/bin/env bash\nset -euo pipefail\n")
+    _write(
+        tmp_path / "compose.agents.yaml",
+        'services:\n  omniroute:\n    volumes:\n      - "/home/agent/.claude:/host-home/.claude:rw"\n',
+    )
+    monkeypatch.setattr(containers_module, "_run_process", fake_run)
+
+    mounts = containers_module.discover_agent_mounts(tmp_path)
+
+    assert mounts == ('- "/home/agent/.claude:/host-home/.claude:rw"',)
+    assert commands[0][:2] == ["bash", str(tmp_path / "discover.sh")]
+
+
+def test_discover_agent_mounts_returns_empty_when_no_agents(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(containers_module, "_run_process", lambda command, **kwargs: _completed())
+    _write(tmp_path / "discover.sh", "#!/usr/bin/env bash\nset -euo pipefail\n")
+    _write(tmp_path / "compose.agents.yaml", "services:\n  omniroute:\n    volumes:\n")
+
+    assert containers_module.discover_agent_mounts(tmp_path) == ()
+
+
+def test_discover_agent_mounts_returns_none_when_script_missing(tmp_path: Path) -> None:
+    assert containers_module.discover_agent_mounts(tmp_path) is None
+
+
+def test_discover_agent_mounts_returns_none_when_script_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        containers_module,
+        "_run_process",
+        lambda command, **kwargs: _completed(1),
+    )
+    _write(tmp_path / "discover.sh", "#!/usr/bin/env bash\nset -euo pipefail\n")
+
+    assert containers_module.discover_agent_mounts(tmp_path) is None
+
+
+def test_discover_script_emits_real_cli_paths(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    mise_root = tmp_path / "mise"
+    fake_bin = tmp_path / "bin"
+    node_bin = home / "node" / "bin"
+
+    for directory in (
+        home / ".claude",
+        home / ".config" / "opencode",
+        home / ".pi" / "agent",
+        home / ".hermes",
+        home / ".omp" / "agent",
+        home / ".grok",
+        home / ".local" / "bin",
+        home / ".local" / "share" / "mise" / "installs",
+        node_bin,
+        mise_root / "claude" / "latest",
+        mise_root / "codex" / "latest" / "bin",
+        fake_bin,
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+
+    claude = mise_root / "claude" / "latest" / "claude"
+    codex = mise_root / "codex" / "latest" / "bin" / "codex"
+    for binary in (claude, codex):
+        _write(binary, "#!/usr/bin/env bash\n")
+        binary.chmod(0o755)
+
+    shim = home / ".local" / "bin" / "claude"
+    _write(shim, '#!/usr/bin/env bash\nmise x claude -- claude "$@"\n')
+    shim.chmod(0o755)
+
+    mise = fake_bin / "mise"
+    _write(
+        mise,
+        "#!/usr/bin/env bash\n"
+        'case "$2" in\n'
+        f'  claude) printf "%s\\n" "{claude}" ;;\n'
+        f'  codex) printf "%s\\n" "{codex}" ;;\n'
+        "  *) exit 1 ;;\n"
+        "esac\n",
+    )
+    mise.chmod(0o755)
+
+    _write(tmp_path / ".env", f"HOST_NODE_BIN={node_bin}\n")
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "omarchy_tweaker"
+        / "containers"
+        / "omniroute"
+        / "discover.sh"
+    )
+    environment = {
+        **os.environ,
+        "HOME": str(home),
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "OMNIROUTE_ENV_FILE": ".env",
+    }
+    subprocess.run(
+        ["bash", str(script)],
+        cwd=tmp_path,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    compose = (tmp_path / "compose.agents.yaml").read_text(encoding="utf-8")
+    assert f'CLI_CLAUDE_BIN: "{claude}"' in compose
+    assert f'CLI_CODEX_BIN: "{codex}"' in compose
+    assert "/host-local/bin/claude" not in compose
+    assert "mise x claude" not in compose
+    assert 'PI_CODING_AGENT_DIR: "/home/node/.pi/agent"' in compose
+    assert 'HERMES_HOME: "/home/node/.hermes"' in compose
+    assert f'"{home}/.config/opencode:/home/node/.config/opencode:rw"' in compose
+    assert f'"{home}/.omp:/home/node/.omp:rw"' in compose
+    assert f'"{home}/.grok:/home/node/.grok:rw"' in compose
+    assert "/host-home" not in compose
+
+    extra = next(line for line in compose.splitlines() if "CLI_EXTRA_PATHS:" in line)
+    assert extra.startswith('      CLI_EXTRA_PATHS: "/host-node/bin:')
+    assert extra.endswith(':/host-local/bin"')
+
+    path = next(line for line in compose.splitlines() if line.startswith("      PATH:"))
+    assert "/usr/local/bin" in path
+    assert "/usr/bin" in path
+
+
+class _RecordingConsole:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def print(self, *args: object, **kwargs: object) -> None:
+        self.lines.extend(str(arg) for arg in args)
+
+
+def test_connect_omniroute_cli_prints_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    console = _RecordingConsole()
+    monkeypatch.setattr(ui, "get_console", lambda: console)
+    _write(tmp_path / ".env", "BASE_URL=http://127.0.0.1:6905\nREQUIRE_API_KEY=false\n")
+
+    assert containers_module.connect_omniroute_cli(tmp_path) is True
+    assert "export OMNIROUTE_BASE_URL=http://127.0.0.1:6905" in console.lines
+
+
+def test_connect_omniroute_cli_derives_url_from_api_port(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    console = _RecordingConsole()
+    monkeypatch.setattr(ui, "get_console", lambda: console)
+    _write(tmp_path / ".env", "API_PORT=7000\n")
+
+    assert containers_module.connect_omniroute_cli(tmp_path) is True
+    assert "export OMNIROUTE_BASE_URL=http://127.0.0.1:7000" in console.lines
+
+
+def test_connect_omniroute_cli_mentions_api_key_when_required(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    console = _RecordingConsole()
+    monkeypatch.setattr(ui, "get_console", lambda: console)
+    monkeypatch.delenv("OMNIROUTE_API_KEY", raising=False)
+    _write(tmp_path / ".env", "BASE_URL=http://127.0.0.1:6905\nREQUIRE_API_KEY=true\n")
+
+    assert containers_module.connect_omniroute_cli(tmp_path) is True
+    assert any("OMNIROUTE_API_KEY" in line for line in console.lines)
+
+
+def test_connect_omniroute_cli_returns_false_without_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(ui, "get_console", lambda: _RecordingConsole())
+
+    assert containers_module.connect_omniroute_cli(tmp_path) is False
+
+
+def test_connect_omniroute_cli_offers_shell_profile_update(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    profile = tmp_path / ".zshrc"
+    monkeypatch.setattr(ui, "get_console", lambda: _RecordingConsole())
+    monkeypatch.setattr(ui, "is_interactive", lambda: True)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: True)
+    _write(
+        tmp_path / ".env",
+        "BASE_URL=http://127.0.0.1:6905\nREQUIRE_API_KEY=false\n",
+    )
+
+    assert containers_module.connect_omniroute_cli(tmp_path, profile_path=profile) is True
+    content = profile.read_text(encoding="utf-8")
+    assert "# >>> omarchy-tweaker omniroute >>>" in content
+    assert "# <<< omarchy-tweaker omniroute <<<" in content
+    assert "export OMNIROUTE_BASE_URL=http://127.0.0.1:6905" in content
+
+
+def test_connect_omniroute_cli_prints_manual_instructions_when_declined(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    console = _RecordingConsole()
+    profile = tmp_path / ".zshrc"
+    monkeypatch.setattr(ui, "get_console", lambda: console)
+    monkeypatch.setattr(ui, "is_interactive", lambda: True)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: False)
+    _write(tmp_path / ".env", "BASE_URL=http://127.0.0.1:6905\n")
+
+    assert containers_module.connect_omniroute_cli(tmp_path, profile_path=profile) is True
+    assert not profile.exists()
+    assert any("Add these lines" in line for line in console.lines)
+    assert any("export OMNIROUTE_BASE_URL=http://127.0.0.1:6905" in line for line in console.lines)
+
+
+def test_update_shell_profile_is_idempotent(tmp_path: Path) -> None:
+    profile = tmp_path / ".zshrc"
+    _write(profile, "export PATH=$PATH:/existing\n")
+    lines = ["export OMNIROUTE_BASE_URL=http://127.0.0.1:6905"]
+
+    assert containers_module._update_shell_profile(profile, lines)
+    assert containers_module._update_shell_profile(profile, lines)
+
+    content = profile.read_text(encoding="utf-8")
+    assert content.count(containers_module.OMNIROUTE_RC_BEGIN) == 1
+    assert "export PATH=$PATH:/existing" in content
+
+
+def test_update_shell_profile_preserves_user_api_key(tmp_path: Path) -> None:
+    profile = tmp_path / ".zshrc"
+    lines = [
+        "export OMNIROUTE_BASE_URL=http://127.0.0.1:6905",
+        "# Create an API key in the dashboard, then uncomment and set it:",
+        '# export OMNIROUTE_API_KEY="<dashboard-api-key>"',
+    ]
+
+    assert containers_module._update_shell_profile(profile, lines)
+    content = profile.read_text(encoding="utf-8")
+    content = content.replace(
+        '# export OMNIROUTE_API_KEY="<dashboard-api-key>"',
+        'export OMNIROUTE_API_KEY="real-key"',
+    )
+    profile.write_text(content, encoding="utf-8")
+
+    assert containers_module._update_shell_profile(profile, lines)
+    updated = profile.read_text(encoding="utf-8")
+    assert updated.count('export OMNIROUTE_API_KEY="real-key"') == 1
+    assert updated.count('OMNIROUTE_API_KEY="<dashboard-api-key>"') == 0
+
+
+def test_update_shell_profile_backs_up_existing_profile(tmp_path: Path) -> None:
+    profile = tmp_path / ".zshrc"
+    _write(profile, "export PATH=$PATH:/existing\n")
+
+    assert containers_module._update_shell_profile(
+        profile, ["export OMNIROUTE_BASE_URL=http://127.0.0.1:6905"]
+    )
+
+    backups = list(tmp_path.glob(".zshrc.*.bak"))
+    assert len(backups) == 1
+    assert "export PATH=$PATH:/existing" in backups[0].read_text(encoding="utf-8")
+
+
+BOOTSTRAP_LOG_LINE = (
+    "2026-11-15T01:13:52.907676177Z [omniroute] [BOOTSTRAP] Fresh install detected "
+    "from a non-loopback peer (e.g. a Docker port-forwarded connection) with no "
+    "password configured yet. Paste this ONE-TIME bootstrap token into the onboarding "
+    "wizard to continue: S8Dll5Lmy4MobPxaLSaW38Ma73zD45Jm"
+)
+
+
+def test_find_bootstrap_token_parses_log_line() -> None:
+    assert (
+        containers_module._find_bootstrap_token(BOOTSTRAP_LOG_LINE)
+        == "S8Dll5Lmy4MobPxaLSaW38Ma73zD45Jm"
+    )
+
+
+def test_find_bootstrap_token_returns_none_for_unrelated_logs() -> None:
+    assert containers_module._find_bootstrap_token("server listening on 6905\n") is None
+
+
+def test_find_bootstrap_token_ignores_initial_password_message() -> None:
+    log = (
+        "[bootstrap] INFO  INITIAL_PASSWORD is unset here. Unless a .env file that "
+        "Next.js loads sets it, a fresh install asks you to create the dashboard "
+        "password in the onboarding wizard.\n"
+    )
+
+    assert containers_module._find_bootstrap_token(log) is None
+
+
+def test_find_bootstrap_token_skips_to_real_token_after_noise() -> None:
+    log = "\n".join(
+        (
+            "[bootstrap] INITIAL_PASSWORD is unset here. Unless a .env file sets it.",
+            "[bootstrap] JWT_SECRET auto-generated (first run)",
+            "[sqljsAdapter] save failed: EACCES",
+            "[BOOTSTRAP] Fresh install detected from a non-loopback peer with no "
+            "password configured yet. Paste this ONE-TIME bootstrap token into the "
+            "onboarding wizard to continue: i3smeVvGDNun04I2N_tmTwblpoBCtOLg",
+            "[sqljsAdapter] save failed: EACCES",
+        )
+    )
+
+    assert containers_module._find_bootstrap_token(log) == "i3smeVvGDNun04I2N_tmTwblpoBCtOLg"
+
+
+def test_find_bootstrap_token_returns_none_when_token_is_missing() -> None:
+    log = (
+        "[BOOTSTRAP] Paste this ONE-TIME bootstrap token into the onboarding wizard to continue:\n"
+    )
+
+    assert containers_module._find_bootstrap_token(log) is None
+
+
+def test_onboarding_url_prefers_public_base_url(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".env",
+        "NEXT_PUBLIC_BASE_URL=http://omniroute.localhost/\nDASHBOARD_PORT=6904\n",
+    )
+
+    assert containers_module._onboarding_url(tmp_path) == (
+        "http://omniroute.localhost/dashboard/onboarding"
+    )
+
+
+def test_onboarding_url_falls_back_to_dashboard_port(tmp_path: Path) -> None:
+    _write(tmp_path / ".env", "DASHBOARD_PORT=7001\n")
+
+    assert containers_module._onboarding_url(tmp_path) == (
+        "http://127.0.0.1:7001/dashboard/onboarding"
+    )
+
+
+def test_docker_log_text_reads_since_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    commands: list[Sequence[str]] = []
+
+    def fake_run(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return _completed(stdout=BOOTSTRAP_LOG_LINE)
+
+    monkeypatch.setattr(
+        "omarchy_tweaker.functions.containers.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+    monkeypatch.setattr(containers_module, "_run_process", fake_run)
+
+    text = containers_module._docker_log_text("omniroute", since="2026-11-15T01:00:00+00:00")
+
+    assert "BOOTSTRAP" in text
+    assert commands[0] == [
+        "/usr/bin/docker",
+        "logs",
+        "--since",
+        "2026-11-15T01:00:00+00:00",
+        "omniroute",
+    ]
+
+
+def test_show_bootstrap_token_returns_existing_token(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(ui, "get_console", lambda: _RecordingConsole())
+    monkeypatch.setattr(ui, "is_interactive", lambda: False)
+    monkeypatch.setattr(
+        containers_module,
+        "_docker_log_text",
+        lambda *args, **kwargs: BOOTSTRAP_LOG_LINE,
+    )
+
+    assert containers_module.show_bootstrap_token(tmp_path) == "S8Dll5Lmy4MobPxaLSaW38Ma73zD45Jm"
+
+
+def test_show_bootstrap_token_prints_hint_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    console = _RecordingConsole()
+    monkeypatch.setattr(ui, "get_console", lambda: console)
+    monkeypatch.setattr(ui, "is_interactive", lambda: False)
+    monkeypatch.setattr(containers_module, "_docker_log_text", lambda *args, **kwargs: "")
+    _write(tmp_path / ".env", "NEXT_PUBLIC_BASE_URL=http://omniroute.localhost\n")
+
+    assert containers_module.show_bootstrap_token(tmp_path) is None
+    assert any("grep BOOTSTRAP" in line for line in console.lines)
+
+
+def test_show_bootstrap_token_waits_when_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(ui, "get_console", lambda: _RecordingConsole())
+    monkeypatch.setattr(ui, "is_interactive", lambda: True)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: True)
+    monkeypatch.setattr(containers_module, "_docker_log_text", lambda *args, **kwargs: "")
+    monkeypatch.setattr(
+        containers_module,
+        "_wait_for_bootstrap_token",
+        lambda *args, **kwargs: "W4itedT0kenAbcdefghijklmnop123456",
+    )
+
+    assert containers_module.show_bootstrap_token(tmp_path) == "W4itedT0kenAbcdefghijklmnop123456"
+
+
+def test_show_bootstrap_token_skips_wait_when_declined(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(ui, "get_console", lambda: _RecordingConsole())
+    monkeypatch.setattr(ui, "is_interactive", lambda: True)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: False)
+    monkeypatch.setattr(containers_module, "_docker_log_text", lambda *args, **kwargs: "")
+    monkeypatch.setattr(
+        containers_module,
+        "_wait_for_bootstrap_token",
+        lambda *args, **kwargs: pytest.fail("should not wait"),
+    )
+
+    assert containers_module.show_bootstrap_token(tmp_path) is None
+
+
+def test_wait_for_bootstrap_token_returns_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Status:
+        def update(self, message: str) -> None:
+            pass
+
+    class Spinner:
+        def __enter__(self) -> Status:
+            return Status()
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+    responses = iter(["", BOOTSTRAP_LOG_LINE])
+    monkeypatch.setattr(
+        containers_module,
+        "_docker_log_text",
+        lambda *args, **kwargs: next(responses),
+    )
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    monkeypatch.setattr(ui, "spinner", lambda *args, **kwargs: Spinner())
+
+    assert (
+        containers_module._wait_for_bootstrap_token(
+            "omniroute", since="2026-11-15T01:00:00+00:00", timeout=30.0
+        )
+        == "S8Dll5Lmy4MobPxaLSaW38Ma73zD45Jm"
+    )
+
+
+def test_read_env_value_reads_rendered_values(tmp_path: Path) -> None:
+    env_path = tmp_path / ".env"
+    _write(env_path, "# comment\nOMNIROUTE_BASE_URL=http://127.0.0.1:6905\nOTHER=value\n")
+
+    assert containers_module._read_env_value(env_path, "OMNIROUTE_BASE_URL") == (
+        "http://127.0.0.1:6905"
+    )
+    assert containers_module._read_env_value(env_path, "MISSING") is None
+
+
+def test_create_env_file_prefills_detected_host_node_bin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    catalog = tmp_path / "catalog"
+    container = catalog / "node-service"
+    _write(container / "docker-compose.yml", "services:\n  svc:\n    image: svc:latest\n")
+    _write(container / ".env.example", "HOST_NODE_BIN=\nOTHER=value\n")
+    spec = load_container_specs(catalog)[0]
+    runtime = tmp_path / "root" / "node-service"
+    runtime.mkdir(parents=True)
+    monkeypatch.setattr(
+        containers_module,
+        "_detect_host_node_bin",
+        lambda: "/detected/node/bin",
+    )
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        ui,
+        "prompt_text",
+        lambda *args, **kwargs: kwargs.get("default", "value"),
+    )
+
+    assert containers_module._create_env_file(spec, runtime) is True
+    env_text = (runtime / ".env").read_text(encoding="utf-8")
+    assert "HOST_NODE_BIN=/detected/node/bin" in env_text
+
+
 def test_run_containers_step_completes_and_starts_containers(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -693,4 +1459,75 @@ def test_start_container_reports_success(
         progress=cast(Progress, FakeProgress()),
     )
     assert commands
-    assert list(commands[0])[:2] == ["/usr/bin/docker", "compose"]
+    assert list(commands[0]) == [
+        "/usr/bin/docker",
+        "compose",
+        "-f",
+        "docker-compose.yml",
+        "up",
+        "-d",
+        "--remove-orphans",
+    ]
+
+
+def test_start_container_merges_generated_agents_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    spec = _spec(tmp_path)
+    commands: list[Sequence[str]] = []
+
+    class FakeTerminal:
+        def run(self, command: Sequence[str], **kwargs: object) -> int:
+            commands.append(command)
+            return 0
+
+        def writeline(self, line: str, **kwargs: object) -> None:
+            pass
+
+    class FakeProgress:
+        def add_task(self, description: str, *, total: int | None = None) -> int:
+            return 0
+
+        def update(self, task_id: int, *, description: str) -> None:
+            pass
+
+        def advance(self, task_id: int) -> None:
+            pass
+
+    _write(tmp_path / "compose.agents.yaml", "services:\n  demo-service:\n    volumes:\n")
+    monkeypatch.setattr(
+        "omarchy_tweaker.functions.containers.shutil.which",
+        lambda name: f"/usr/bin/{name}",
+    )
+
+    assert containers_module._start_container(
+        spec,
+        tmp_path,
+        terminal=cast(ui.VirtualTerminal, FakeTerminal()),
+        progress=cast(Progress, FakeProgress()),
+    )
+    assert list(commands[0]) == [
+        "/usr/bin/docker",
+        "compose",
+        "-f",
+        "docker-compose.yml",
+        "-f",
+        "compose.agents.yaml",
+        "up",
+        "-d",
+        "--remove-orphans",
+    ]
+
+
+def test_compose_file_arguments_include_agents_file_when_present(tmp_path: Path) -> None:
+    assert containers_module._compose_file_arguments(tmp_path) == ["-f", "docker-compose.yml"]
+
+    _write(tmp_path / "compose.agents.yaml", "services:\n  demo-service:\n    volumes:\n")
+
+    assert containers_module._compose_file_arguments(tmp_path) == [
+        "-f",
+        "docker-compose.yml",
+        "-f",
+        "compose.agents.yaml",
+    ]

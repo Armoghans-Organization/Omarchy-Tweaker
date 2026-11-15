@@ -10,6 +10,7 @@ The manifest has three optional sections::
     [container]
     name = "Atuin AI Server"
     description = "AI chat server with an OpenAI-compatible API."
+    directories = ["data"]
 
     [symlinks]
     "config.toml" = "~/.config/atuin-ai-server/config.toml"
@@ -39,6 +40,7 @@ import time
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -60,11 +62,31 @@ ENV_EXAMPLE_FILE_NAME: Final = ".env.example"
 ENV_FILE_NAME: Final = ".env"
 MANIFEST_FILE_NAME: Final = "container.toml"
 CADDYFILE_NAME: Final = "Caddyfile"
+AGENTS_COMPOSE_FILE_NAME: Final = "compose.agents.yaml"
+AGENTS_DISCOVER_SCRIPT_NAME: Final = "discover.sh"
+
+OMNIROUTE_SLUG: Final = "omniroute"
+OMNIROUTE_NPM_PACKAGE: Final = "omniroute"
+OMNIROUTE_BASE_URL_ENV: Final = "OMNIROUTE_BASE_URL"
+OMNIROUTE_CLI_API_KEY_ENV: Final = "OMNIROUTE_API_KEY"
+OMNIROUTE_REQUIRE_API_KEY_ENV: Final = "REQUIRE_API_KEY"
+OMNIROUTE_CONTAINER_NAME: Final = "omniroute"
+HOST_NODE_BIN_ENV_VAR: Final = "HOST_NODE_BIN"
+BOOTSTRAP_TOKEN_MIN_LENGTH: Final = 16
+BOOTSTRAP_TOKEN_CHARS: Final = re.compile(r"[A-Za-z0-9_-]+")
+ZSH_PROFILE_NAME: Final = ".zshrc"
+OMNIROUTE_RC_BEGIN: Final = "# >>> omarchy-tweaker omniroute >>>"
+OMNIROUTE_RC_END: Final = "# <<< omarchy-tweaker omniroute <<<"
 
 COMPOSE_TIMEOUT_SECONDS: Final = 900.0
 COMPOSE_CONFIG_TIMEOUT_SECONDS: Final = 60.0
 SUDO_TIMEOUT_SECONDS: Final = 120.0
 CADDY_TIMEOUT_SECONDS: Final = 60.0
+NPM_INSTALL_TIMEOUT_SECONDS: Final = 600.0
+DISCOVER_TIMEOUT_SECONDS: Final = 60.0
+DOCKER_LOG_TIMEOUT_SECONDS: Final = 30.0
+BOOTSTRAP_TOKEN_TIMEOUT_SECONDS: Final = 300.0
+BOOTSTRAP_TOKEN_POLL_INTERVAL_SECONDS: Final = 2.0
 BACKUP_TIMESTAMP_FORMAT: Final = "%Y%m%d%H%M%S"
 
 CONTAINER_NAME_PATTERN: Final = re.compile(
@@ -106,6 +128,7 @@ class ContainerSpec:
     slug: str
     directory: Path
     description: str
+    directories: tuple[str, ...] = ()
     symlinks: tuple[tuple[str, str], ...] = ()
     generated_env: tuple[str, ...] = ()
 
@@ -208,6 +231,24 @@ def _load_symlinks(raw: object, directory: Path) -> tuple[tuple[str, str], ...]:
     return tuple(links)
 
 
+def _load_directories(raw: object) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(value, str) for value in raw):
+        raise ValueError("container.directories must be a list of strings")
+
+    directories: list[str] = []
+    for value in raw:
+        name = value.strip()
+        if not name:
+            continue
+        path = Path(name)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError("container.directories entries must be relative paths")
+        directories.append(name)
+    return tuple(directories)
+
+
 def _load_generated_env(raw: object) -> tuple[str, ...]:
     if raw is None:
         return ()
@@ -223,6 +264,7 @@ def _load_generated_env(raw: object) -> tuple[str, ...]:
 def _load_container_spec(directory: Path) -> ContainerSpec:
     name = _display_name(directory.name) or directory.name
     description = ""
+    directories: tuple[str, ...] = ()
     symlinks: tuple[tuple[str, str], ...] = ()
     generated_env: tuple[str, ...] = ()
 
@@ -235,6 +277,7 @@ def _load_container_spec(directory: Path) -> ContainerSpec:
         if isinstance(container_section, dict):
             name = _manifest_text(container_section, "name") or name
             description = _manifest_text(container_section, "description") or description
+            directories = _load_directories(container_section.get("directories"))
         symlinks = _load_symlinks(raw.get("symlinks"), directory)
         generated_env = _load_generated_env(raw.get("env"))
 
@@ -243,6 +286,7 @@ def _load_container_spec(directory: Path) -> ContainerSpec:
         slug=directory.name,
         directory=directory,
         description=description,
+        directories=directories,
         symlinks=symlinks,
         generated_env=generated_env,
     )
@@ -279,10 +323,10 @@ def load_container_specs(directory: Path | None = None) -> tuple[ContainerSpec, 
     return tuple(specs)
 
 
-def load_env_template(path: Path) -> tuple[EnvVariable, ...]:
-    """Read environment variables from a ``.env.example`` file."""
+def _parse_env_variables(content: str) -> tuple[EnvVariable, ...]:
+    """Parse environment variable declarations from template text."""
     variables: list[EnvVariable] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in content.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
@@ -295,6 +339,11 @@ def load_env_template(path: Path) -> tuple[EnvVariable, ...]:
     return tuple(variables)
 
 
+def load_env_template(path: Path) -> tuple[EnvVariable, ...]:
+    """Read environment variables from a ``.env.example`` file."""
+    return _parse_env_variables(path.read_text(encoding="utf-8"))
+
+
 def _is_placeholder(value: str) -> bool:
     normalized = value.strip().casefold()
     if not normalized:
@@ -305,6 +354,490 @@ def _is_placeholder(value: str) -> bool:
 def _looks_secret(key: str) -> bool:
     normalized = key.upper()
     return any(marker in normalized for marker in SECRET_KEY_MARKERS)
+
+
+def _detect_host_node_bin() -> str | None:
+    """Return the host Node binary directory used for the container mount.
+
+    The path is discovered at runtime so the catalog never hardcodes a
+    machine-specific location. An explicit ``HOST_NODE_BIN`` environment
+    variable takes precedence.
+    """
+    override = os.environ.get(HOST_NODE_BIN_ENV_VAR)
+    if override and override.strip():
+        return override.strip()
+
+    node = shutil.which("node")
+    if node is not None:
+        return str(Path(node).resolve().parent)
+
+    mise = shutil.which("mise")
+    if mise is not None:
+        result = _run_process([mise, "which", "node"], timeout=DISCOVER_TIMEOUT_SECONDS)
+        if result is not None and result.returncode == 0:
+            located = result.stdout.strip()
+            if located:
+                return str(Path(located).parent)
+    return None
+
+
+def _auto_detect_env_default(key: str) -> str | None:
+    """Return a runtime-detected default for a host-path environment variable."""
+    if key == HOST_NODE_BIN_ENV_VAR:
+        return _detect_host_node_bin()
+    return None
+
+
+def _read_env_value(env_path: Path, key: str) -> str | None:
+    """Read a single variable value from a rendered .env file."""
+    try:
+        content = env_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _log_warning("Could not read %s: %s", env_path, exc)
+        return None
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, _, value = stripped.partition("=")
+        if name.strip() == key:
+            return value.strip()
+    return None
+
+
+def _installed_npm_version() -> str | None:
+    """Return the globally installed OmniRoute CLI version, or ``None``."""
+    npm = shutil.which("npm")
+    if npm is None:
+        return None
+    result = _run_process(
+        [npm, "ls", "-g", OMNIROUTE_NPM_PACKAGE, "--depth=0"],
+        timeout=NPM_INSTALL_TIMEOUT_SECONDS,
+    )
+    if result is None:
+        return None
+    for line in result.stdout.splitlines():
+        if "omniroute@" in line:
+            return line.split("omniroute@", 1)[1].strip()
+    return None
+
+
+def _npm_package_outdated(package: str) -> bool:
+    """Return whether a globally installed npm package has a newer release."""
+    npm = shutil.which("npm")
+    if npm is None:
+        return False
+    result = _run_process(
+        [npm, "outdated", "-g", package],
+        timeout=DISCOVER_TIMEOUT_SECONDS,
+    )
+    return result is not None and result.returncode == 1
+
+
+def _npm_install_global(package: str) -> bool:
+    npm = shutil.which("npm")
+    if npm is None:
+        _log_error("npm was not found; cannot install %s.", package)
+        ui.error("npm was not found on PATH. Install Node.js first.")
+        return False
+
+    result = _run_process(
+        [npm, "install", "-g", package],
+        timeout=NPM_INSTALL_TIMEOUT_SECONDS,
+    )
+    if result is None or result.returncode != 0:
+        detail = ""
+        if result is not None and result.stderr.strip():
+            detail = result.stderr.strip().splitlines()[-1]
+        _log_error("Could not install %s globally. %s", package, detail)
+        ui.error(f"Could not install {package}: {detail or 'npm failed'}.")
+        return False
+    return True
+
+
+def ensure_omniroute_cli() -> bool:
+    """Install the OmniRoute CLI globally when it is missing or outdated.
+
+    Returns:
+        ``True`` when the CLI is available, otherwise ``False``.
+    """
+    installed = _installed_npm_version()
+    if installed is not None:
+        _log_info("OmniRoute CLI is installed (%s).", installed)
+        ui.info(f"OmniRoute CLI is installed (v{installed}).")
+        if not _npm_package_outdated(OMNIROUTE_NPM_PACKAGE):
+            return True
+        if not ui.confirm(
+            "A newer OmniRoute CLI is available. Update it now?",
+            default=True,
+            instruction="Runs npm install -g omniroute on the host.",
+        ):
+            _log_warning("OmniRoute CLI update was declined.")
+            ui.warning("OmniRoute CLI update was declined.")
+            return True
+    elif not ui.confirm(
+        "The OmniRoute CLI is not installed. Install it globally with npm?",
+        default=True,
+        instruction="Runs npm install -g omniroute on the host.",
+    ):
+        _log_warning("OmniRoute CLI installation was declined.")
+        ui.warning("OmniRoute CLI installation was declined.")
+        return False
+
+    if not _npm_install_global(OMNIROUTE_NPM_PACKAGE):
+        return False
+
+    _log_info("Installed the OmniRoute CLI with npm.")
+    ui.success("Installed the OmniRoute CLI with npm.")
+    return True
+
+
+def discover_agent_mounts(runtime_directory: Path) -> tuple[str, ...] | None:
+    """Run discover.sh to find installed agent configuration directories.
+
+    Args:
+        runtime_directory: The prepared container directory containing discover.sh.
+
+    Returns:
+        The discovered agent mount lines (possibly empty), or ``None`` when
+        discovery could not be performed.
+    """
+    script = runtime_directory / AGENTS_DISCOVER_SCRIPT_NAME
+    if not script.is_file():
+        _log_error("discover.sh was not found in %s.", runtime_directory)
+        ui.error(f"OmniRoute: discover.sh was not found in {runtime_directory}.")
+        return None
+
+    result = _run_process(
+        ["bash", str(script)],
+        timeout=DISCOVER_TIMEOUT_SECONDS,
+        cwd=runtime_directory,
+    )
+    if result is None or result.returncode != 0:
+        detail = ""
+        if result is not None and result.stderr.strip():
+            detail = result.stderr.strip().splitlines()[-1]
+        _log_error("discover.sh failed for OmniRoute. %s", detail)
+        ui.error(f"OmniRoute: agent discovery failed: {detail or 'discover.sh failed'}.")
+        return None
+
+    output = runtime_directory / AGENTS_COMPOSE_FILE_NAME
+    try:
+        content = output.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _log_error("Could not read %s: %s", output, exc)
+        ui.error(f"OmniRoute: could not read {output.name}: {exc}")
+        return None
+
+    mounts = tuple(line.strip() for line in content.splitlines() if line.strip().startswith("- "))
+    if not mounts:
+        _log_warning("discover.sh found no agent configuration directories.")
+        ui.warning("OmniRoute: no installed agents were found to mount.")
+        return ()
+
+    _log_info("discover.sh wrote %d agent mount(s) to %s.", len(mounts), output)
+    ui.success(f"OmniRoute: discovered {len(mounts)} agent configuration(s).")
+    return mounts
+
+
+def _shell_profile_block(lines: Sequence[str]) -> str:
+    """Build the managed shell-profile block for the OmniRoute exports."""
+    return "\n".join((OMNIROUTE_RC_BEGIN, *lines, OMNIROUTE_RC_END))
+
+
+def _existing_export(block: str, key: str) -> str | None:
+    """Return an active ``export KEY=...`` line from a managed block."""
+    for line in block.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(f"export {key}=") and not stripped.startswith("#"):
+            return stripped
+    return None
+
+
+def _update_shell_profile(profile_path: Path, lines: Sequence[str]) -> bool:
+    """Write the OmniRoute exports into a managed shell-profile block.
+
+    An existing managed block is replaced while preserving a key the user filled
+    in. A timestamped backup is written before the profile is modified.
+
+    Args:
+        profile_path: Shell profile to update, typically ``~/.zshrc``.
+        lines: Export lines to place inside the managed block.
+
+    Returns:
+        ``True`` when the profile was updated, otherwise ``False``.
+    """
+    try:
+        existing = profile_path.read_text(encoding="utf-8") if profile_path.is_file() else ""
+    except (OSError, UnicodeError) as exc:
+        _log_warning("Could not read %s: %s", profile_path, exc)
+        ui.warning(f"Could not read {profile_path}: {exc}")
+        return False
+
+    managed = lines
+    if OMNIROUTE_RC_BEGIN in existing and OMNIROUTE_RC_END in existing:
+        start = existing.index(OMNIROUTE_RC_BEGIN)
+        end = existing.index(OMNIROUTE_RC_END, start) + len(OMNIROUTE_RC_END)
+        preserved = _existing_export(existing[start:end], OMNIROUTE_CLI_API_KEY_ENV)
+        if preserved is not None:
+            managed = [line for line in lines if OMNIROUTE_CLI_API_KEY_ENV not in line]
+            managed = [*managed, preserved]
+        block = _shell_profile_block(managed)
+        updated = f"{existing[:start]}{block}{existing[end:]}"
+    else:
+        block = _shell_profile_block(managed)
+        prefix = existing
+        if prefix and not prefix.endswith("\n"):
+            prefix += "\n"
+        if prefix and not prefix.endswith("\n\n"):
+            prefix += "\n"
+        updated = f"{prefix}{block}\n"
+
+    if not profile_path.is_file():
+        try:
+            profile_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            _log_warning("Could not create %s: %s", profile_path.parent, exc)
+            ui.warning(f"Could not create {profile_path.parent}: {exc}")
+            return False
+
+    if profile_path.is_file() and updated != existing:
+        backup = profile_path.with_name(
+            f"{profile_path.name}.{time.strftime(BACKUP_TIMESTAMP_FORMAT)}.bak"
+        )
+        try:
+            shutil.copy2(profile_path, backup)
+        except OSError as exc:
+            _log_warning("Could not back up %s: %s", profile_path, exc)
+
+    try:
+        profile_path.write_text(updated, encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _log_error("Could not update %s: %s", profile_path, exc)
+        ui.error(f"Could not update {profile_path}: {exc}")
+        return False
+
+    return True
+
+
+def _print_connection_instructions(profile_path: Path, lines: Sequence[str]) -> None:
+    """Print the export lines so the user can add them manually."""
+    ui.info(f"Add these lines to {profile_path}:")
+    console = ui.get_console()
+    if console is not None:
+        for line in lines:
+            console.print(f"  {line}", style=ui.THEME.info)
+
+
+def connect_omniroute_cli(
+    runtime_directory: Path,
+    *,
+    profile_path: Path | None = None,
+) -> bool:
+    """Connect the host CLI to the OmniRoute container.
+
+    Prints the export lines, then offers to persist them in ``~/.zshrc``. When
+    the update is declined or the session is non-interactive, the lines are
+    printed for manual entry.
+
+    Args:
+        runtime_directory: The prepared container directory containing .env.
+        profile_path: Shell profile to update; defaults to ``~/.zshrc``.
+
+    Returns:
+        ``True`` when the connection details were produced, otherwise ``False``.
+    """
+    env_path = runtime_directory / ENV_FILE_NAME
+    if not env_path.is_file():
+        _log_error("No environment file exists for OmniRoute at %s.", env_path)
+        ui.error(f"OmniRoute: no .env file found at {env_path}.")
+        return False
+
+    base_url = _read_env_value(env_path, "BASE_URL")
+    if not base_url:
+        port = _read_env_value(env_path, "API_PORT") or "6905"
+        base_url = f"http://127.0.0.1:{port}"
+
+    require_api_key = (
+        _read_env_value(env_path, OMNIROUTE_REQUIRE_API_KEY_ENV) or ""
+    ).strip().casefold() == "true"
+    existing_key = os.environ.get(OMNIROUTE_CLI_API_KEY_ENV)
+
+    ui.section(
+        "OmniRoute CLI Connection",
+        subtitle="Point the host CLI at the container API.",
+        icon=ui.ICONS.chevron,
+    )
+    ui.info(f"OmniRoute API: {base_url}")
+
+    lines = [f"export {OMNIROUTE_BASE_URL_ENV}={base_url}"]
+    if require_api_key and not existing_key:
+        lines.append("# Create an API key in the dashboard, then uncomment and set it:")
+        lines.append(f'# export {OMNIROUTE_CLI_API_KEY_ENV}="<dashboard-api-key>"')
+
+    console = ui.get_console()
+    if console is not None:
+        for line in lines:
+            console.print(line, style=ui.THEME.info)
+
+    target_profile = profile_path if profile_path is not None else Path.home() / ZSH_PROFILE_NAME
+    if ui.is_interactive() and ui.confirm(
+        f"Add these exports to {target_profile}?",
+        default=True,
+        instruction="Adds a managed block to your shell profile.",
+    ):
+        if _update_shell_profile(target_profile, lines):
+            _log_info("Updated the OmniRoute exports in %s.", target_profile)
+            ui.success(
+                f'Updated {target_profile}. Restart your shell or run "source {target_profile}".'
+            )
+        else:
+            _print_connection_instructions(target_profile, lines)
+    else:
+        _print_connection_instructions(target_profile, lines)
+
+    _log_info("OmniRoute CLI connection details were printed for %s.", base_url)
+    return True
+
+
+def _docker_log_text(container_name: str, *, since: str | None = None) -> str:
+    """Return the combined stdout/stderr logs for a container."""
+    docker = shutil.which("docker")
+    if docker is None:
+        return ""
+
+    command = [docker, "logs"]
+    if since is not None:
+        command.extend(["--since", since])
+    command.append(container_name)
+
+    result = _run_process(command, timeout=DOCKER_LOG_TIMEOUT_SECONDS)
+    if result is None:
+        return ""
+    return f"{result.stdout}\n{result.stderr}"
+
+
+def _find_bootstrap_token(log_text: str) -> str | None:
+    """Extract the one-time OmniRoute bootstrap token from container logs.
+
+    Only ``[BOOTSTRAP]`` lines that mention the one-time token are considered,
+    and the token is taken from the final word of the line. This avoids matching
+    unrelated bootstrap messages such as ``INITIAL_PASSWORD``.
+    """
+    for line in reversed(log_text.splitlines()):
+        if "[BOOTSTRAP]" not in line.upper() or "TOKEN" not in line.upper():
+            continue
+        for candidate in reversed(line.split()):
+            cleaned = candidate.strip("\"'[](){}.,;:")
+            if (
+                len(cleaned) >= BOOTSTRAP_TOKEN_MIN_LENGTH
+                and BOOTSTRAP_TOKEN_CHARS.fullmatch(cleaned) is not None
+            ):
+                return cleaned
+    return None
+
+
+def _onboarding_url(runtime_directory: Path) -> str:
+    """Return the dashboard onboarding URL for the OmniRoute container."""
+    env_path = runtime_directory / ENV_FILE_NAME
+    base_url = _read_env_value(env_path, "NEXT_PUBLIC_BASE_URL") if env_path.is_file() else None
+    if not base_url:
+        port = _read_env_value(env_path, "DASHBOARD_PORT") if env_path.is_file() else None
+        base_url = f"http://127.0.0.1:{port or '6904'}"
+    return f"{base_url.rstrip('/')}/dashboard/onboarding"
+
+
+def _print_log_hint(container_name: str) -> None:
+    """Tell the user how to read the bootstrap token from the logs."""
+    ui.info(f"Get the token later with: docker logs {container_name} | grep BOOTSTRAP")
+
+
+def _wait_for_bootstrap_token(
+    container_name: str,
+    *,
+    since: str,
+    timeout: float,
+) -> str | None:
+    """Poll container logs until the bootstrap token appears or time runs out."""
+    deadline = time.monotonic() + timeout
+    try:
+        with ui.spinner("Waiting for the OmniRoute bootstrap token...") as status:
+            while True:
+                token = _find_bootstrap_token(_docker_log_text(container_name, since=since))
+                if token is not None:
+                    return token
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                status.update(
+                    f"Waiting for the OmniRoute bootstrap token ({remaining:.0f}s remaining)..."
+                )
+                time.sleep(min(BOOTSTRAP_TOKEN_POLL_INTERVAL_SECONDS, remaining))
+    except KeyboardInterrupt:
+        ui.warning("Stopped waiting for the bootstrap token.")
+        return None
+
+
+def show_bootstrap_token(
+    runtime_directory: Path,
+    *,
+    container_name: str = OMNIROUTE_CONTAINER_NAME,
+) -> str | None:
+    """Show the one-time OmniRoute bootstrap token from the container logs.
+
+    The token is only logged after the onboarding wizard is opened, so an
+    interactive session is offered the chance to wait for it. Non-interactive
+    sessions and declined prompts receive the log command instead.
+
+    Args:
+        runtime_directory: The prepared container directory containing .env.
+        container_name: Docker container name to read logs from.
+
+    Returns:
+        The bootstrap token when found, otherwise ``None``.
+    """
+    onboarding_url = _onboarding_url(runtime_directory)
+    ui.section(
+        "OmniRoute Bootstrap Token",
+        subtitle="One-time token required by the onboarding wizard.",
+        icon=ui.ICONS.tag,
+    )
+    ui.info(f"Onboarding wizard: {onboarding_url}")
+
+    since = datetime.now(UTC).isoformat(timespec="seconds")
+    token = _find_bootstrap_token(_docker_log_text(container_name, since=since))
+    if token is None:
+        ui.info(
+            "The token is logged after onboarding starts. Open the URL above, "
+            "begin the wizard, and keep this running."
+        )
+        _print_log_hint(container_name)
+
+    if token is not None:
+        ui.panel(token, title="One-time bootstrap token", icon=ui.ICONS.tag)
+        _log_info("OmniRoute bootstrap token was found in the container logs.")
+        return token
+
+    if not ui.is_interactive() or not ui.confirm(
+        "Wait for the onboarding bootstrap token now?",
+        default=True,
+        instruction="Open the onboarding page and start the wizard.",
+    ):
+        return None
+
+    token = _wait_for_bootstrap_token(
+        container_name,
+        since=since,
+        timeout=BOOTSTRAP_TOKEN_TIMEOUT_SECONDS,
+    )
+    if token is None:
+        ui.warning("The bootstrap token did not appear in the container logs.")
+        _print_log_hint(container_name)
+        return None
+
+    ui.panel(token, title="One-time bootstrap token", icon=ui.ICONS.tag)
+    _log_info("OmniRoute bootstrap token was found in the container logs.")
+    return token
 
 
 def _unresolved_env_references(env_path: Path) -> tuple[str, ...]:
@@ -476,11 +1009,15 @@ def _create_env_file(spec: ContainerSpec, runtime_directory: Path) -> bool:
 
     try:
         template = example.read_text(encoding="utf-8")
-        variables = load_env_template(example)
     except (OSError, UnicodeError) as exc:
         _log_error("Could not read environment template for %s: %s", spec.name, exc)
         ui.error(f"{spec.name}: could not read .env.example: {exc}")
         return False
+
+    variables: list[EnvVariable] = []
+    for variable in _parse_env_variables(template):
+        default = variable.default or (_auto_detect_env_default(variable.key) or "")
+        variables.append(EnvVariable(key=variable.key, default=default))
 
     values: dict[str, str] = {}
     for variable in variables:
@@ -536,6 +1073,56 @@ def _apply_host_symlinks(
     return True
 
 
+def _directory_is_writable(path: Path) -> bool:
+    return os.access(path, os.W_OK)
+
+
+def _prepare_runtime_directories(
+    spec: ContainerSpec,
+    runtime_directory: Path,
+) -> bool:
+    for name in spec.directories:
+        path = runtime_directory / name
+        if path.exists():
+            if not path.is_dir():
+                _log_error("Runtime path for %s is not a directory: %s", spec.name, path)
+                ui.error(f"{spec.name}: {path} exists but is not a directory.")
+                return False
+            if _directory_is_writable(path):
+                continue
+
+            owner = f"{os.getuid()}:{os.getgid()}"
+            command = ["sudo", "chown", "-R", owner, str(path)]
+            _log_warning("Runtime directory for %s is not writable: %s", spec.name, path)
+            ui.warning(f"{spec.name}: {path} is not writable by the current user.")
+            ui.info(f"Fix with: {' '.join(command)}")
+            if not ui.is_interactive() or not ui.confirm(
+                f"Fix ownership of {path} now?",
+                default=True,
+                instruction="Runs sudo chown -R on the container runtime directory.",
+            ):
+                _log_error("Runtime directory ownership was not fixed for %s.", spec.name)
+                return False
+
+            result = _run_process(command, timeout=SUDO_TIMEOUT_SECONDS)
+            if result is None or result.returncode != 0:
+                _log_error("Could not change ownership of %s.", path)
+                ui.error(f"{spec.name}: could not change ownership of {path}.")
+                return False
+            _log_info("Changed ownership of %s to %s.", path, owner)
+            ui.success(f"{spec.name}: fixed ownership of {path}.")
+            continue
+
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            _log_error("Could not create runtime directory %s: %s", path, exc)
+            ui.error(f"{spec.name}: could not create {path}: {exc}")
+            return False
+        _log_info("Created runtime directory %s.", path)
+    return True
+
+
 def prepare_container(
     spec: ContainerSpec,
     *,
@@ -569,6 +1156,10 @@ def prepare_container(
 
     if not _link_container_assets(spec, runtime_directory):
         ui.error(f"{spec.name}: could not link container files.")
+        return False
+
+    if not _prepare_runtime_directories(spec, runtime_directory):
+        ui.error(f"{spec.name}: could not prepare runtime directories.")
         return False
 
     if not _create_env_file(spec, runtime_directory):
@@ -949,11 +1540,30 @@ def _compose_metadata_from_file(
     return project_name or runtime_directory.name, tuple(container_names)
 
 
+def _compose_file_arguments(runtime_directory: Path) -> list[str]:
+    """Return the ``-f`` arguments for a container's Compose invocation.
+
+    The generated ``compose.agents.yaml`` is merged when present so the
+    discovered host mounts are included in validation and startup.
+    """
+    arguments = ["-f", COMPOSE_FILE_NAME]
+    if (runtime_directory / AGENTS_COMPOSE_FILE_NAME).is_file():
+        arguments.extend(["-f", AGENTS_COMPOSE_FILE_NAME])
+    return arguments
+
+
 def _compose_metadata(runtime_directory: Path) -> tuple[str, tuple[str, ...]] | None:
     docker = shutil.which("docker")
     if docker is not None:
         result = _run_process(
-            [docker, "compose", "config", "--format", "json"],
+            [
+                docker,
+                "compose",
+                *_compose_file_arguments(runtime_directory),
+                "config",
+                "--format",
+                "json",
+            ],
             timeout=COMPOSE_CONFIG_TIMEOUT_SECONDS,
             cwd=runtime_directory,
         )
@@ -1070,7 +1680,14 @@ def _start_container(
         progress.advance(task_id)
         return False
 
-    command = [docker, "compose", "up", "-d", "--remove-orphans"]
+    command = [
+        docker,
+        "compose",
+        *_compose_file_arguments(runtime_directory),
+        "up",
+        "-d",
+        "--remove-orphans",
+    ]
     _log_info("Starting container: %s", " ".join(command))
     terminal.writeline(f"Starting {spec.name}...", style=ui.THEME.info)
 
@@ -1172,6 +1789,11 @@ def run_containers_step(
         ui.info("No containers were selected.")
         return ContainerResult.SKIPPED
 
+    omniroute_selected = any(container.slug == OMNIROUTE_SLUG for container in selected)
+    if omniroute_selected and not ensure_omniroute_cli():
+        _log_warning("OmniRoute CLI is unavailable; continuing without it.")
+        ui.warning("OmniRoute CLI is unavailable; continuing without it.")
+
     if not _confirm_create(selected):
         if logger is not None:
             logger.info("Container setup skipped by the user.")
@@ -1190,12 +1812,20 @@ def run_containers_step(
         else:
             failed_any = True
 
+    omniroute_runtime = root / OMNIROUTE_SLUG
+    omniroute_prepared = any(container.slug == OMNIROUTE_SLUG for container in prepared)
     startable: list[ContainerSpec] = []
-    for container in prepared:
-        if _resolve_container_name_conflicts(root / container.slug):
-            startable.append(container)
-        else:
-            failed_any = True
+    if omniroute_prepared and discover_agent_mounts(omniroute_runtime) is None:
+        _log_error("OmniRoute agent discovery failed; skipping OmniRoute startup.")
+        ui.error("OmniRoute agent discovery failed; skipping OmniRoute startup.")
+        failed_any = True
+        startable = [container for container in prepared if container.slug != OMNIROUTE_SLUG]
+    else:
+        for container in prepared:
+            if _resolve_container_name_conflicts(root / container.slug):
+                startable.append(container)
+            else:
+                failed_any = True
 
     has_caddyfile = any(container.caddyfile.is_file() for container in startable)
     configure_caddy = has_caddyfile and ui.confirm(
@@ -1232,6 +1862,7 @@ def run_containers_step(
                     failed_any = True
 
     started_any = False
+    omniroute_started = False
     if startable:
         with ui.terminal_with_progress(
             height=12,
@@ -1246,8 +1877,18 @@ def run_containers_step(
                     progress=progress,
                 ):
                     started_any = True
+                    if container.slug == OMNIROUTE_SLUG:
+                        omniroute_started = True
                 else:
                     failed_any = True
+
+    if omniroute_started:
+        show_bootstrap_token(omniroute_runtime)
+
+    if omniroute_started and not connect_omniroute_cli(omniroute_runtime):
+        _log_error("OmniRoute CLI connection details could not be printed.")
+        ui.error("OmniRoute CLI connection details could not be printed.")
+        failed_any = True
 
     if failed_any:
         if logger is not None:

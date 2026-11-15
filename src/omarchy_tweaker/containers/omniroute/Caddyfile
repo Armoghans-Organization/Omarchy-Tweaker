@@ -1,0 +1,60 @@
+# OmniRoute Dashboard
+http://omniroute.localhost {
+    encode zstd gzip
+
+    reverse_proxy 127.0.0.1:6904
+
+    log {
+        output file /var/log/caddy/omniroute-dashboard.log {
+            roll_size 10MiB
+            roll_keep 3
+            roll_keep_for 7d
+        }
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+}
+
+# OmniRoute API
+http://api.omniroute.localhost {
+    encode zstd gzip
+
+    reverse_proxy 127.0.0.1:6905
+
+    log {
+        output file /var/log/caddy/omniroute-api.log {
+            roll_size 10MiB
+            roll_keep 3
+            roll_keep_for 7d
+        }
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+}
+
+# OmniRoute Live WebSocket
+http://ws.omniroute.localhost {
+    reverse_proxy 127.0.0.1:6906
+
+    log {
+        output file /var/log/caddy/omniroute-ws.log {
+            roll_size 10MiB
+            roll_keep 3
+            roll_keep_for 7d
+        }
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+}
