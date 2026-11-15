@@ -1,0 +1,10 @@
+# Omarchy Tweaker container manifest.
+# See docs/containers.md for the available keys.
+
+[container]
+name = "OmniRoute"
+description = "Self-hosted zero-fee AI proxy that routes requests to provider APIs."
+directories = ["data"]
+
+[env]
+generate = ["OMNIROUTE_WS_BRIDGE_SECRET"]
