@@ -67,7 +67,7 @@ Each container lives in its own directory below `src/omarchy_tweaker/containers/
 | `container.toml` | No | Display name, description, host symlinks, and generated secrets. |
 | Other files | No | Configuration files linked into the runtime directory. |
 
-The catalog currently contains four containers:
+The catalog currently contains five containers:
 
 | Container | Directory | Description |
 |:--|:--|:--|
@@ -75,6 +75,7 @@ The catalog currently contains four containers:
 | Open WebUI | `containers/open-webui/` | Web UI for local LLM inference with an OpenAI-compatible API. |
 | Dockhand | `containers/dockhand/` | Web UI for managing Docker containers, images, and volumes. |
 | OmniRoute | `containers/omniroute/` | Smart AI router with an OpenAI-compatible API and auto fallback. |
+| SnapOtter | `containers/snapotter/` | Self-hosted file-processing suite: convert, compress, OCR, transcribe, and run local AI. |
 
 ---
 
@@ -298,10 +299,10 @@ containers/omniroute/
 | Dashboard port | `DASHBOARD_PORT` (`6904`) |
 | Live WebSocket port | `LIVE_WS_PORT` (`6906`) |
 | Generated secret | `OMNIROUTE_WS_BRIDGE_SECRET` |
-| Persistent data | `./data` and `./redis` below the runtime directory |
+| Persistent data | `${HOME}/Projects/Containers/snapotter/data` and `./redis` below the runtime directory |
 
 !!! tip "The catalog is portable"
-    `docker-compose.yml` only uses the relative mounts `./data` and `./redis`. Host-specific
+    `docker-compose.yml` only uses the relative mounts `${HOME}/Projects/Containers/snapotter/data` and `./redis`. Host-specific
     paths are discovered at runtime instead of being committed to the catalog.
     `compose.agents.yaml` is a generated Compose override, not a file mounted into the
     container.
@@ -514,6 +515,45 @@ home directories are protected. The host Caddyfile path can be overridden with
 
 !!! note "Caddy must be installed"
     Caddy is part of the package catalog. The container step does not install it.
+
+---
+
+## Container: SnapOtter
+
+SnapOtter is a self-hosted file-processing suite. It converts, compresses, OCRs, transcribes,
+and runs local AI across image, video, audio, PDF, and documents through a UI, REST API, and
+pipelines. Its directory is `src/omarchy_tweaker/containers/snapotter/`.
+
+```text
+containers/snapotter/
+├── .env.example
+├── Caddyfile
+├── container.toml
+└── docker-compose.yml
+```
+
+- Runtime directory: `~/Projects/Containers/snapotter`.
+- Compose containers: `snapotter`, `snapotter-postgres`, and `snapotter-redis`.
+- Network: private bridge network `snapotter-internal`. Redis and PostgreSQL are not published
+  to the host; only the SnapOtter app is reachable.
+- Published port: `PORT` (`6906`) on `127.0.0.1`, forwarded to the image's internal port `1349`.
+- Persistent data: `${HOME}/Projects/Containers/snapotter/data` (app files), `${HOME}/Projects/Containers/snapotter/pgdata` (PostgreSQL), and `${HOME}/Projects/Containers/snapotter/redisdata` (Redis)
+  below the runtime directory.
+- Generated secrets: `SNAPOTTER_PASSWORD` and `POSTGRES_PASSWORD`.
+- Prompted value: `SNAPOTTER_PASSWORD` (also used as the app login and the PostgreSQL password
+  unless overridden).
+
+### Caddy routes
+
+| Domain | Upstream |
+|:--|:--|
+| `snapotter.localhost` | `127.0.0.1:6906` |
+
+Access log: `/var/log/caddy/snapotter.log`.
+
+!!! warning "First login"
+    The default username is `admin`. SnapOtter forces a password change on first login. Change
+    `DEFAULT_USERNAME` and `DEFAULT_PASSWORD` after the first login.
 
 ---
 

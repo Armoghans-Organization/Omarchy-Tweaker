@@ -1,0 +1,10 @@
+# Omarchy Tweaker container manifest.
+# See docs/containers.md for the available keys.
+
+[container]
+name = "SnapOtter"
+description = "Self-hosted file-processing suite: convert, compress, OCR, transcribe, and run local AI across image, video, audio, PDF, and documents."
+directories = ["data", "pgdata", "redisdata"]
+
+[env]
+generate = ["SNAPOTTER_PASSWORD", "POSTGRES_PASSWORD"]

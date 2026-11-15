@@ -1,0 +1,20 @@
+# SnapOtter web UI and REST API.
+http://snapotter.localhost {
+    encode zstd gzip
+
+    reverse_proxy 127.0.0.1:6906
+
+    log {
+        output file /var/log/caddy/snapotter.log {
+            roll_size 10MiB
+            roll_keep 3
+            roll_keep_for 7d
+        }
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+}

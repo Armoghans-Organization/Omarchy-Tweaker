@@ -1,0 +1,130 @@
+services:
+  snapotter:
+    image: snapotter/snapotter:latest
+    container_name: snapotter
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:6906:1349"
+
+    networks:
+      - snapotter-internal
+
+    environment:
+      PORT: "1349"
+      BASE_PATH: ""
+      AUTH_ENABLED: "true"
+      DEFAULT_USERNAME: ${SNAPOTTER_USERNAME:-admin}
+      DEFAULT_PASSWORD: ${SNAPOTTER_PASSWORD:?set SNAPOTTER_PASSWORD in .env}
+      STORAGE_MODE: local
+
+      DATABASE_URL: postgres://${POSTGRES_USER:-snapotter}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-snapotter}
+      DATABASE_MIGRATION_URL: postgres://${POSTGRES_USER:-snapotter}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-snapotter}
+      REDIS_URL: redis://redis:6379
+
+      FILE_MAX_AGE_HOURS: "72"
+      CLEANUP_INTERVAL_MINUTES: "60"
+      MAX_UPLOAD_SIZE_MB: "0"
+      MAX_BATCH_SIZE: "0"
+      CONCURRENT_JOBS: "0"
+      MAX_AI_JOBS_PER_USER: "5"
+      SESSION_DURATION_HOURS: "168"
+      LOGIN_ATTEMPT_LIMIT: "10"
+
+    volumes:
+      - ${HOME}/Projects/Containers/snapotter/data:/data
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    init: true
+    pids_limit: 100
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: snapotter-postgres
+    restart: unless-stopped
+
+    networks:
+      - snapotter-internal
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-snapotter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-snapotter}
+
+    volumes:
+      - ${HOME}/Projects/Containers/snapotter/pgdata:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-snapotter} -d ${POSTGRES_DB:-snapotter}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+    init: true
+    pids_limit: 100
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:8-alpine
+    container_name: snapotter-redis
+    restart: unless-stopped
+
+    networks:
+      - snapotter-internal
+
+    command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+
+    volumes:
+      - ${HOME}/Projects/Containers/snapotter/redisdata:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+    init: true
+    pids_limit: 100
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  snapotter-internal:
+    name: snapotter-internal
+    driver: bridge
