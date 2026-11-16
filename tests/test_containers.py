@@ -808,9 +808,8 @@ def test_bundled_omniroute_compose_is_statically_valid() -> None:
     assert 'CLI_EXTRA_PATHS: "/host-node/bin:/usr/local/bin:/host-local/bin"' in compose
     assert "CLI_MODE: auto" in compose
     assert "CLI_CONFIG_HOME: /home/node" in compose
-    assert "./data:/app/data" in compose
-    assert "./redis:/data" in compose
-    assert "${HOME}/Projects/Containers" not in compose
+    assert "${HOME}/Projects/Containers/omniroute/data:/app/data" in compose
+    assert "${HOME}/Projects/Containers/omniroute/redis:/data" in compose
     assert "/home/armoghan" not in compose
 
 
