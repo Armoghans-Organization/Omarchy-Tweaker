@@ -2,7 +2,7 @@
 http://snapotter.localhost {
     encode zstd gzip
 
-    reverse_proxy 127.0.0.1:6906
+    reverse_proxy 127.0.0.1:6907
 
     log {
         output file /var/log/caddy/snapotter.log {

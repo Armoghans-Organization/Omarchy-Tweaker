@@ -291,6 +291,7 @@ syntax_highlight = true
 # Atuin AI points to omniroute
 [ai]
 endpoint = "http://atuin-ai.localhost"
+endpoint_protocol = "oss"
 enabled = true
 model = "best-fast"
 api_token = "<ATUIN_API_KEY>" # Get from $HOME/Projects/Containers/atuin/.env file

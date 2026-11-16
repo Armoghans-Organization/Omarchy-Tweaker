@@ -7,563 +7,412 @@ mermaid: true
 
 # Containers
 
-The container step prepares Docker Compose projects from the bundled container catalog and
-starts the containers you select. It also configures a managed reverse-proxy route through
-the host Caddy installation.
+The `containers` step prepares Docker Compose projects from Omarchy Tweaker's bundled catalog,
+creates runtime configuration, wires host Caddy reverse-proxy routes, and starts the containers
+you select.
 
 ```bash
 omarchy-tweaker containers
 ```
 
-Container setup runs in the default startup sequence after package installation and is also
-available as the standalone `containers` command.
-
-!!! warning "Destructive filesystem operations"
-    Preparing a container creates files below `~/Projects/Containers/<container>`. Host
-    symlinks back up an existing destination before replacing it. The Caddy step backs up
-    the host Caddyfile before adding the managed import block.
+!!! info "At a glance"
+    - **Runs in:** default startup sequence (after package installation)
+    - **Also available as:** standalone `containers` command
+    - **Requires:** interactive TTY, Docker Compose, and Caddy for reverse-proxy setup
+    - **Runtime root:** `~/Projects/Containers/<container>` (override: `OMARCHY_TWEAKER_CONTAINERS_ROOT`)
 
 ---
 
-## Workflow
+## Quick reference
 
-```mermaid
-flowchart TD
-    A[Start container step] --> B{Interactive TTY?}
-    B -- No --> C[Skip with warning]
-    B -- Yes --> D[Load container catalog]
-    D --> E[Select containers]
-    E --> F{Anything selected?}
-    F -- No --> G[Skip setup]
-    F -- Yes --> H{Confirm creation?}
-    H -- No --> G
-    H -- Yes --> I[Prepare runtime directories and .env files]
-    I --> R{Container name conflict?}
-    R -- Yes --> S[Stop and rename conflicting container]
-    R -- No --> J{Host symlinks configured?}
-    S --> J
-    J -- Yes --> K[Back up and link host paths]
-    J -- No --> L{Configure Caddy?}
-    K --> L
-    L -- Yes --> M[Link Caddy snippets, update host Caddyfile, start Caddy, reload]
-    L -- No --> N[Start Docker Compose]
-    M --> N
-    N --> O{Any failure?}
-    O -- Yes --> P[Exit 1]
-    O -- No --> Q[Exit 0]
-```
+| Area | Details |
+|:--|:--|
+| Catalog | `src/omarchy_tweaker/containers/` (override: `OMARCHY_TWEAKER_CONTAINERS_DIR`) |
+| Runtime | `~/Projects/Containers/<slug>/` |
+| Compose | Copied into runtime dir; started with `docker compose up -d` |
+| Config files | Symlinked from catalog into runtime dir (except `.env`) |
+| Environment | `.env` created from `.env.example` as mode `0600`, existing files preserved |
+| Caddy snippets | `/etc/caddy/omarchy-tweaker/<slug>.caddy` + `global.caddy` |
+| Host Caddy config | `/etc/caddy/Caddyfile` with managed `# BEGIN/END omarchy-tweaker` block |
+| Failure mode | Per-container/prep/Caddy/Compose failures reported; step exits `1` on failure |
+
+!!! warning "Operations with side effects"
+    - Creates and updates files below the runtime directory.
+    - Replacing host symlink destinations creates timestamped `.bak.<timestamp>` backups.
+    - Host Caddy updates are validated, backed up, written with `sudo`, and reloaded.
+    - Fixed `container_name` conflicts may stop and rename an existing external container (with confirmation).
 
 ---
 
-## Catalog layout
+## Catalog overview
 
-Each container lives in its own directory below `src/omarchy_tweaker/containers/`:
+Each container is a directory under `src/omarchy_tweaker/containers/` containing at least a
+`docker-compose.yml`. A top-level catalog `Caddyfile` provides global host routes.
 
-| File | Required | Purpose |
+### Bundled catalog
+
+| Container | Slug / Directory | Purpose | Compose services | Network model |
+|:--|:--|:--|:--|:--|
+| Atuin AI Server | `atuin/` | OpenAI-compatible chat backend for Atuin | `atuin-ai` | Host network |
+| Open WebUI | `open-webui/` | Web UI for local LLM inference | `open-webui` | Host network |
+| Dockhand | `dockhand/` | Docker management web UI | `dockhand` | Host network |
+| OmniRoute | `omniroute/` | AI router/proxy with dashboard, API, WS, Redis | `omniroute`, `redis` | App: host, Redis: bridge + loopback publish |
+| SnapOtter | `snapotter/` | File processing (convert/OCR/transcribe/AI) | `snapotter`, `postgres`, `redis` | Private bridge, app published to loopback |
+
+### Container directory files
+
+| File | Required | Behavior |
 |:--|:--:|:--|
-| `docker-compose.yml` | Yes | Compose definition. Also identifies the directory as a container. |
-| `.env.example` | No | Template used to create the container's `.env` file. |
-| `Caddyfile` | No | Reverse-proxy route for the host Caddy installation. |
-| `container.toml` | No | Display name, description, host symlinks, and generated secrets. |
-| Other files | No | Configuration files linked into the runtime directory. |
+| `docker-compose.yml` | Yes | Identifies the container and is copied to the runtime directory. |
+| `.env.example` | No | Template for runtime `.env` generation (created once, mode `0600`). |
+| `Caddyfile` | No | Per-container reverse-proxy snippet installed into managed Caddy dir. |
+| `container.toml` | No | Display metadata, host symlinks, runtime subdirectories, generated env keys. |
+| `discover.sh` (OmniRoute) | No* | Runtime discovery script used by OmniRoute-specific preparation. |
+| Other files | No | Symlinked into the runtime directory for live catalog-backed config. |
 
-The catalog currently contains five containers:
+*A required part of the bundled OmniRoute workflow; missing/failing discovery skips OmniRoute startup.
 
-| Container | Directory | Description |
-|:--|:--|:--|
-| Atuin AI Server | `containers/atuin/` | Atuin AI chat server with an OpenAI-compatible API. |
-| Open WebUI | `containers/open-webui/` | Web UI for local LLM inference with an OpenAI-compatible API. |
-| Dockhand | `containers/dockhand/` | Web UI for managing Docker containers, images, and volumes. |
-| OmniRoute | `containers/omniroute/` | Smart AI router with an OpenAI-compatible API and auto fallback. |
-| SnapOtter | `containers/snapotter/` | Self-hosted file-processing suite: convert, compress, OCR, transcribe, and run local AI. |
-
----
-
-## Runtime layout
-
-Prepared containers live below `~/Projects/Containers/<container>`. The compose file is
-copied there. Other container files are symlinked into the runtime directory, so edits in the
-catalog are immediately visible without copying. The `.env` file is written as a regular file
-with mode `0600` and is never linked.
-
-The runtime location can be overridden with `OMARCHY_TWEAKER_CONTAINERS_ROOT`. The catalog
-location can be overridden with `OMARCHY_TWEAKER_CONTAINERS_DIR`.
-
-### Container name conflicts
-
-A Compose file may set a fixed `container_name`. If a container with that name already exists
-outside the current Compose project, Omarchy Tweaker offers to stop and rename the existing
-container to `<name>-backup-<timestamp>`. The old container is preserved but stopped so the
-new Compose project can create its container. Declining the prompt skips that container.
-
----
-
-## Environment files
-
-When a container has a `.env.example`, Omarchy Tweaker creates `.env` in the runtime directory
-and keeps an existing `.env` untouched. Docker Compose interpolates values in an existing
-`.env`, so any `${VARIABLE}` references it contains must also be set in the environment or in
-the same file. An existing `.env` that references an unset variable is reported as an error
-before anything is started.
-
-- Variables listed in the manifest's `env.generate` list offer automatic secret generation.
-- Variables whose names contain `TOKEN`, `SECRET`, or `PASSWORD` also offer automatic generation.
-- Other variables are prompted for interactively.
-- Placeholder values such as `replace_with_...` and `your_...` are rejected.
-- Blank values are rejected.
-
-```toml
-[env]
-generate = ["AUTH_TOKEN"]
-```
-
----
-
-## Host symlinks
-
-The manifest's `[symlinks]` table maps a file inside the container directory to a host path.
-The host path becomes a symlink to the prepared runtime file. An existing destination is
-backed up first with a `.bak.<timestamp>` suffix.
-
-Symlink sources must be plain file names inside the container directory. Relative
-destinations are resolved beneath the home directory.
-
-!!! warning "Symlinks replace host files"
-    A symlink replaces the destination with a link to the catalog file. The original is
-    backed up first. Review the catalog file for placeholder values before relying on it.
-
----
-
-## Manifest
+### Manifest (`container.toml`)
 
 ```toml
 [container]
-name = "Atuin AI Server"
-description = "Atuin AI chat server with an OpenAI-compatible API."
+name = "Display Name"
+description = "Human-readable description."
+directories = ["data"]
 
 [symlinks]
-"config.toml" = "~/.config/atuin-ai-server/config.toml"
+"config.toml" = "~/.config/app/config.toml"
 
 [env]
-generate = ["AUTH_TOKEN"]
+generate = ["SECRET_TOKEN"]
 ```
 
-The `container` section provides the display name and description. When omitted, the
-directory name is converted into a display name. A malformed manifest causes that container to
-be skipped with a logged error.
-
----
-
-## Container: Atuin AI Server
-
-Atuin AI Server is an OpenAI-compatible chat backend for Atuin. Its directory is
-`src/omarchy_tweaker/containers/atuin/`.
-
-```text
-containers/atuin/
-├── .env.example
-├── atuin.toml
-├── Caddyfile
-├── config.toml
-├── container.toml
-└── docker-compose.yml
-```
-
-- Runtime directory: `~/Projects/Containers/atuin`.
-- Compose container name: `Atuin-Ai`.
-- Network: `network_mode: host`, proxying port `6900`.
-- Host symlinks:
-  - `config.toml` → `~/.config/atuin-ai-server/config.toml`
-  - `atuin.toml` → `~/.config/atuin/config.toml`
-- Generated secret: `AUTH_TOKEN`.
-- Prompted value: `ATUIN_API_KEY` (the OmniRoute API key).
-
-The `atuin.toml` symlink replaces `~/.config/atuin/config.toml` with a link to the catalog
-file, so the Atuin client and the AI server share one configuration. The original file is
-backed up first. Replace the placeholder `api_token = "<ATUIN_API_KEY>"` in the catalog file
-with the real key from the container's `.env` before relying on it.
-
-`config.toml` lists the OmniRoute models (`main`, `best-fast`, `best-free`, `smart`,
-`best-chat`, `best-reasoning`) and local Ollama models routed through OmniRoute.
-
-### Caddy routes
-
-| Domain | Path | Upstream |
+| Section | Key | Purpose |
 |:--|:--|:--|
-| `atuin-ai.localhost` | `/` | `127.0.0.1:6900` |
-| `chat.atuin-ai.localhost` | `/api/cli/chat` | `127.0.0.1:6900` |
-| `models.atuin-ai.localhost` | `/api/cli/models` | `127.0.0.1:6900` |
+| `[container]` | `name` | Display name shown in selection UI (defaults from slug). |
+| `[container]` | `description` | Selection/help text. |
+| `[container]` | `directories` | Runtime subdirectories to ensure exist. |
+| `[symlinks]` | `"source" = "dest"` | Link runtime file to host destination (file names only as source). |
+| `[env]` | `generate` | Variables offered for automatic secret generation. |
 
-Access log: `/var/log/caddy/atuin-ai.log`.
-
----
-
-## Container: Open WebUI
-
-Open WebUI is a web interface for local LLM inference with an OpenAI-compatible API. Its
-directory is `src/omarchy_tweaker/containers/open-webui/`.
-
-```text
-containers/open-webui/
-├── .env.example
-├── Caddyfile
-├── container.toml
-└── docker-compose.yml
-```
-
-- Runtime directory: `~/Projects/Containers/open-webui`.
-- Compose container name: `OpenWebUi`.
-- Network: `network_mode: host`. The container listens on `PORT` from `.env`, which
-  defaults to `6901`.
-- Host symlinks: none.
-- Generated secret: `WEBUI_SECRET_KEY`.
-- Prompted value: `PORT`.
-- Optional values with defaults: `ENABLE_EASTER_EGGS`, `FORWARDED_ALLOW_IPS`,
-  `OLLAMA_BASE_URL` (mapped to `OLLAMA_BASE_URLS`), `OMNIROUTE_URL` (mapped to
-  `OPENAI_API_BASE_URL`).
-
-Open WebUI stores its database and uploads in `~/Projects/Containers/open-webui/data`. The
-compose file mounts that path directly, so it is not listed in `[symlinks]`. Create the
-directory before starting the container, or the bind mount will be created empty by Docker.
-
-### Caddy routes
-
-| Domain | Upstream |
-|:--|:--|
-| `open-webui.localhost` | `127.0.0.1:6901` |
-
-Access log: `/var/log/caddy/open-webui.log`.
+!!! note
+    A malformed manifest causes that container to be skipped with a logged error; other containers remain available.
 
 ---
 
-## Container: Dockhand
+## Port allocation and domains
 
-Dockhand is a web UI for managing Docker containers, images, and volumes. Its directory is
-`src/omarchy_tweaker/containers/dockhand/`.
+All configured routes are designed to coexist without host-port collisions.
 
-```text
-containers/dockhand/
-├── .env.example
-├── Caddyfile
-├── container.toml
-└── docker-compose.yml
-```
+| Service | Type | Host port | Container/internal port | Domain / Route | Upstream |
+|:--|:--|:--:|:--:|:--|:--|
+| Omarchy site | Global host | `80` | — | `http://omarchy.localhost` | `127.0.0.1:80` |
+| Hugo dev server | Global host | `1313` | — | `http://hugo.localhost` | `127.0.0.1:1313` |
+| Ollama API | Global host | `11434` | — | `http://ollama.localhost` | `127.0.0.1:11434` |
+| Atuin AI Server | Container | `6900` | `6900` | `atuin-ai.localhost`, `chat.atuin-ai.localhost`, `models.atuin-ai.localhost` | `127.0.0.1:6900` |
+| Open WebUI | Container | `6901` | `PORT` (`6901`) | `open-webui.localhost` | `127.0.0.1:6901` |
+| Dockhand | Container | `6902` | `PORT` (`6902`) | `dockhand.localhost` | `127.0.0.1:6902` |
+| OmniRoute dashboard | Container | `6904` | `6904` | `omniroute.localhost` | `127.0.0.1:6904` |
+| OmniRoute API | Container | `6905` | `6905` | `api.omniroute.localhost` | `127.0.0.1:6905` |
+| OmniRoute Live WS | Container | `6906` | `6906` | `ws.omniroute.localhost` | `127.0.0.1:6906` |
+| OmniRoute Redis | Container (internal publish) | `6379` | `6379` | — | `127.0.0.1:6379` (loopback publish) |
+| SnapOtter app | Container | `6907` | `1349` | `snapotter.localhost` | `127.0.0.1:6907` |
 
-- Runtime directory: `~/Projects/Containers/dockhand`.
-- Compose container name: `dockhand`.
-- Network: `network_mode: host`. The container listens on `PORT` from `.env`, which
-  defaults to `6902`.
-- Host symlinks: none.
-- Prompted value: `PORT`.
-- Data is bind-mounted at `~/Projects/Containers/dockhand/data`, and the Docker socket is
-  mounted at `/var/run/docker.sock` so Dockhand can manage the host daemon.
-
-### Caddy routes
-
-| Domain | Upstream |
-|:--|:--|
-| `dockhand.localhost` | `127.0.0.1:6902` |
-
-Access log: `/var/log/caddy/dockhand.log`.
+!!! tip "Changing ports safely"
+    If you customize a port, keep these in sync: compose port mapping / host service, `.env` values
+    (where used), and the corresponding Caddy upstream.
 
 ---
 
-## Container: OmniRoute
+## End-to-end workflow
 
-OmniRoute is a smart AI router with an OpenAI-compatible API and automatic provider
-fallback. Its directory is `src/omarchy_tweaker/containers/omniroute/`.
+```mermaid
+flowchart TD
+    A([Start containers step]) --> B{Interactive TTY?}
+    B -- No --> Z1[Skip with warning]
+    B -- Yes --> C[Load catalog & manifests]
+    C --> D[Select containers]
+    D --> E{Any selected?}
+    E -- No --> Z2[Skip]
+    E -- Yes --> F{Confirm setup?}
+    F -- No --> Z2
+    F -- Yes --> G[Per-container preparation]
 
-!!! info "Four steps beyond the standard workflow"
-    OmniRoute needs host tooling that the other containers do not: a host CLI, host
-    tool and agent mounts, an onboarding bootstrap token, and a CLI connection to the
-    container API. Each step is covered below in the order Omarchy Tweaker runs it.
+    subgraph PREP [Preparation]
+      G --> G1[Resolve runtime dir & fixed container names]
+      G1 --> G2{Name conflict outside project?}
+      G2 -- Yes --> G3[Offer stop + rename to backup]
+      G2 -- No --> G4[Create runtime dir & required subdirs]
+      G3 --> G4
+      G4 --> G5[Copy compose / symlink catalog files]
+      G5 --> G6[Create or validate .env]
+      G6 --> G7[Apply host symlinks with backups]
+      G7 --> G8[Container-specific hooks e.g. OmniRoute]
+    end
 
-### Layout
-
-```text
-containers/omniroute/
-├── .env.example
-├── Caddyfile
-├── container.toml
-├── discover.sh
-└── docker-compose.yml
+    G8 --> H{Caddy setup accepted?}
+    H -- Yes --> I[Install global + selected snippets]
+    I --> J[Merge managed imports in host Caddyfile]
+    J --> K[Validate, backup, write, start/reload Caddy]
+    H -- No --> L[Start Docker Compose]
+    K --> L
+    L --> M{Failures?}
+    M -- Yes --> Z3[Report and exit 1]
+    M -- No --> Z4[Success]
 ```
 
-| Setting | Value |
+### Runtime layout and behavior
+
+| Item | Behavior |
 |:--|:--|
-| Runtime directory | `~/Projects/Containers/omniroute` |
-| Containers | `omniroute` and `omniroute-redis` |
-| App network | `network_mode: host` |
-| Redis network | Private bridge network, published on `127.0.0.1:6379` |
-| API port | `API_PORT` (`6905`) |
-| Dashboard port | `DASHBOARD_PORT` (`6904`) |
-| Live WebSocket port | `LIVE_WS_PORT` (`6906`) |
-| Generated secret | `OMNIROUTE_WS_BRIDGE_SECRET` |
-| Persistent data | `${HOME}/Projects/Containers/snapotter/data` and `./redis` below the runtime directory |
+| Runtime directory | `~/Projects/Containers/<slug>` |
+| `docker-compose.yml` | Copied into runtime directory |
+| Other catalog files | Symlinked into runtime directory (catalog edits remain visible) |
+| `.env` | Regular file, mode `0600`, never symlinked; existing file is kept |
+| Existing host symlink targets | Backed up as `<path>.bak.<timestamp>` before replacement |
+| Fixed `container_name` conflicts | Existing external container may be stopped/renamed `<name>-backup-<timestamp>` |
 
-!!! tip "The catalog is portable"
-    `docker-compose.yml` only uses the relative mounts `${HOME}/Projects/Containers/snapotter/data` and `./redis`. Host-specific
-    paths are discovered at runtime instead of being committed to the catalog.
-    `compose.agents.yaml` is a generated Compose override, not a file mounted into the
-    container.
+!!! info "Environment variables"
+    - `env.generate` entries and names containing `TOKEN`, `SECRET`, or `PASSWORD` can be auto-generated.
+    - Other values are prompted interactively; placeholders like `replace_with_*` / `your_*` and blank values are rejected.
+    - Existing `.env` files are preserved, but unresolved `${VAR}` references are validated and reported as errors before start.
 
-!!! warning "Runtime data must be writable"
-    Omarchy Tweaker creates `~/Projects/Containers/omniroute/data` as your user before
-    Compose starts, so the container (which runs as the same UID) can write its SQLite
-    database and generated secrets. If the directory already exists but is owned by root,
-    the step offers to fix it with `sudo chown -R "$(id -u):$(id -g)"`. Declining stops
-    preparation instead of starting a container that cannot save data.
+---
 
-### Startup pipeline
+## Caddy integration
+
+Caddy is configured through managed snippet files and a single managed import block in the host
+Caddyfile. This keeps Omarchy Tweaker routes additive and avoids clobbering unrelated host config.
+
+### Global and per-container routes
+
+| Source | Installed snippet | Scope |
+|:--|:--|:--|
+| `src/omarchy_tweaker/containers/Caddyfile` | `/etc/caddy/omarchy-tweaker/global.caddy` | Global host routes (not tied to one container) |
+| `containers/<slug>/Caddyfile` | `/etc/caddy/omarchy-tweaker/<slug>.caddy` | Container-specific routes |
+
+**Current global routes (`global.caddy`):**
+
+| Domain | Upstream | Access log |
+|:--|:--|:--|
+| `http://omarchy.localhost` | `127.0.0.1:80` | `/var/log/caddy/omarchy.log` |
+| `http://hugo.localhost` | `127.0.0.1:1313` | `/var/log/caddy/hugo.log` |
+| `http://ollama.localhost` | `127.0.0.1:11434` | `/var/log/caddy/ollama.log` |
+
+### Managed update flow
 
 ```mermaid
 flowchart LR
-    A[Install or update host CLI] --> B[Prepare runtime .env]
-    B --> C[Discover tool and agent mounts]
-    C -- success --> D[Start Compose with both files]
-    C -- failure --> X[Skip OmniRoute with an error]
-    D --> E[Read onboarding bootstrap token]
-    E --> F[Print CLI exports and offer shell profile update]
+    A[Global Caddyfile?] --> B[Install global.caddy]
+    C[Selected container Caddyfiles] --> D[Install <slug>.caddy]
+    B --> E[Read existing managed imports]
+    D --> E
+    E --> F[Merge + dedupe imports]
+    F --> G[caddy adapt validation]
+    G --> H[Backup host Caddyfile]
+    H --> I[Write managed block with sudo]
+    I --> J[Start/enable or reload caddy]
 ```
 
-| Step | Timing | Result |
-|:--|:--|:--|
-| Host CLI installation | Before preparation | Global `omniroute` npm package is present and current |
-| Agent and tool discovery | Before start | `compose.agents.yaml` contains explicit CLI paths, environment overrides, and detected host mounts |
-| Onboarding bootstrap token | After start | One-time token is printed for the wizard |
-| Host CLI connection | After start | Export lines are printed and optionally saved |
+**Managed block example:**
 
-### 1. Host CLI installation
-
-The host `omniroute` CLI routes agent traffic to the container, so Omarchy Tweaker keeps it
-available on the host through the global npm package `omniroute`.
-
-- **Missing package:** you are offered `npm install -g omniroute`.
-- **Installed package:** Omarchy Tweaker checks for a newer release with `npm outdated -g`
-  and offers to update it.
-- **Declined or failed installation:** a warning is shown and container setup continues
-  with the generated mounts and CLI exports.
-
-!!! note "npm is required"
-    The check uses the `npm` from your `PATH`. When `npm` is not installed, the
-    installation step cannot run: a warning is shown and container startup is not blocked.
-
-### 2. Agent and tool discovery
-
-Before the container starts, the bundled `discover.sh` runs inside the runtime directory. It
-reads `HOST_NODE_BIN` from the rendered `.env`, resolves each installed CLI to its real
-binary, and writes the result to `compose.agents.yaml`.
-
-| Host path | Container path | Mode | Purpose |
-|:--|:--|:--:|:--|
-| `HOST_NODE_BIN` | `/host-node/bin` | Read-only | Node runtime for the CLI bridge |
-| `~/.local/bin` | `/host-local/bin` | Read-only | Locally installed CLIs (kept last on `PATH`) |
-| `~/.local/share/mise/installs` | Same path | Read-only | Mise-managed agent binaries |
-| `~/.local/share/uv/python` | Same path | Read-only | Python runtime used by a mise-managed Hermes |
-| `~/.config/opencode` | `/home/node/.config/opencode` | Read-write | OpenCode config, which ignores `CLI_CONFIG_HOME` |
-| Installed agent directories | `/home/node/...` | Read-write | Agent configuration (Claude Code, Codex, Gemini, Pi, Hermes, and others) |
-
-Agent configuration directories are mounted directly into the container user's home
-(`/home/node`), and `CLI_CONFIG_HOME` is set to `/home/node`. This keeps the paths OmniRoute
-checks (`~/.claude`, `~/.codex`, `~/.gemini`, `~/.config/opencode`, and so on) identical
-inside and outside the container.
-
-`discover.sh` writes two things into the generated file:
-
-- **Explicit binaries.** Each detected tool gets a `CLI_<TOOL>_BIN` variable
-  (`CLI_CLAUDE_BIN`, `CLI_CODEX_BIN`, `CLI_GEMINI_BIN`, `CLI_OPENCODE_BIN`, `CLI_PI_BIN`,
-  `CLI_HERMES_BIN`, `CLI_OMP_BIN`, `CLI_GROK_BUILD_BIN`, and so on) pointing at the real
-  executable. Symlinks are resolved first, so npm-installed tools that link into a sibling
-  `lib` directory also work through the mounted mise tree.
-- **Lookup hints.** `CLI_EXTRA_PATHS` lists the real tool directories, with `/host-local/bin`
-  last. This prevents mise shims in `~/.local/bin` from shadowing the real binaries: those
-  shims call `mise`, which is not installed inside the container, so OmniRoute would report
-  every agent as unavailable. The same directories are prepended to `PATH`, so
-  `docker exec omniroute command -v claude` also resolves.
-
-`PI_CODING_AGENT_DIR` and `HERMES_HOME` are set when those agents are present, because
-neither reads `CLI_CONFIG_HOME`.
-
-The container starts with both Compose files, so the generated environment and mounts are
-always applied:
-
-=== "Validate"
-
-    ```bash
-    docker compose -f docker-compose.yml -f compose.agents.yaml config
-    ```
-
-=== "Start"
-
-    ```bash
-    docker compose -f docker-compose.yml -f compose.agents.yaml up -d --remove-orphans
-    ```
-
-!!! note "Generated at runtime"
-    `compose.agents.yaml` is not shipped in the catalog and is gitignored. It is rebuilt on
-    every run from the host paths that actually exist.
-
-!!! warning "Discovery failure skips only OmniRoute"
-    If `discover.sh` is missing or fails, OmniRoute is not started and the step reports an
-    error. Other selected containers continue normally. Finding no agents is not a failure:
-    the container still starts with the tool mounts.
-
-### 3. Onboarding bootstrap token
-
-The onboarding wizard lives at `<dashboard>/dashboard/onboarding`, for example
-`http://omniroute.localhost/dashboard/onboarding`. OmniRoute logs a one-time bootstrap token
-when the wizard is opened for the first time.
-
-1. Omarchy Tweaker prints the onboarding URL.
-2. It checks the container logs from the start of the current run.
-3. If the token is missing, it offers to wait up to **five minutes** while you open the page
-   and begin the wizard.
-4. When the token appears, it is printed in a panel so you can paste it into the wizard.
-
-??? example "What the log line looks like"
-
-    ```text
-    2026-11-15T01:13:52.907676177Z [omniroute] [BOOTSTRAP] Fresh install detected from a
-    non-loopback peer (e.g. a Docker port-forwarded connection) with no password configured
-    yet. Paste this ONE-TIME bootstrap token into the onboarding wizard to continue:
-    S8Dll5Lmy4MobPxaLSaW38Ma73zD45Jm
-    ```
-
-If you decline the wait, or the token does not appear in time, the following command prints it
-later:
-
-```bash
-docker logs omniroute | grep BOOTSTRAP
+```caddy
+# BEGIN omarchy-tweaker
+# Managed by Omarchy Tweaker. Do not edit this block by hand.
+import "/etc/caddy/omarchy-tweaker/global.caddy"
+import "/etc/caddy/omarchy-tweaker/atuin.caddy"
+# END omarchy-tweaker
 ```
 
-!!! warning "The token is single-use"
-    The log scan is limited to the current run, so an old token is never reused. Treat the
-    token like a password and paste it only into the onboarding wizard.
+!!! note "Important behavior"
+    - Imports from previously configured containers are preserved when running setup for a different selection.
+    - `caddy adapt` validates the generated config before write; backups are created before modification.
+    - Snippets live under `/etc/caddy/omarchy-tweaker/` so the Caddy service can read them.
+    - Overrides: `OMARCHY_TWEAKER_CADDY_CONFIG`, `OMARCHY_TWEAKER_CADDY_DIR`.
 
-### 4. Connecting the host CLI
+---
 
-After the container starts, Omarchy Tweaker prints the exports that point the host CLI at the
-container API and offers to persist them.
+## Container details
 
-| Variable | Source | Notes |
-|:--|:--|:--|
-| `OMNIROUTE_BASE_URL` | `BASE_URL`, falling back to `API_PORT` | Always printed |
-| `OMNIROUTE_API_KEY` | Created in the dashboard | Only relevant when `REQUIRE_API_KEY=true`; the placeholder is commented out |
+=== "Atuin AI Server"
 
-=== "Persist automatically"
+    **Path:** `src/omarchy_tweaker/containers/atuin/`
+    **Runtime:** `~/Projects/Containers/atuin`
 
-    When you accept the prompt, the lines are written to `~/.zshrc` in a managed block:
+    | Item | Value |
+    |:--|:--|
+    | Compose container | `Atuin-Ai` |
+    | Network | `network_mode: host` |
+    | Port | `6900` |
+    | Generated env | `AUTH_TOKEN` |
+    | Prompted env | `ATUIN_API_KEY` (OmniRoute API key) |
+    | Compose mount | `./config.toml:/etc/atuin-ai/config.toml:ro` (runtime-linked catalog config) |
+    | Host symlinks | `config.toml` → `~/.config/atuin-ai-server/config.toml`<br>`atuin.toml` → `~/.config/atuin/config.toml` |
 
-    ```bash
-    # >>> omarchy-tweaker omniroute >>>
-    export OMNIROUTE_BASE_URL=http://127.0.0.1:6905
-    # <<< omarchy-tweaker omniroute <<<
+    **Routes**
+
+    | Domain | Path | Upstream | Log |
+    |:--|:--|:--|:--|
+    | `atuin-ai.localhost` | `/` | `127.0.0.1:6900` | `/var/log/caddy/atuin-ai.log` |
+    | `chat.atuin-ai.localhost` | `/api/cli/chat` | `127.0.0.1:6900` | `/var/log/caddy/atuin-ai.log` |
+    | `models.atuin-ai.localhost` | `/api/cli/models` | `127.0.0.1:6900` | `/var/log/caddy/atuin-ai.log` |
+
+    !!! info "Configuration notes"
+        - `config.toml` listens on port `6900`, targets `http://atuin-ai.localhost/v1`, reads the upstream key from `ATUIN_API_KEY` (`[api_key] env = "ATUIN_API_KEY"`), and defines OmniRoute/local Ollama model aliases.
+        - `atuin.toml` is symlinked over `~/.config/atuin/config.toml` (original backed up) so client and server share catalog-backed configuration. Review and update any required tokens/values for your environment.
+
+        If Atuin prompts for login, point the CLI at the local AI endpoint and use `oss` protocol with the server's `AUTH_TOKEN` (not an Atuin Hub token).
+
+        | Setting | Value | Purpose |
+        |:--|:--|:--|
+        | `ai.endpoint` | `http://atuin-ai.localhost` | Local Atuin AI server URL |
+        | `ai.endpoint_protocol` | `oss` | Bypass Atuin Hub authentication |
+        | `ai.api_token` | `AUTH_TOKEN` from container `.env` | Authenticate against the self-hosted server |
+        | `ai.model` | e.g. `best-fast` | Default model alias from `config.toml` |
+
+        ```bash
+        atuin config set ai.endpoint http://atuin-ai.localhost
+        atuin config set ai.endpoint_protocol oss
+        atuin config set ai.api_token 'YOUR_AUTH_TOKEN'
+        atuin config set ai.enabled true
+        atuin config set ai.model best-fast
+        ```
+
+    !!! warning "Keep tokens private"
+        Replace `YOUR_AUTH_TOKEN` with the real `AUTH_TOKEN` from `~/Projects/Containers/atuin/.env`. Do not commit it to version control.
+
+=== "Open WebUI"
+
+    **Path:** `src/omarchy_tweaker/containers/open-webui/`
+    **Runtime:** `~/Projects/Containers/open-webui`
+
+    | Item | Value |
+    |:--|:--|
+    | Compose container | `OpenWebUi` |
+    | Network | `network_mode: host` |
+    | Port | `PORT` (default `6901`) |
+    | Generated env | `WEBUI_SECRET_KEY` |
+    | Prompted env | `PORT` |
+    | Optional env | `ENABLE_EASTER_EGGS`, `FORWARDED_ALLOW_IPS`, `OLLAMA_BASE_URL` → `OLLAMA_BASE_URLS`, `OMNIROUTE_URL` → `OPENAI_API_BASE_URL` |
+    | Persistent data (host bind mount) | `${HOME}/Projects/Containers/open-webui/data:/app/backend/data` |
+
+    **Route:** `open-webui.localhost` → `127.0.0.1:6901` (`/var/log/caddy/open-webui.log`)
+
+=== "Dockhand"
+
+    **Path:** `src/omarchy_tweaker/containers/dockhand/`
+    **Runtime:** `~/Projects/Containers/dockhand`
+
+    | Item | Value |
+    |:--|:--|
+    | Compose container | `dockhand` |
+    | Network | `network_mode: host` |
+    | Port | `PORT` (default `6902`) |
+    | Prompted env | `PORT` |
+    | Mounts | `${HOME}/Projects/Containers/dockhand/data:/app/data`, `/var/run/docker.sock:/var/run/docker.sock` |
+
+    **Route:** `dockhand.localhost` → `127.0.0.1:6902` (`/var/log/caddy/dockhand.log`)
+
+    !!! warning "Docker socket access"
+        Mounting `/var/run/docker.sock` grants Dockhand control over the host Docker daemon.
+
+=== "OmniRoute"
+
+    **Path:** `src/omarchy_tweaker/containers/omniroute/`
+    **Runtime:** `~/Projects/Containers/omniroute`
+
+    | Item | Value |
+    |:--|:--|
+    | Services | `omniroute` (app), `omniroute-redis` (Redis) |
+    | App network | `network_mode: host` (`DASHBOARD_PORT=6904`, `API_PORT=6905`, `LIVE_WS_PORT=6906`) |
+    | Redis network | `omniroute-internal` bridge, published `127.0.0.1:6379:6379` |
+    | Persistent mounts | `${HOME}/Projects/Containers/omniroute/data:/app/data`, `${HOME}/Projects/Containers/omniroute/redis:/data` |
+    | Generated env | `OMNIROUTE_WS_BRIDGE_SECRET` |
+    | Runtime artifacts | `.env` (0600), `compose.agents.yaml` (generated), runtime data dir |
+
+    **Routes**
+
+    | Domain | Purpose | Upstream | Log |
+    |:--|:--|:--|:--|
+    | `omniroute.localhost` | Dashboard | `127.0.0.1:6904` | `/var/log/caddy/omniroute-dashboard.log` |
+    | `api.omniroute.localhost` | API | `127.0.0.1:6905` | `/var/log/caddy/omniroute-api.log` |
+    | `ws.omniroute.localhost` | Live WebSocket | `127.0.0.1:6906` | `/var/log/caddy/omniroute-ws.log` |
+
+    !!! info "Beyond the standard container flow"
+        OmniRoute adds host CLI install/update checks, agent/tool discovery (`discover.sh` → `compose.agents.yaml`), onboarding bootstrap-token capture, and optional shell export persistence.
+
+    ```mermaid
+    flowchart LR
+      A[Host CLI check/install/update] --> B[Prepare runtime & .env]
+      B --> C[discover.sh]
+      C -->|ok| D[docker compose -f docker-compose.yml -f compose.agents.yaml up -d]
+      C -->|fail/missing| X[Skip OmniRoute, continue others]
+      D --> E[Read onboarding bootstrap token]
+      E --> F[Print/persist CLI exports]
     ```
 
-=== "Add manually"
+    **Discovery highlights (`compose.agents.yaml`)**
+    - Explicit `CLI_<TOOL>_BIN` paths and lookup hints (`CLI_EXTRA_PATHS`, `PATH` adjustments).
+    - Host mounts for Node/runtime/tool locations and agent config dirs into container home.
+    - `CLI_CONFIG_HOME=/home/node`; agent-specific vars like `PI_CODING_AGENT_DIR`/`HERMES_HOME` set when detected.
 
-    When you decline, or the session is not interactive, the exact lines are printed:
+    **CLI connection exports**
 
-    ```bash
-    export OMNIROUTE_BASE_URL=http://127.0.0.1:6905
-    ```
+    | Variable | Source | Notes |
+    |:--|:--|:--|
+    | `OMNIROUTE_BASE_URL` | `BASE_URL` or `API_PORT` fallback | Always emitted |
+    | `OMNIROUTE_API_KEY` | Dashboard-created key | Relevant when `REQUIRE_API_KEY=true`; placeholder commented by default |
 
-    Add them to your shell profile yourself and reload it.
+    !!! warning "Onboarding token"
+        Fresh installs may log a one-time `[BOOTSTRAP]` token for `http://omniroute.localhost/dashboard/onboarding`.
+        Retrieve later with `docker logs omniroute | grep BOOTSTRAP` if needed; treat as sensitive/single-use.
 
-!!! tip "Safe, repeatable updates"
-    An existing managed block is replaced rather than duplicated. A key you filled into
-    `OMNIROUTE_API_KEY` is preserved, and the previous profile is backed up to
-    `~/.zshrc.<timestamp>.bak` before it is modified.
+    !!! note "Runtime data permissions"
+        Omarchy Tweaker ensures `~/Projects/Containers/omniroute/data` is user-writable before start and can offer `chown` repair if root-owned.
 
-!!! note "API keys are dashboard-managed"
-    OmniRoute stores API keys in the container database, so no key is generated in `.env`.
-    Create one in the dashboard and uncomment the `OMNIROUTE_API_KEY` line with that value.
+=== "SnapOtter"
 
-### Caddy routes
+    **Path:** `src/omarchy_tweaker/containers/snapotter/`
+    **Runtime:** `~/Projects/Containers/snapotter`
 
-| Domain | Upstream |
+    | Item | Value |
+    |:--|:--|
+    | Services | `snapotter`, `snapotter-postgres`, `snapotter-redis` |
+    | Network | `snapotter-internal` bridge (DB/Redis not host-published) |
+    | Published port | `127.0.0.1:${PORT:-6907}:1349` (internal app port `1349`) |
+    | Generated env | `SNAPOTTER_PASSWORD`, `POSTGRES_PASSWORD` |
+    | Prompted env | `SNAPOTTER_PASSWORD` |
+    | Key `.env` values | `PORT=6907`, `SNAPOTTER_USERNAME`, `SNAPOTTER_PASSWORD`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `SNAPOTTER_INTERNAL_PORT=1349` |
+    | Persistent data (host bind mounts) | `${HOME}/Projects/Containers/snapotter/data:/data`<br>`${HOME}/Projects/Containers/snapotter/pgdata:/var/lib/postgresql/data`<br>`${HOME}/Projects/Containers/snapotter/redisdata:/data` |
+
+    **Route:** `snapotter.localhost` → `127.0.0.1:6907` (`/var/log/caddy/snapotter.log`)
+
+    !!! warning "First login"
+        Default user is `admin` (`SNAPOTTER_USERNAME`); SnapOtter forces a password change on first login. Update credentials after initial access.
+
+---
+
+## Operations, overrides, and failure handling
+
+| Topic | Behavior |
 |:--|:--|
-| `omniroute.localhost` | `127.0.0.1:6904` (dashboard) |
-| `api.omniroute.localhost` | `127.0.0.1:6905` (API) |
-| `ws.omniroute.localhost` | `127.0.0.1:6906` (Live WebSocket) |
+| Interactivity | Non-interactive runs skip container setup with a warning (no files started/prepared). |
+| Caddy dependency | Caddy is expected to be installed (available in package catalog); container step does not install it. |
+| Validation | Generated Caddy config validated via `caddy adapt` before write. |
+| Backups | Host Caddyfile and replaced symlink destinations are backed up with timestamps. |
+| Timeouts | Compose operations: 900s; compose config: 60s; sudo: 120s; Caddy ops: 60s; npm install: 600s; discovery: 60s. |
+| Partial failure | One container's failure does not stop processing remaining selected containers; step reports failures and exits `1`. |
 
-Access logs: `/var/log/caddy/omniroute-dashboard.log`, `omniroute-api.log`, and
-`omniroute-ws.log`.
+**Environment overrides**
 
----
-
-## Caddy
-
-Each container may provide a `Caddyfile`. When Caddy setup is accepted, Omarchy Tweaker:
-
-1. Copies the container Caddyfile into `/etc/caddy/omarchy-tweaker/`.
-2. Adds or replaces a managed block in `/etc/caddy/Caddyfile` that imports those snippets.
-3. Validates the generated configuration with `caddy adapt`.
-4. Backs up the host Caddyfile.
-5. Writes the updated Caddyfile with `sudo`.
-6. Starts and enables the Caddy service when it is not running, then reloads it through
-   `systemctl reload caddy`, falling back to `caddy reload`.
-
-`caddy adapt` checks the generated configuration without opening a log file, so validation
-does not require elevated privileges. The running Caddy service writes access logs below
-`/var/log/caddy`, which is writable by the service user.
-
-Snippets live in a system directory so the unprivileged Caddy service can read them even when
-home directories are protected. The host Caddyfile path can be overridden with
-`OMARCHY_TWEAKER_CADDY_CONFIG`. The snippet directory can be overridden with
-`OMARCHY_TWEAKER_CADDY_DIR`.
-
-!!! note "Caddy must be installed"
-    Caddy is part of the package catalog. The container step does not install it.
-
----
-
-## Container: SnapOtter
-
-SnapOtter is a self-hosted file-processing suite. It converts, compresses, OCRs, transcribes,
-and runs local AI across image, video, audio, PDF, and documents through a UI, REST API, and
-pipelines. Its directory is `src/omarchy_tweaker/containers/snapotter/`.
-
-```text
-containers/snapotter/
-├── .env.example
-├── Caddyfile
-├── container.toml
-└── docker-compose.yml
-```
-
-- Runtime directory: `~/Projects/Containers/snapotter`.
-- Compose containers: `snapotter`, `snapotter-postgres`, and `snapotter-redis`.
-- Network: private bridge network `snapotter-internal`. Redis and PostgreSQL are not published
-  to the host; only the SnapOtter app is reachable.
-- Published port: `PORT` (`6906`) on `127.0.0.1`, forwarded to the image's internal port `1349`.
-- Persistent data: `${HOME}/Projects/Containers/snapotter/data` (app files), `${HOME}/Projects/Containers/snapotter/pgdata` (PostgreSQL), and `${HOME}/Projects/Containers/snapotter/redisdata` (Redis)
-  below the runtime directory.
-- Generated secrets: `SNAPOTTER_PASSWORD` and `POSTGRES_PASSWORD`.
-- Prompted value: `SNAPOTTER_PASSWORD` (also used as the app login and the PostgreSQL password
-  unless overridden).
-
-### Caddy routes
-
-| Domain | Upstream |
+| Variable | Purpose |
 |:--|:--|
-| `snapotter.localhost` | `127.0.0.1:6906` |
+| `OMARCHY_TWEAKER_CONTAINERS_DIR` | Override bundled catalog location |
+| `OMARCHY_TWEAKER_CONTAINERS_ROOT` | Override runtime root (`~/Projects/Containers` default target) |
+| `OMARCHY_TWEAKER_CADDY_CONFIG` | Override host Caddyfile path |
+| `OMARCHY_TWEAKER_CADDY_DIR` | Override managed Caddy snippet directory |
 
-Access log: `/var/log/caddy/snapotter.log`.
-
-!!! warning "First login"
-    The default username is `admin`. SnapOtter forces a password change on first login. Change
-    `DEFAULT_USERNAME` and `DEFAULT_PASSWORD` after the first login.
-
----
-
-## Non-interactive use
-
-`omarchy-tweaker containers` requires an interactive terminal. Without one, it prints a
-warning and skips without preparing or starting anything.
-
-## Failure handling
-
-A preparation, Caddy, or Docker Compose failure is reported and exits with code `1`. A
-failure for one container does not prevent the remaining selected containers from being
-processed. Compose operations have a **900 second** timeout.
+!!! success "Design goals"
+    - **Predictable:** explicit selection, confirmation, and additive Caddy management.
+    - **Safe-ish:** backups, validation, preserved existing `.env`, and conflict handling.
+    - **Portable catalog:** host-specific paths generated at runtime where needed (e.g. OmniRoute mounts/env).

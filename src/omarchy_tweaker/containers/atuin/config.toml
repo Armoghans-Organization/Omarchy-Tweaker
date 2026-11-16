@@ -7,7 +7,7 @@ port = 6900
 
 # The OpenAI-compatible chat-completions endpoint
 # Omniroute Running on Host machine
-endpoint = "http://127.0.0.1:20128/v1"
+endpoint = "http://omniroute.localhost/v1"
 
 # API key for the OpenAI-compatible endpoint.
 # Get one from the .env file

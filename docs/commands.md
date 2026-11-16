@@ -336,8 +336,9 @@ standalone `containers` command.
 6. Creates configured host symlinks, backing up an existing destination first.
 7. Resolves Compose `container_name` conflicts by offering to stop and rename the
    conflicting container.
-8. Optionally copies each container Caddyfile into `/etc/caddy/omarchy-tweaker/` and adds
-   a managed import block to the host Caddyfile.
+8. Optionally copies the global and each container Caddyfile into `/etc/caddy/omarchy-tweaker/`
+   and merges a managed import block into the host Caddyfile, preserving imports for containers
+   that were not selected in the current run.
 9. Starts and enables Caddy when needed, then reloads it after the configuration changes.
 10. Starts each prepared container with `docker compose up -d --remove-orphans`.
 

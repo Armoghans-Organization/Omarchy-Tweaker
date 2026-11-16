@@ -15,7 +15,7 @@ services:
       - omniroute-internal
 
     volumes:
-      - ./redis:/data
+      - ${HOME}/Projects/Containers/omniroute/redis:/data
 
     command:
       - redis-server
@@ -89,7 +89,7 @@ services:
       CLI_ALLOW_CONFIG_WRITES: "true"
 
     volumes:
-      - ./data:/app/data
+      - ${HOME}/Projects/Containers/omniroute/data:/app/data
 
     depends_on:
       redis:

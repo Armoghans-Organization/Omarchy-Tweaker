@@ -25,7 +25,8 @@ variables that should offer an automatically generated secret.
 
 Container files are prepared below ``~/Projects/Containers/<container>``.
 Docker Compose runs from that directory. Caddy receives one managed snippet
-per container and a managed block in the host Caddyfile imports them.
+per container plus a global snippet from the catalog-level ``Caddyfile``, and a
+managed block in the host Caddyfile imports them.
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ ENV_EXAMPLE_FILE_NAME: Final = ".env.example"
 ENV_FILE_NAME: Final = ".env"
 MANIFEST_FILE_NAME: Final = "container.toml"
 CADDYFILE_NAME: Final = "Caddyfile"
+GLOBAL_CADDYFILE_SNIPPET_NAME: Final = "global.caddy"
 AGENTS_COMPOSE_FILE_NAME: Final = "compose.agents.yaml"
 AGENTS_DISCOVER_SCRIPT_NAME: Final = "discover.sh"
 
@@ -147,6 +149,11 @@ class ContainerSpec:
         """Return the container Caddyfile path."""
         return self.directory / CADDYFILE_NAME
 
+    @property
+    def snippet_path(self) -> Path:
+        """Return the managed Caddy snippet path for this container."""
+        return get_managed_caddy_directory() / f"{self.slug}.caddy"
+
 
 def _log_error(message: str, *args: object) -> None:
     logger = get_session()
@@ -196,6 +203,40 @@ def get_managed_caddy_directory() -> Path:
     if override:
         return Path(override).expanduser()
     return CADDY_DEFAULT_DIRECTORY
+
+
+def get_global_caddyfile() -> Path:
+    """Return the catalog-level global Caddyfile path."""
+    return get_containers_directory() / CADDYFILE_NAME
+
+
+def _snippet_name(path: Path) -> str:
+    """Return the import token Caddy uses for a snippet path."""
+    return json.dumps(str(path))
+
+
+def _existing_snippet_paths(config_path: Path) -> tuple[str, ...]:
+    """Return import tokens already present in the host Caddyfile's managed block."""
+    try:
+        existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    except (OSError, UnicodeError):
+        return ()
+    start = existing.find(CADDY_INCLUDE_BEGIN)
+    if start == -1:
+        return ()
+    end = existing.find(CADDY_INCLUDE_END, start)
+    if end == -1:
+        return ()
+    block = existing[start:end]
+    imports: list[str] = []
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("import "):
+            continue
+        token = stripped[len("import ") :].strip()
+        if token:
+            imports.append(token)
+    return tuple(imports)
 
 
 def _display_name(slug: str) -> str:
@@ -1199,6 +1240,37 @@ def install_caddy_snippet(
     return snippet_path
 
 
+def install_global_caddy_snippet(
+    *,
+    caddy_directory: Path | None = None,
+    global_caddyfile: Path | None = None,
+) -> Path | None:
+    """Copy the catalog-level global Caddyfile into the managed snippet directory.
+
+    Returns:
+        The snippet path when the global Caddyfile exists, otherwise ``None``.
+    """
+    source = global_caddyfile if global_caddyfile is not None else get_global_caddyfile()
+    if not source.is_file():
+        _log_info("No global Caddyfile configured.")
+        return None
+
+    directory = caddy_directory if caddy_directory is not None else get_managed_caddy_directory()
+    if not _ensure_system_directory(directory):
+        return None
+
+    try:
+        content = source.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _log_error("Could not read the global Caddyfile: %s", exc)
+        return None
+
+    snippet_path = directory / GLOBAL_CADDYFILE_SNIPPET_NAME
+    if not _write_system_file(snippet_path, content):
+        return None
+    return snippet_path
+
+
 def _render_import_block(snippets: Sequence[Path]) -> str:
     lines = [
         CADDY_INCLUDE_BEGIN,
@@ -1366,6 +1438,28 @@ def _write_system_file(path: Path, content: str) -> bool:
     return chmod_result is not None and chmod_result.returncode == 0
 
 
+def _merge_snippet_imports(
+    existing_imports: Sequence[str],
+    snippets: Sequence[Path],
+) -> list[Path]:
+    """Combine existing managed imports with new snippet paths, preserving order.
+
+    Import tokens already present in the managed block are kept so snippets for
+    containers that were not selected in the current run stay installed. New
+    snippets are appended in the order they are provided, and duplicates are
+    removed.
+    """
+    snippet_tokens = [_snippet_name(snippet) for snippet in snippets]
+    merged_tokens: list[str] = []
+    seen: set[str] = set()
+    for token in (*existing_imports, *snippet_tokens):
+        if token in seen:
+            continue
+        seen.add(token)
+        merged_tokens.append(token)
+    return [Path(token.strip('"')) for token in merged_tokens]
+
+
 def install_caddy_config(
     snippets: Sequence[Path],
     *,
@@ -1374,8 +1468,10 @@ def install_caddy_config(
     """Add the managed import block to the host Caddyfile.
 
     The existing file is read, the managed block is replaced in place, and the
-    result is validated before it is written. Existing content is backed up
-    when the managed block changes.
+    result is validated before it is written. Import lines already present in
+    the managed block are preserved so previously installed container snippets
+    remain active even when only a subset of containers is selected in the
+    current run. Existing content is backed up when the managed block changes.
     """
     existing_snippets = tuple(snippet for snippet in snippets if snippet.is_file())
     if not existing_snippets:
@@ -1389,7 +1485,9 @@ def install_caddy_config(
         ui.error(f"Could not read the host Caddyfile: {exc}")
         return False
 
-    updated = _replace_managed_block(existing, _render_import_block(existing_snippets))
+    existing_imports = _existing_snippet_paths(config_path)
+    merged = _merge_snippet_imports(existing_imports, existing_snippets)
+    updated = _replace_managed_block(existing, _render_import_block(merged))
     if updated == existing:
         _log_info("The host Caddyfile is already up to date.")
         return True
@@ -1828,7 +1926,8 @@ def run_containers_step(
                 failed_any = True
 
     has_caddyfile = any(container.caddyfile.is_file() for container in startable)
-    configure_caddy = has_caddyfile and ui.confirm(
+    has_global_caddyfile = get_global_caddyfile().is_file()
+    configure_caddy = (has_caddyfile or has_global_caddyfile) and ui.confirm(
         "Configure Caddy reverse proxy routes for the selected containers?",
         default=True,
         instruction="Adds a managed import block to the host Caddyfile.",
@@ -1840,6 +1939,10 @@ def run_containers_step(
             ui.error("Caddy configuration failed: sudo authentication failed.")
             failed_any = True
         else:
+            global_snippet = install_global_caddy_snippet(caddy_directory=caddy_directory)
+            if global_snippet is not None:
+                snippets.append(global_snippet)
+
             for container in startable:
                 snippet = install_caddy_snippet(
                     container,

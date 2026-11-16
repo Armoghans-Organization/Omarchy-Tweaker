@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - "127.0.0.1:6906:1349"
+      - "127.0.0.1:6907:1349"
 
     networks:
       - snapotter-internal

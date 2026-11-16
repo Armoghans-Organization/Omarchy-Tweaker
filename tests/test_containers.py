@@ -432,6 +432,88 @@ def test_install_caddy_snippet_copies_caddyfile(tmp_path: Path) -> None:
     assert snippet.read_text(encoding="utf-8") == spec.caddyfile.read_text(encoding="utf-8")
 
 
+def test_install_global_caddy_snippet_copies_catalog_file(tmp_path: Path) -> None:
+    catalog = _catalog(tmp_path)
+    global_caddyfile = catalog / "Caddyfile"
+    _write(global_caddyfile, "http://omarchy.localhost {\n    reverse_proxy 127.0.0.1:1313\n}\n")
+    caddy_directory = tmp_path / "caddy"
+
+    snippet = containers_module.install_global_caddy_snippet(
+        caddy_directory=caddy_directory,
+        global_caddyfile=global_caddyfile,
+    )
+
+    assert snippet is not None
+    assert snippet == caddy_directory / containers_module.GLOBAL_CADDYFILE_SNIPPET_NAME
+    assert snippet.is_file()
+    assert snippet.read_text(encoding="utf-8") == global_caddyfile.read_text(encoding="utf-8")
+
+
+def test_install_global_caddy_snippet_returns_none_when_missing(tmp_path: Path) -> None:
+    assert (
+        containers_module.install_global_caddy_snippet(
+            caddy_directory=tmp_path / "caddy",
+            global_caddyfile=tmp_path / "missing",
+        )
+        is None
+    )
+
+
+def test_install_caddy_config_preserves_existing_snippet_imports(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(containers_module, "_validate_caddy_config", lambda content: True)
+    caddy_directory = tmp_path / "snippets"
+    caddy_directory.mkdir()
+    existing_snippet = caddy_directory / "snapotter.caddy"
+    _write(existing_snippet, "snapotter.localhost {}\n")
+    new_snippet = caddy_directory / "atuin.caddy"
+    _write(new_snippet, "atuin-ai.localhost {}\n")
+    config = tmp_path / "Caddyfile"
+    _write(
+        config,
+        "# Existing\n\n"
+        + containers_module.CADDY_INCLUDE_BEGIN
+        + "\n"
+        + "# Managed by Omarchy Tweaker. Do not edit this block by hand.\n"
+        + f'import "{existing_snippet}"\n'
+        + containers_module.CADDY_INCLUDE_END
+        + "\n",
+    )
+
+    assert containers_module.install_caddy_config([new_snippet], config_path=config) is True
+
+    content = config.read_text(encoding="utf-8")
+    assert str(existing_snippet) in content
+    assert str(new_snippet) in content
+    assert content.count("import ") == 2
+
+
+def test_install_caddy_config_deduplicates_snippet_imports(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(containers_module, "_validate_caddy_config", lambda content: True)
+    snippet = tmp_path / "snippets" / "demo.caddy"
+    _write(snippet, "demo.localhost {}\n")
+    config = tmp_path / "Caddyfile"
+    _write(config, "# Existing\n")
+
+    assert containers_module.install_caddy_config([snippet], config_path=config) is True
+    assert containers_module.install_caddy_config([snippet], config_path=config) is True
+
+    content = config.read_text(encoding="utf-8")
+    assert content.count("import ") == 1
+    assert len(list(tmp_path.glob("Caddyfile.bak.*"))) == 1
+
+
+def test_spec_snippet_path_uses_slug(tmp_path: Path) -> None:
+    spec = _spec(tmp_path)
+
+    assert spec.snippet_path.name == f"{spec.slug}.caddy"
+
+
 def test_install_caddy_config_writes_managed_block(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -684,6 +766,34 @@ def test_bundled_omniroute_manifest_exposes_expected_assets() -> None:
     assert omniroute.caddyfile.is_file()
     assert (omniroute.directory / "discover.sh").is_file()
     assert not (omniroute.directory / "compose.agents.yaml").exists()
+
+
+def test_bundled_snapotter_manifest_exposes_expected_assets() -> None:
+    specs = load_container_specs()
+    snapotter = next(spec for spec in specs if spec.slug == "snapotter")
+
+    assert snapotter.name == "SnapOtter"
+    assert snapotter.generated_env == ("SNAPOTTER_PASSWORD", "POSTGRES_PASSWORD")
+    assert snapotter.directories == ("data", "pgdata", "redisdata")
+    assert snapotter.compose_file.is_file()
+    assert snapotter.env_example_file.is_file()
+    assert snapotter.caddyfile.is_file()
+
+
+def test_bundled_snapotter_compose_is_statically_valid() -> None:
+    snapotter = next(spec for spec in load_container_specs() if spec.slug == "snapotter")
+    compose = snapotter.compose_file.read_text(encoding="utf-8")
+
+    assert "container_name: snapotter" in compose
+    assert "network_mode: host" not in compose
+    assert "snapotter-internal" in compose
+    assert '"127.0.0.1:6907:1349"' in compose
+    assert "DATABASE_URL" in compose
+    assert "DATABASE_MIGRATION_URL" in compose
+    assert "REDIS_URL" in compose
+    assert "redis://redis:6379" in compose
+    assert "@postgres:5432" in compose
+    assert "ports:" not in compose.split("postgres:")[1].split("redis:")[0]
 
 
 def test_bundled_omniroute_compose_is_statically_valid() -> None:
