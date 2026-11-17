@@ -143,7 +143,9 @@ Omarchy-Tweaker/
 │   ├── changelog.md                # GENERATED — do not edit by hand
 │   ├── commands.md                 # CLI reference
 │   ├── cleanup.md                  # Cleanup workflow reference
+│   ├── containers.md               # Container setup reference
 │   ├── directories.md              # Workspace directory reference
+│   ├── hypr.md                     # Hyprland configuration reference
 │   ├── packages.md                 # Package installation reference
 │   ├── plugins.md                  # Shell plugin installation reference
 │   ├── development.md              # This page
@@ -164,17 +166,24 @@ Omarchy-Tweaker/
 │   │   ├── cli.py                  # Typer application and callback
 │   │   ├── startup.py              # Typer-free default sequence
 │   │   ├── config/                 # Bundled plugin catalog and shell config
+│   │   ├── containers/             # Bundled container definitions
+│   │   ├── hypr/                   # Bundled Hyprland Lua configuration
 │   │   ├── commands/               # Thin CLI command wrappers
 │   │   ├── screens/                # Banner and welcome screens
-│   │   └── functions/              # Cleanup, directories, packages, plugins, snapshot, logging, UI, system info
+│   │   └── functions/              # Feature workflows, logging, UI, and system info
 │   └── omarchy_tweaker_bootstrap/
 │       ├── __init__.py             # Early entry point
 │       └── error_handling.py       # Rich exception rendering
 ├── tests/
 │   ├── __init__.py
+│   ├── test_app_metadata.py
+│   ├── test_bootstrap.py
 │   ├── test_cleanup.py
 │   ├── test_cli.py
+│   ├── test_containers.py
 │   ├── test_directory.py
+│   ├── test_error_handling.py
+│   ├── test_hypr.py
 │   ├── test_logger.py
 │   ├── test_main.py
 │   ├── test_packages.py

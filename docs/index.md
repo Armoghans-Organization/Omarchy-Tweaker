@@ -83,13 +83,15 @@ The project is currently in **early implementation**. The implemented surface is
 
 | Area | Status | What it does |
 |:--|:--:|:--|
-| Default startup sequence | Implemented | Shows the banner, offers a snapshot, cleanup, directory setup, package installation, and plugin installation. |
+| Default startup sequence | Implemented | Shows the banner, offers snapshot, cleanup, directory setup, package installation, container setup, plugin installation, and Hyprland configuration. |
 | `welcome` command | Implemented | Displays the welcome screen and a system overview. |
 | `snapshot` command | Implemented | Runs `omarchy snapshot create` with confirmation and live output. |
 | `cleanup` command | Implemented | Removes only selected installed packages, web apps, TUIs, and Mise wrappers. |
 | `directories` command | Implemented | Creates the standard workspace directories after per-path confirmation. |
 | `packages` command | Implemented | Installs selected Pacman and AUR packages from a fixed catalog. |
+| `containers` command | Implemented | Prepares selected Docker Compose containers with Caddy routes and starts them. |
 | `plugins` command | Implemented | Installs selected Omarchy shell plugins from a fixed catalog, applies optional patches, and installs the bundled shell configuration. |
+| `hypr` command | Implemented | Links the bundled Hyprland Lua configuration and loads the workspaces module. |
 | Session logging | Implemented | Writes structured logs to the XDG state directory. |
 | Rich error handling | Implemented | Renders uncaught exceptions, thread errors, and syntax errors cleanly. |
 | Reusable UI toolkit | Implemented | Provides banners, panels, tables, prompts, progress, and virtual terminals. |
@@ -101,7 +103,7 @@ The project is currently in **early implementation**. The implemented surface is
 ```mermaid
 pie showData
     title Implemented surface
-    "Implemented" : 10
+    "Implemented" : 12
     "Planned" : 2
 ```
 
@@ -112,11 +114,15 @@ pie showData
 
 ```mermaid
 timeline
-    title One invocation, four steps
+    title One invocation, eight steps
     Launch : Show the banner
     Protect : Offer a snapshot
     Clean : Select and remove
     Organize : Create workspace folders
+    Install : Offer packages
+    Serve : Prepare containers
+    Extend : Install plugins
+    Tune : Apply Hyprland configuration
 ```
 
 Each step can be skipped. See **[Getting Started](getting-started.md)** for the full first-run flow.
@@ -124,9 +130,9 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
 ## Safety first
 
 !!! warning "System-changing workflow"
-    Snapshot, cleanup, directory setup, package installation, and plugin installation act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, **[Packages](packages.md)**, **[Plugins](plugins.md)**, and the **[Security Policy](security.md)** before making changes.
+    Snapshot, cleanup, directory setup, package installation, container setup, plugin installation, and Hyprland configuration act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, **[Packages](packages.md)**, **[Containers](containers.md)**, **[Plugins](plugins.md)**, **[Hyprland](hypr.md)**, and the **[Security Policy](security.md)** before making changes.
 
-    The default sequence offers a snapshot before cleanup, then offers workspace directory setup, package installation, and plugin installation. Running `omarchy-tweaker cleanup`, `omarchy-tweaker packages`, or `omarchy-tweaker plugins` directly does **not** create a snapshot automatically.
+    The default sequence offers a snapshot before cleanup, then offers workspace directory setup, package installation, container setup, plugin installation, and Hyprland configuration. Running `omarchy-tweaker cleanup`, `omarchy-tweaker packages`, `omarchy-tweaker plugins`, or `omarchy-tweaker hypr` directly does **not** create a snapshot automatically.
 
 ## Documentation map
 
@@ -180,6 +186,14 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
     shell configuration.
 
     [Open Plugins](plugins.md)
+
+-   :material-laptop: **Hyprland**
+
+    ---
+
+    Link the bundled Hyprland Lua configuration and load the workspaces module.
+
+    [Open Hyprland](hypr.md)
 
 -   :material-sitemap-outline: **Architecture**
 
@@ -235,7 +249,9 @@ mindmap
     Usage
       Commands
       Packages
+      Containers
       Plugins
+      Hyprland
       Cleanup
       Directories
     Project

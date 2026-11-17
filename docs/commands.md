@@ -1,5 +1,5 @@
 ---
-description: Complete reference for the welcome, snapshot, cleanup, directory, package, container, and plugin commands in Omarchy Tweaker.
+description: Complete reference for the welcome, snapshot, cleanup, directory, package, container, plugin, and hypr commands in Omarchy Tweaker.
 icon: material/console-line
 subtitle: CLI reference
 mermaid: true
@@ -19,6 +19,7 @@ Complete reference for the currently implemented Omarchy Tweaker commands.
 | `packages` | Yes | Yes | — |
 | `containers` | Yes | Yes | — |
 | `plugins` | Yes | Yes | — |
+| `hypr` | Yes | Yes | — |
 
 ```mermaid
 flowchart TD
@@ -45,6 +46,9 @@ flowchart TD
     B -- plugins --> V{TTY?}
     V -- Yes --> W[Select, confirm, install plugins and shell config]
     V -- No --> X[Skip with warning]
+    B -- hypr --> Y{TTY?}
+    Y -- Yes --> Z[Confirm, link config, load workspaces]
+    Y -- No --> AA[Skip with warning]
 ```
 
 ---
@@ -57,7 +61,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 
 | Behavior | Details |
 |:--|:--|
-| No arguments | Runs the default sequence: banner, snapshot, cleanup, directories, packages, containers, and plugins. |
+| No arguments | Runs the default sequence: banner, snapshot, cleanup, directories, packages, containers, plugins, and hypr. |
 | With a subcommand | Shows the banner, then runs the selected command. |
 | `--help` | Shows global help and the available commands. |
 | Completion | Disabled. |
@@ -77,7 +81,8 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Install selected Pacman and AUR packages | `omarchy-tweaker packages` |
 | Prepare and start selected Docker containers | `omarchy-tweaker containers` |
 | Install selected Omarchy shell plugins | `omarchy-tweaker plugins` |
-| Run the guided snapshot, cleanup, and directory sequence | `omarchy-tweaker` |
+| Link the bundled Hyprland configuration | `omarchy-tweaker hypr` |
+| Run the full guided workflow | `omarchy-tweaker` |
 | See every command and option | `omarchy-tweaker --help` |
 
 ### Exit codes
@@ -85,10 +90,10 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Code | Meaning |
 |:--:|:--|
 | `0` | The command completed, or the step was skipped safely. |
-| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, package installation, container setup, or plugin installation. |
+| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, package installation, container setup, plugin installation, or Hyprland configuration. |
 
-A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, selecting no packages, selecting no containers, or selecting no
-plugins exits successfully.
+A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, selecting no packages, selecting no containers, selecting no
+plugins, or declining the Hyprland configuration exits successfully.
 
 ---
 
@@ -423,6 +428,48 @@ See **[Plugins](plugins.md)** for the full catalog, placement rules, and patch d
 
 ---
 
+## `hypr`
+
+Link the bundled Hyprland Lua configuration into `~/.config/hypr/` and load the workspaces module.
+
+```bash
+omarchy-tweaker hypr
+```
+
+Hypr has no command-line options. It runs last in the default sequence and is also available as
+a standalone command.
+
+### Behavior
+
+1. Discovers the regular files in `src/omarchy_tweaker/hypr/`.
+2. Lists the files and asks for confirmation before changing anything.
+3. Creates `~/.config/hypr/` when it is missing.
+4. Links each bundled file to the matching name in `~/.config/hypr/`.
+5. Appends `require("hypr.workspaces")` to `hyprland.lua` unless the line is already present.
+
+Bundled files include `bindings.lua`, `input.lua`, `looknfeel.lua`, and `workspaces.lua`.
+A symlink that already points at the correct bundled file is left alone; other files are
+replaced without a backup.
+
+### Non-interactive use
+
+`omarchy-tweaker hypr` requires an interactive terminal. Without one, it prints a warning and
+skips without changing anything.
+
+### Failure handling
+
+A link failure or an unreadable `hyprland.lua` is reported and exits with code `1`. When a link
+fails, the workspaces require line is not added.
+
+### Requirements
+
+- `~/.config/hypr/hyprland.lua` must exist and be readable and writable.
+- The bundled files in `src/omarchy_tweaker/hypr/` must be present.
+
+See **[Hyprland](hypr.md)** for the bundled file catalog, symlink behavior, and safety details.
+
+---
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -435,6 +482,7 @@ See **[Plugins](plugins.md)** for the full catalog, placement rules, and patch d
 | `OMARCHY_TWEAKER_CONTAINERS_ROOT` | Override the prepared-container directory. |
 | `OMARCHY_TWEAKER_CADDY_CONFIG` | Override the host Caddyfile path. |
 | `OMARCHY_TWEAKER_CADDY_DIR` | Override the managed Caddy snippet directory. |
+| `OMARCHY_TWEAKER_HYPR_DIR` | Override the directory containing bundled Hyprland files. |
 
 Logs default to `$XDG_STATE_HOME/omarchy_tweaker/logs/` or `~/.local/state/omarchy_tweaker/logs/`.
 
@@ -480,6 +528,12 @@ omarchy-tweaker packages
 omarchy-tweaker plugins
 ```
 
+### Apply the bundled Hyprland configuration
+
+```bash
+omarchy-tweaker hypr
+```
+
 ### Show global help
 
 ```bash
@@ -495,4 +549,5 @@ omarchy-tweaker --help
 - [Directories](directories.md)
 - [Packages](packages.md)
 - [Plugins](plugins.md)
+- [Hyprland](hypr.md)
 - [Troubleshooting](troubleshooting.md)

@@ -118,15 +118,17 @@ The default sequence is:
 3. **Cleanup** — discovers installed Omarchy cleanup targets and asks what to remove.
 4. **Directories** — asks whether to create each missing workspace folder.
 5. **Packages** — offers the fixed Pacman and AUR package groups.
-6. **Plugins** — offers the fixed Omarchy shell plugin catalog and installs the bundled
+6. **Containers** — offers the fixed Docker Compose catalog and prepares selected projects.
+7. **Plugins** — offers the fixed Omarchy shell plugin catalog and installs the bundled
    shell configuration after successful installation.
+8. **Hyprland** — links the bundled Lua configuration and loads the workspaces module.
 
 Every step can be skipped. If the terminal is not interactive, interactive steps skip
 safely instead of guessing. See **[Commands](commands.md)** for per-command rules.
 
-Package and plugin installation also run in the default sequence. Run
-`omarchy-tweaker packages` or `omarchy-tweaker plugins` directly when you want to install
-from either catalog without running the earlier steps.
+Package, container, plugin, and Hyprland setup also run in the default sequence. Run
+`omarchy-tweaker packages`, `omarchy-tweaker containers`, `omarchy-tweaker plugins`, or
+`omarchy-tweaker hypr` directly when you want one feature without the earlier steps.
 
 ### Explore commands
 
@@ -137,15 +139,18 @@ uv run omarchy-tweaker snapshot --help
 uv run omarchy-tweaker cleanup --help
 uv run omarchy-tweaker directories --help
 uv run omarchy-tweaker packages --help
+uv run omarchy-tweaker containers --help
 uv run omarchy-tweaker plugins --help
+uv run omarchy-tweaker hypr --help
 ```
 
 The `welcome` command shows the banner plus a system overview containing OS, kernel,
 desktop, CPU, GPU, memory, disk, uptime, and hostname details.
 
-!!! note "Before removing anything"
-    Cleanup is permanent. Review **[Cleanup](cleanup.md)** and the
-    **[Security Policy](security.md)** before confirming removal.
+!!! note "Before removing or replacing anything"
+    Cleanup is permanent, and the Hyprland step replaces matching config files with symlinks
+    without creating backups. Review **[Cleanup](cleanup.md)**, **[Hyprland](hypr.md)**, and
+    the **[Security Policy](security.md)** before confirming.
 
 ---
 
@@ -182,5 +187,6 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Directories](directories.md) — workspace folder targets and safety rules.
 - [Packages](packages.md) — package catalog and installation workflow.
 - [Plugins](plugins.md) — shell plugin catalog, placement, and patch workflow.
+- [Hyprland](hypr.md) — bundled Lua files, symlinks, and workspaces loading.
 - [Architecture](architecture.md) — how the application works internally.
 - [Troubleshooting](troubleshooting.md) — common problems and fixes.

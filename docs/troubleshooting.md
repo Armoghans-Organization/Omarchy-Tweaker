@@ -1,5 +1,5 @@
 ---
-description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, package installation, plugin installation, and documentation builds.
+description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, package installation, plugin installation, Hyprland configuration, and documentation builds.
 icon: material/help-circle
 subtitle: Fixes and diagnosis
 mermaid: true
@@ -17,7 +17,7 @@ flowchart TD
     D -- Yes --> E[Use an interactive terminal]
     D -- No --> F{Omarchy command found?}
     F -- No --> G[Check PATH and Omarchy install]
-    F -- Yes --> H{Snapshot, cleanup, directories, packages, or plugins?}
+    F -- Yes --> H{Snapshot, cleanup, directories, packages, containers, plugins, or hypr?}
     H -- Snapshot --> I[Run omarchy snapshot create]
     H -- Cleanup --> J[Check discovery rules]
     J --> K[See Cleanup]
@@ -27,12 +27,14 @@ flowchart TD
     N --> O[See Packages]
     H -- Plugins --> P[Run omarchy plugin add]
     P --> Q[See Plugins]
+    H -- Hypr --> R[Check hyprland.lua and symlinks]
+    R --> S[See Hyprland]
 ```
 
 | Symptom | Likely cause | Next step |
 |:--|:--|:--|
 | `omarchy-tweaker` not found | Checkout not on `PATH`, or tool bin directory missing | Run through `uv` or install globally. |
-| Snapshot, cleanup, directory setup, package installation, or plugin installation skipped | No interactive TTY | Run directly in a terminal. |
+| Snapshot, cleanup, directory setup, package installation, container setup, plugin installation, or Hyprland configuration skipped | No interactive TTY | Run directly in a terminal. |
 | `omarchy` not found | Omarchy CLI not on `PATH` | Verify the Omarchy installation. |
 | `pacman` or `yay` not found | Package manager or AUR helper missing from `PATH` | Install the missing command or fix `PATH`. |
 | Snapshot fails | Snapshot tooling, permissions, or disk space | Run `omarchy snapshot create` directly. |
@@ -243,6 +245,30 @@ See **[Directories](directories.md)** for the complete target list and safety mo
 
 ---
 
+## Hyprland configuration fails
+
+Check the destination and the entrypoint directly:
+
+```bash
+ls -l ~/.config/hypr
+tail -n 5 ~/.config/hypr/hyprland.lua
+```
+
+Common causes:
+
+- `hyprland.lua` is missing, unreadable, or not writable.
+- A bundled filename is occupied by a directory in `~/.config/hypr/`.
+- `OMARCHY_TWEAKER_HYPR_DIR` points at an empty or missing directory.
+- The command was run without an interactive terminal.
+
+Correct links and an existing `require("hypr.workspaces")` line are left alone. Remember that
+the step replaces matching files with symlinks without creating backups. Restore any file you
+need from your own backup before rerunning the command.
+
+See **[Hyprland](hypr.md)** for the bundled file catalog and safety model.
+
+---
+
 ## Icons look wrong or are missing
 
 The UI uses Nerd Font glyphs. Install a Nerd Font and configure your terminal to use it.
@@ -302,4 +328,5 @@ Report bugs at [GitHub Issues](https://github.com/Armoghans-Organization/Omarchy
 - [Directories](directories.md)
 - [Packages](packages.md)
 - [Plugins](plugins.md)
+- [Hyprland](hypr.md)
 - [Development](development.md)
