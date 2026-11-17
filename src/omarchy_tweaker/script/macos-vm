@@ -1,0 +1,1110 @@
+#!/bin/bash
+# omarchy:summary=Install, launch, stop, inspect, or remove the macOS VM
+# omarchy:args=<install|remove|launch|stop|status> [options]
+
+RUNTIME_DIR="${OMARCHY_MACOS_DIR:-/var/lib/omarchy/macos}"
+COMPOSE_FILE="$RUNTIME_DIR/docker-compose.yml"
+CONTAINER="omarchy-macos"
+IMAGE="dockurr/macos"
+VM_LOCK_DIR=/run/lock/omarchy-macos-vm
+
+VERSION=(
+  "15"   # macOS 15 Sequoia
+  "14"   # macOS 14 Sonoma
+  "13"   # macOS 13 Ventura
+  "12"   # macOS 12 Monterey
+  "11"   # macOS 11 Big Sur
+)
+
+VERSION_LABELS=(
+  "macOS 15 Sequoia"
+  "macOS 14 Sonoma"
+  "macOS 13 Ventura"
+  "macOS 12 Monterey"
+  "macOS 11 Big Sur"
+)
+
+if ((EUID == 0)); then
+  export PATH=/usr/bin:/usr/sbin:/bin:/sbin
+  export LC_ALL=C.UTF-8
+fi
+
+CREDENTIALS_FILE="$HOME/.config/macos/credentials"
+
+docker_needs_sudo() {
+  if command -v omarchy-sudo-docker >/dev/null 2>&1; then
+    omarchy-sudo-docker
+  else
+    ! docker info >/dev/null 2>&1
+  fi
+}
+
+priv_target() {
+  local candidate=/usr/bin/omarchy-macos-vm canonical probe owner mode
+  [[ -f $candidate && ! -L $candidate && -x $candidate ]] || return 1
+  canonical=$(realpath -e -- "$candidate" 2>/dev/null) || return 1
+  [[ $canonical == "$candidate" ]] || return 1
+  probe=$candidate
+  while :; do
+    owner=$(stat -Lc '%u' "$probe" 2>/dev/null) || return 1
+    mode=$(stat -Lc '%a' "$probe" 2>/dev/null) || return 1
+    [[ $owner == 0 ]] && ! ((8#$mode & 022)) || return 1
+    [[ $probe == / ]] && break
+    probe=$(dirname -- "$probe")
+  done
+  printf '%s\n' "$candidate"
+}
+
+priv() {
+  local action="$1"
+  shift
+  if [[ $action != write_compose && $action != remove ]] && ! docker_needs_sudo; then
+    # Bring-up normally runs directly for a docker-group user, but recreating
+    # the protected bind anchors after reboot still needs one privileged
+    # invocation.
+    if [[ -d $VM_LOCK_DIR && ! -L $VM_LOCK_DIR && -r $VM_LOCK_DIR && -x $VM_LOCK_DIR ]] && {
+      [[ $action != up && $action != up_wait ]] || {
+        mounts_ready >/dev/null 2>&1
+      }
+    }; then
+      with_vm_lock "__priv_$action" "$@"
+      return
+    fi
+  fi
+  local target
+  target=$(priv_target) || {
+    echo "omarchy-macos-vm: refusing to run a non-root-owned command as root" >&2
+    return 1
+  }
+  pkexec "$target" __priv "$action" "$@"
+}
+
+dc() { docker-compose -f "$COMPOSE_FILE" "$@"; }
+
+with_vm_lock() {
+  local fd rc=0
+  if ((EUID == 0)); then
+    assert_boundary_dir /run 0 && assert_boundary_dir /run/lock 0 || return 1
+    if getent group docker >/dev/null 2>&1; then
+      install -d -o root -g docker -m 0750 -- "$VM_LOCK_DIR" || return 1
+    else
+      install -d -o root -g root -m 0700 -- "$VM_LOCK_DIR" || return 1
+    fi
+  fi
+  assert_boundary_dir "$VM_LOCK_DIR" 0 || return 1
+  exec {fd}<"$VM_LOCK_DIR/." || return 1
+  flock -x "$fd" || { exec {fd}<&-; return 1; }
+  "$@" || rc=$?
+  flock -u "$fd" || rc=1
+  exec {fd}<&-
+  return "$rc"
+}
+
+valid_ram() { [[ $1 =~ ^[0-9]{1,3}G$ ]]; }
+valid_cores() { [[ $1 =~ ^[0-9]{1,2}$ ]] && ((10#$1 >= 1)); }
+valid_disk() { [[ $1 =~ ^[0-9]{1,4}G$ ]]; }
+valid_username() { [[ $1 =~ ^[A-Za-z0-9_-]{1,20}$ ]]; }
+valid_password() { [[ $1 =~ ^[[:print:]]{1,64}$ ]]; }
+valid_version() {
+  local v
+  for v in "${VERSION[@]}"; do [[ $v == "$1" ]] && return 0; done
+  return 1
+}
+
+valid_priv_action() {
+  case "$1" in
+  write_compose | up | up_wait | down | status | remove) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+resolve_caller() {
+  local entry canonical parent owner mode
+  if ((EUID == 0)); then
+    [[ ${PKEXEC_UID:-} =~ ^[0-9]{1,10}$ ]] && ((10#$PKEXEC_UID > 0)) || {
+      echo "omarchy-macos-vm: cannot identify the user who authorized this action" >&2
+      return 1
+    }
+    CALLER_UID=$((10#$PKEXEC_UID))
+  else
+    CALLER_UID=$(id -u)
+  fi
+  entry=$(getent passwd "$CALLER_UID") || {
+    echo "omarchy-macos-vm: no account exists for uid $CALLER_UID" >&2
+    return 1
+  }
+  IFS=: read -r _ _ _ CALLER_GID _ CALLER_HOME _ <<<"$entry"
+  [[ $CALLER_GID =~ ^[0-9]+$ && $CALLER_HOME == /* && -d $CALLER_HOME ]] || {
+    echo "omarchy-macos-vm: invalid home directory for uid $CALLER_UID" >&2
+    return 1
+  }
+  if ((EUID != 0)) && [[ $RUNTIME_DIR != /var/lib/omarchy/macos ]]; then
+    CALLER_HOME=${HOME:-$CALLER_HOME}
+  fi
+  canonical=$(realpath -e -- "$CALLER_HOME" 2>/dev/null) || return 1
+  [[ $canonical == "$CALLER_HOME" ]] || {
+    echo "omarchy-macos-vm: refusing a home directory reached through a symlink" >&2
+    return 1
+  }
+  LEGACY_STORAGE="$CALLER_HOME/.macos"
+  LEGACY_SHARED="$CALLER_HOME/macOS"
+  MOUNT_ROOT="$RUNTIME_DIR/mounts"
+  USERS_DIR="$MOUNT_ROOT/users"
+  CALLER_DATA_ROOT="$USERS_DIR/$CALLER_UID"
+  EXPECTED_STORAGE="$CALLER_DATA_ROOT/storage"
+  EXPECTED_SHARED="$CALLER_DATA_ROOT/shared"
+}
+
+boundary_owner() {
+  if ((EUID == 0)) || [[ $RUNTIME_DIR == /var/lib/omarchy/macos ]]; then
+    printf '0'
+  else
+    printf '%s' "$CALLER_UID"
+  fi
+}
+
+assert_boundary_dir() {
+  local path="$1" expected_owner="$2" owner mode canonical
+  [[ -d $path && ! -L $path ]] || return 1
+  canonical=$(realpath -e -- "$path" 2>/dev/null) || return 1
+  [[ $canonical == "$path" ]] || return 1
+  owner=$(stat -Lc '%u' "$path") || return 1
+  mode=$(stat -Lc '%a' "$path") || return 1
+  [[ $owner == "$expected_owner" ]] && ! ((8#$mode & 022))
+}
+
+prepare_boundary_component() {
+  local path="$1" parent="$2" owner="$3" mode="$4"
+  assert_boundary_dir "$parent" "$owner" || return 1
+  if [[ -e $path || -L $path ]]; then
+    assert_boundary_dir "$path" "$owner" || return 1
+  else
+    if ((EUID == 0)); then
+      install -d -o root -g root -m "$mode" -- "$path" || return 1
+    else
+      install -d -m "$mode" -- "$path" || return 1
+    fi
+  fi
+  chmod "$mode" -- "$path" || return 1
+  if ((EUID == 0)); then chown root:root -- "$path" || return 1; fi
+  assert_boundary_dir "$path" "$owner"
+}
+
+prepare_runtime_tree() {
+  local owner probe runtime_parent
+  owner=$(boundary_owner)
+  if ((EUID == 0)); then
+    [[ $RUNTIME_DIR == /var/lib/omarchy/macos ]] || {
+      echo "omarchy-macos-vm: refusing a non-standard privileged runtime path" >&2
+      return 1
+    }
+    probe=$RUNTIME_DIR
+    while [[ ! -e $probe && ! -L $probe ]]; do probe=$(dirname -- "$probe"); done
+    while :; do
+      assert_boundary_dir "$probe" 0 || {
+        echo "omarchy-macos-vm: unsafe runtime parent: $probe" >&2
+        return 1
+      }
+      [[ $probe == / ]] && break
+      probe=$(dirname -- "$probe")
+    done
+  fi
+  runtime_parent=$(dirname -- "$RUNTIME_DIR")
+  if ((EUID == 0)) && [[ ! -e $runtime_parent && ! -L $runtime_parent ]]; then
+    [[ $runtime_parent == /var/lib/omarchy ]] || return 1
+    assert_boundary_dir /var/lib 0 || return 1
+    install -d -o root -g root -m 0755 -- "$runtime_parent" || return 1
+  fi
+  prepare_boundary_component "$RUNTIME_DIR" "$runtime_parent" "$owner" 0755 &&
+    prepare_boundary_component "$MOUNT_ROOT" "$RUNTIME_DIR" "$owner" 0711 &&
+    prepare_boundary_component "$USERS_DIR" "$MOUNT_ROOT" "$owner" 0711 &&
+    prepare_boundary_component "$CALLER_DATA_ROOT" "$USERS_DIR" "$owner" 0711 || {
+    echo "omarchy-macos-vm: unsafe VM mount boundary" >&2
+    return 1
+  }
+}
+
+open_mount_source() {
+  local path="$1" label="$2" fd record uid identity
+  [[ -d $path ]] || {
+    echo "omarchy-macos-vm: $label source is not a directory: $path" >&2
+    return 1
+  }
+  exec {fd}<"$path/." || {
+    echo "omarchy-macos-vm: cannot open $label source: $path" >&2
+    return 1
+  }
+  [[ -d /proc/$BASHPID/fd/$fd ]] || {
+    exec {fd}<&-
+    return 1
+  }
+  record=$(stat -Lc '%u|%d:%i' "/proc/$BASHPID/fd/$fd" 2>/dev/null) || {
+    exec {fd}<&-
+    return 1
+  }
+  uid=${record%%|*}
+  identity=${record#*|}
+  [[ $uid == "$CALLER_UID" ]] || {
+    exec {fd}<&-
+    echo "omarchy-macos-vm: $label source must be owned by uid $CALLER_UID: $path" >&2
+    return 1
+  }
+  OPENED_MOUNT_FD=$fd
+  OPENED_MOUNT_ID=$identity
+}
+
+pinned_dir_contains() {
+  local ancestor_id="$1" descendant_fd="$2" walk_fd parent_fd current_id parent_id depth
+  exec {walk_fd}<"/proc/$BASHPID/fd/$descendant_fd/." || return 2
+  for ((depth = 0; depth < 256; depth++)); do
+    current_id=$(stat -Lc '%d:%i' "/proc/$BASHPID/fd/$walk_fd" 2>/dev/null) || {
+      exec {walk_fd}<&-
+      return 2
+    }
+    if [[ $current_id == "$ancestor_id" ]]; then
+      exec {walk_fd}<&-
+      return 0
+    fi
+    exec {parent_fd}<"/proc/$BASHPID/fd/$walk_fd/.." || {
+      exec {walk_fd}<&-
+      return 2
+    }
+    parent_id=$(stat -Lc '%d:%i' "/proc/$BASHPID/fd/$parent_fd" 2>/dev/null) || {
+      exec {parent_fd}<&-
+      exec {walk_fd}<&-
+      return 2
+    }
+    if [[ $parent_id == "$current_id" ]]; then
+      exec {parent_fd}<&-
+      exec {walk_fd}<&-
+      return 1
+    fi
+    exec {walk_fd}<&-
+    walk_fd=$parent_fd
+  done
+  exec {walk_fd}<&-
+  return 2
+}
+
+pinned_tree_contains() {
+  local root_fd="$1" needle_fd="$2" found rc
+  if found=$("$TREE_SCAN_TIMEOUT" --signal=TERM --kill-after="${TREE_SCAN_KILL_AFTER_SECONDS}s" \
+    "${TREE_SCAN_TIMEOUT_SECONDS}s" "$TREE_SCAN_FIND" -P "/proc/$BASHPID/fd/$root_fd/." \
+    -xdev -type d -samefile "/proc/$BASHPID/fd/$needle_fd/." \
+    -printf 'found\n' -quit 2>/dev/null); then
+    rc=0
+  else
+    rc=$?
+  fi
+  ((rc == 0)) || return 2
+  case "$found" in
+  found) return 0 ;;
+  "") return 1 ;;
+  *) return 2 ;;
+  esac
+}
+
+validate_pinned_sources_disjoint() {
+  local storage_fd="$1" storage_id="$2" shared_fd="$3" shared_id="$4" rc
+  if [[ $storage_id == "$shared_id" ]]; then
+    echo "omarchy-macos-vm: storage and shared directories must be different" >&2
+    return 1
+  fi
+  if pinned_dir_contains "$storage_id" "$shared_fd"; then
+    echo "omarchy-macos-vm: shared directory must not be inside storage" >&2
+    return 1
+  else
+    rc=$?
+    ((rc == 1)) || {
+      echo "omarchy-macos-vm: could not verify storage/shared ancestry" >&2
+      return 1
+    }
+  fi
+  if pinned_dir_contains "$shared_id" "$storage_fd"; then
+    echo "omarchy-macos-vm: storage directory must not be inside shared" >&2
+    return 1
+  else
+    rc=$?
+    ((rc == 1)) || {
+      echo "omarchy-macos-vm: could not verify storage/shared ancestry" >&2
+      return 1
+    }
+  fi
+}
+
+removal_trees_disjoint() {
+  local storage_fd shared_fd anchor_storage_fd anchor_shared_fd storage_id shared_id rc=1 scan_rc
+  local scan scan_root_fd scan_needle_fd scan_label
+  open_mount_source "$LEGACY_STORAGE" storage || return 1
+  storage_fd=$OPENED_MOUNT_FD; storage_id=$OPENED_MOUNT_ID
+  if ! open_mount_source "$LEGACY_SHARED" shared; then
+    exec {storage_fd}<&-
+    return 1
+  fi
+  shared_fd=$OPENED_MOUNT_FD; shared_id=$OPENED_MOUNT_ID
+  if ! validate_pinned_sources_disjoint "$storage_fd" "$storage_id" "$shared_fd" "$shared_id" ||
+    ! mounted_leaf_matches "$EXPECTED_STORAGE" "$storage_id" ||
+    ! mounted_leaf_matches "$EXPECTED_SHARED" "$shared_id"; then
+    exec {storage_fd}<&-; exec {shared_fd}<&-
+    return 1
+  fi
+  if ! exec {anchor_storage_fd}<"$EXPECTED_STORAGE/."; then
+    exec {storage_fd}<&-; exec {shared_fd}<&-
+    return 1
+  fi
+  if ! exec {anchor_shared_fd}<"$EXPECTED_SHARED/."; then
+    exec {anchor_storage_fd}<&-; exec {storage_fd}<&-; exec {shared_fd}<&-
+    return 1
+  fi
+  rc=0
+  for scan in \
+    "$anchor_storage_fd:$anchor_shared_fd:shared below protected storage" \
+    "$anchor_shared_fd:$anchor_storage_fd:storage below protected shared" \
+    "$storage_fd:$shared_fd:shared below storage source" \
+    "$shared_fd:$storage_fd:storage below shared source"; do
+    IFS=: read -r scan_root_fd scan_needle_fd scan_label <<<"$scan"
+    if pinned_tree_contains "$scan_root_fd" "$scan_needle_fd"; then
+      echo "omarchy-macos-vm: refusing removal: $scan_label" >&2
+      rc=1; break
+    else
+      scan_rc=$?
+      if ((scan_rc != 1)); then
+        echo "omarchy-macos-vm: removal containment scan failed or timed out" >&2
+        rc=1; break
+      fi
+    fi
+  done
+  exec {anchor_storage_fd}<&-; exec {anchor_shared_fd}<&-
+  exec {storage_fd}<&-; exec {shared_fd}<&-
+  return "$rc"
+}
+
+prepare_mount_anchor() {
+  local path="$1" owner
+  owner=$(boundary_owner)
+  [[ ! -L $path ]] || return 1
+  if mountpoint -q -- "$path" 2>/dev/null; then return 0; fi
+  prepare_boundary_component "$path" "$CALLER_DATA_ROOT" "$owner" 0700 || return 1
+  [[ -z $(find "$path" -mindepth 1 -print -quit) ]] || {
+    echo "omarchy-macos-vm: refusing to hide data below mount anchor: $path" >&2
+    return 1
+  }
+}
+
+mounted_leaf_matches() {
+  local stable="$1" identity="$2" actual owner mode canonical
+  [[ -d $stable && ! -L $stable ]] || return 1
+  canonical=$(realpath -e -- "$stable" 2>/dev/null) || return 1
+  [[ $canonical == "$stable" ]] || return 1
+  mountpoint -q -- "$stable" 2>/dev/null || return 1
+  [[ $(mount_layer_count "$stable") == 1 ]] || return 1
+  actual=$(stat -Lc '%d:%i' "$stable" 2>/dev/null) || return 1
+  owner=$(stat -Lc '%u' "$stable" 2>/dev/null) || return 1
+  mode=$(stat -Lc '%a' "$stable" 2>/dev/null) || return 1
+  [[ $actual == "$identity" && $owner == "$CALLER_UID" && $mode == 700 ]]
+}
+
+bind_mount_leaf() {
+  local fd="$1" identity="$2" stable="$3" actual owner
+  MOUNT_LEAF_NEW=0
+  if mountpoint -q -- "$stable" 2>/dev/null; then
+    mounted_leaf_matches "$stable" "$identity" || {
+      echo "omarchy-macos-vm: protected mount at $stable no longer matches its home source" >&2
+      return 1
+    }
+    return 0
+  fi
+  mount --no-canonicalize --bind "/proc/$BASHPID/fd/$fd" "$stable" || return 1
+  MOUNT_LEAF_NEW=1
+  actual=$(stat -Lc '%d:%i' "$stable" 2>/dev/null) || actual=""
+  owner=$(stat -Lc '%u' "$stable" 2>/dev/null) || owner=""
+  if [[ $actual != "$identity" || $owner != "$CALLER_UID" ]]; then
+    if umount -- "$stable"; then MOUNT_LEAF_NEW=0; else
+      echo "omarchy-macos-vm: could not roll back unverified bind at $stable" >&2
+    fi
+    echo "omarchy-macos-vm: bind verification failed for $stable" >&2
+    return 1
+  fi
+  mounted_leaf_matches "$stable" "$identity" || {
+    if umount -- "$stable"; then MOUNT_LEAF_NEW=0; else
+      echo "omarchy-macos-vm: could not roll back invalid bind at $stable" >&2
+    fi
+    return 1
+  }
+}
+
+prepare_caller_mounts() {
+  local storage_fd storage_id shared_fd shared_id storage_mode shared_mode
+  CALLER_MOUNTS_NEW_STORAGE=0
+  CALLER_MOUNTS_NEW_SHARED=0
+  resolve_caller && prepare_runtime_tree || return 1
+  prepare_mount_anchor "$EXPECTED_STORAGE" && prepare_mount_anchor "$EXPECTED_SHARED" || return 1
+  open_mount_source "$LEGACY_STORAGE" storage || return 1
+  storage_fd=$OPENED_MOUNT_FD; storage_id=$OPENED_MOUNT_ID
+  if ! open_mount_source "$LEGACY_SHARED" shared; then
+    exec {storage_fd}<&-; return 1
+  fi
+  shared_fd=$OPENED_MOUNT_FD; shared_id=$OPENED_MOUNT_ID
+  if ! validate_pinned_sources_disjoint "$storage_fd" "$storage_id" "$shared_fd" "$shared_id"; then
+    exec {storage_fd}<&-; exec {shared_fd}<&-; return 1
+  fi
+  chmod u=rwx,go=,a-s -- "/proc/$BASHPID/fd/$storage_fd" "/proc/$BASHPID/fd/$shared_fd" || {
+    exec {storage_fd}<&-; exec {shared_fd}<&-; return 1
+  }
+  storage_mode=$(stat -Lc '%a' "/proc/$BASHPID/fd/$storage_fd" 2>/dev/null) || storage_mode=""
+  shared_mode=$(stat -Lc '%a' "/proc/$BASHPID/fd/$shared_fd" 2>/dev/null) || shared_mode=""
+  if [[ $storage_mode != 700 || $shared_mode != 700 ]]; then
+    exec {storage_fd}<&-; exec {shared_fd}<&-
+    echo "omarchy-macos-vm: could not make the VM data directories private: $LEGACY_STORAGE is mode ${storage_mode:-unknown}, $LEGACY_SHARED is mode ${shared_mode:-unknown} (expected 700)" >&2
+    return 1
+  fi
+  if bind_mount_leaf "$storage_fd" "$storage_id" "$EXPECTED_STORAGE"; then
+    CALLER_MOUNTS_NEW_STORAGE=$MOUNT_LEAF_NEW
+  else
+    rollback_new_caller_mounts || true
+    exec {storage_fd}<&-; exec {shared_fd}<&-; return 1
+  fi
+  if ! bind_mount_leaf "$shared_fd" "$shared_id" "$EXPECTED_SHARED"; then
+    rollback_new_caller_mounts || true
+    exec {storage_fd}<&-; exec {shared_fd}<&-; return 1
+  fi
+  exec {storage_fd}<&-; exec {shared_fd}<&-
+}
+
+mounts_ready() {
+  local storage_fd storage_id shared_fd shared_id rc=1
+  resolve_caller || return 1
+  open_mount_source "$LEGACY_STORAGE" storage || return 1
+  storage_fd=$OPENED_MOUNT_FD; storage_id=$OPENED_MOUNT_ID
+  if ! open_mount_source "$LEGACY_SHARED" shared; then
+    exec {storage_fd}<&-; return 1
+  fi
+  shared_fd=$OPENED_MOUNT_FD; shared_id=$OPENED_MOUNT_ID
+  if ! validate_pinned_sources_disjoint "$storage_fd" "$storage_id" "$shared_fd" "$shared_id"; then
+    exec {storage_fd}<&-; exec {shared_fd}<&-; return 1
+  fi
+  if assert_boundary_dir "$RUNTIME_DIR" "$(boundary_owner)" &&
+    assert_boundary_dir "$MOUNT_ROOT" "$(boundary_owner)" &&
+    assert_boundary_dir "$USERS_DIR" "$(boundary_owner)" &&
+    assert_boundary_dir "$CALLER_DATA_ROOT" "$(boundary_owner)" &&
+    mounted_leaf_matches "$EXPECTED_STORAGE" "$storage_id" &&
+    mounted_leaf_matches "$EXPECTED_SHARED" "$shared_id"; then
+    rc=0
+  fi
+  exec {storage_fd}<&-; exec {shared_fd}<&-
+  return "$rc"
+}
+
+mount_layer_count() {
+  local path="$1"
+  awk -v path="$path" '$5 == path { count++ } END { print count + 0 }' /proc/self/mountinfo
+}
+
+mount_descendant_count() {
+  local path="$1"
+  awk -v prefix="$path/" 'index($5, prefix) == 1 { count++ } END { print count + 0 }' /proc/self/mountinfo
+}
+
+rollback_new_caller_mounts() {
+  local failed=0
+  if ((CALLER_MOUNTS_NEW_SHARED)); then
+    if umount -- "$EXPECTED_SHARED"; then CALLER_MOUNTS_NEW_SHARED=0; else failed=1; fi
+  fi
+  if ((CALLER_MOUNTS_NEW_STORAGE)); then
+    if umount -- "$EXPECTED_STORAGE"; then CALLER_MOUNTS_NEW_STORAGE=0; else failed=1; fi
+  fi
+  ((failed == 0)) || echo "omarchy-macos-vm: could not roll back newly created VM mounts" >&2
+  return "$failed"
+}
+
+TREE_SCAN_TIMEOUT_SECONDS=5
+TREE_SCAN_KILL_AFTER_SECONDS=1
+TREE_SCAN_TIMEOUT=/usr/bin/timeout
+TREE_SCAN_FIND=/usr/bin/find
+
+preflight_user_mount_source() {
+  local path="$1" label="$2" uid owner
+  uid=$(id -u)
+  if [[ -L $path ]]; then
+    [[ -d $path ]] || {
+      echo "omarchy-macos-vm: $label is a broken or non-directory symlink: $path" >&2
+      return 1
+    }
+  elif [[ -e $path ]]; then
+    [[ -d $path ]] || {
+      echo "omarchy-macos-vm: $label is not a directory: $path" >&2
+      return 1
+    }
+  else
+    return 0
+  fi
+  owner=$(stat -Lc '%u' -- "$path") || return 1
+  [[ $owner == "$uid" ]] || {
+    echo "omarchy-macos-vm: $label must be owned by uid $uid: $path" >&2
+    return 1
+  }
+}
+
+prepare_user_mount_sources() {
+  local storage="$HOME/.macos" shared="$HOME/macOS"
+  preflight_user_mount_source "$storage" storage &&
+    preflight_user_mount_source "$shared" shared || return 1
+  [[ -e $storage || -L $storage ]] || install -d -m 0700 -- "$storage" || return 1
+  [[ -e $shared || -L $shared ]] || install -d -m 0700 -- "$shared" || return 1
+}
+
+storage_space_path() {
+  if [[ -d $HOME/.macos ]]; then
+    realpath -e -- "$HOME/.macos"
+  else
+    printf '%s\n' "$HOME"
+  fi
+}
+
+available_storage_gb() {
+  local path
+  path=$(storage_space_path) || return 1
+  df -P -- "$path" | awk 'NR==2 {print int($4/1024/1024)}'
+}
+
+check_prerequisites() {
+  local DISK_SIZE_GB=${1:-64}
+  local REQUIRED_SPACE=$((DISK_SIZE_GB + 10))
+  if [[ ! -e /dev/kvm ]]; then
+    gum style \
+      --border normal --padding "1 2" --margin "1" \
+      "❌ KVM virtualization not available!" \
+      "" \
+      "Please enable virtualization in BIOS or run:" \
+      "  sudo modprobe kvm-intel  # for Intel CPUs" \
+      "  sudo modprobe kvm-amd    # for AMD CPUs"
+    exit 1
+  fi
+  AVAILABLE_SPACE=$(available_storage_gb) || {
+    echo "❌ Could not determine available space for $HOME/.macos" >&2
+    exit 1
+  }
+  if ((AVAILABLE_SPACE < REQUIRED_SPACE)); then
+    echo "❌ Insufficient disk space!" >&2
+    echo "   Available: ${AVAILABLE_SPACE}GB" >&2
+    echo "   Required: ${REQUIRED_SPACE}GB (${DISK_SIZE_GB}GB disk + 10GB overhead)" >&2
+    exit 1
+  fi
+}
+
+yaml_escape() {
+  local v=$1
+  v=${v//\\/\\\\}
+  v=${v//\"/\\\"}
+  v=${v//\$/\$\$}
+  printf '%s' "$v"
+}
+
+write_compose_atomically() (
+  local ram="$1" cores="$2" disk="$3" tz="$4" version="$5" username="$6" password="$7"
+  local tmp="" rc
+  username=$(yaml_escape "$username")
+  password=$(yaml_escape "$password")
+  cleanup_writer() {
+    rc=$?
+    trap - EXIT
+    [[ -z $tmp ]] || rm -f -- "$tmp" || true
+    exit "$rc"
+  }
+  trap cleanup_writer EXIT
+  tmp=$(mktemp "$RUNTIME_DIR/.compose.XXXXXX") || exit 1
+  cat >"$tmp" <<EOF || exit 1
+services:
+  macos:
+    image: $IMAGE
+    container_name: $CONTAINER
+    environment:
+      VERSION: "$version"
+      RAM_SIZE: "$ram"
+      CPU_CORES: "$cores"
+      DISK_SIZE: "$disk"
+      TZ: "$tz"
+      USERNAME: "$username"
+      PASSWORD: "$password"
+      AUDIO: "Y"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    stop_grace_period: 2m
+    ports:
+      - 127.0.0.1:8007:8006
+      - 127.0.0.1:5900:5900/tcp
+      - 127.0.0.1:5900:5900/udp
+    volumes:
+      - $EXPECTED_STORAGE:/storage
+      - $EXPECTED_SHARED:/shared
+    restart: "no"
+EOF
+  chmod 0640 "$tmp" || exit 1
+  if ((EUID == 0)); then
+    chown root:docker "$tmp" 2>/dev/null || chown root:root "$tmp" || exit 1
+  fi
+  mv -fT -- "$tmp" "$COMPOSE_FILE" || exit 1
+  tmp=""
+  trap - EXIT
+)
+
+__priv_write_compose() {
+  local ram cores disk username password tz version key value
+  while IFS='=' read -r key value; do
+    case "$key" in
+    RAM) ram="$value" ;;
+    CORES) cores="$value" ;;
+    DISK) disk="$value" ;;
+    USERNAME) username="$value" ;;
+    PASSWORD) password="$value" ;;
+    TZ) tz="$value" ;;
+    VERSION) version="$value" ;;
+    esac
+  done
+  valid_ram "$ram" || { echo "invalid RAM: $ram" >&2; exit 2; }
+  valid_cores "$cores" || { echo "invalid CPU cores: $cores" >&2; exit 2; }
+  valid_disk "$disk" || { echo "invalid disk size: $disk" >&2; exit 2; }
+  valid_username "$username" || { echo "invalid username" >&2; exit 2; }
+  valid_password "$password" || { echo "invalid password" >&2; exit 2; }
+  valid_version "$version" || { echo "invalid macOS version: $version" >&2; exit 2; }
+  resolve_caller || exit 2
+  prepare_caller_mounts || exit 2
+  write_compose_atomically "$ram" "$cores" "$disk" "$tz" "$version" "$username" "$password" || exit 2
+}
+
+get_mount_source() {
+  sed -n "s|^[[:space:]]*-[[:space:]]*\(/[^:]*\):$1\$|\1|p" "$COMPOSE_FILE" | head -n1
+}
+
+compose_needs_security_migration() {
+  [[ -f $COMPOSE_FILE ]] || return 1
+  resolve_caller || return 1
+  [[ $(mount_source_count /storage) == 1 && $(mount_source_count /shared) == 1 ]] || return 1
+  local storage shared
+  storage=$(get_mount_source /storage)
+  shared=$(get_mount_source /shared)
+  if [[ $storage == "$EXPECTED_STORAGE" && $shared == "$EXPECTED_SHARED" ]]; then return 0; fi
+  return 1
+}
+
+mount_source_count() {
+  local destination="$1"
+  sed -n "s|^[[:space:]]*-[[:space:]]*\(/[^:]*\):$destination\$|x|p" "$COMPOSE_FILE" | wc -l
+}
+
+compose_web_protected() {
+  [[ $(sed -n 's/^[[:space:]]*PROTECT:.*$/x/p' "$COMPOSE_FILE" | wc -l) == 1 &&
+   $(sed -n 's/^[[:space:]]*PROTECT:[[:space:]]*"Y"[[:space:]]*$/x/p' "$COMPOSE_FILE" | wc -l) == 1 ]]
+}
+
+rewrite_compose_security() {
+  local tmp
+  tmp=$(mktemp "$RUNTIME_DIR/.compose.XXXXXX") || return 1
+  awk -v storage="$EXPECTED_STORAGE" -v shared="$EXPECTED_SHARED" '
+    /^[[:space:]]*-[[:space:]]*\/[^:]*:\/storage$/ { print "      - " storage ":/storage"; next }
+    /^[[:space:]]*-[[:space:]]*\/[^:]*:\/shared$/  { print "      - " shared ":/shared"; next }
+    { print }
+  ' "$COMPOSE_FILE" >"$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 0640 "$tmp" || { rm -f "$tmp"; return 1; }
+  if ((EUID == 0)); then
+    chown root:docker "$tmp" 2>/dev/null || chown root:root "$tmp" || {
+      rm -f "$tmp"; return 1; }
+  fi
+  mv -fT -- "$tmp" "$COMPOSE_FILE" || { rm -f "$tmp"; return 1; }
+}
+
+assert_compose_trusted() {
+  local owner expected mode
+  [[ -f $COMPOSE_FILE && ! -L $COMPOSE_FILE ]] || return 1
+  owner=$(stat -Lc '%u' "$COMPOSE_FILE") || return 1
+  mode=$(stat -Lc '%a' "$COMPOSE_FILE") || return 1
+  expected=$(boundary_owner)
+  [[ $owner == "$expected" ]] && ! ((8#$mode & 022))
+}
+
+assert_mounts_safe() {
+  local storage shared needs_rewrite=0 mounts_prepared=0
+  resolve_caller || return 1
+  assert_compose_trusted || {
+    echo "omarchy-macos-vm: refusing an untrusted compose file" >&2
+    return 1
+  }
+  storage=$(get_mount_source /storage)
+  shared=$(get_mount_source /shared)
+  [[ $(mount_source_count /storage) == 1 && $(mount_source_count /shared) == 1 ]] || {
+    echo "omarchy-macos-vm: refusing duplicate or missing VM mounts in the compose" >&2
+    return 1
+  }
+  [[ $storage == "$EXPECTED_STORAGE" && $shared == "$EXPECTED_SHARED" ]] || {
+    echo "omarchy-macos-vm: refusing unexpected host paths in the compose" >&2
+    return 1
+  }
+  if ((EUID == 0)); then
+    prepare_caller_mounts || return 1
+  fi
+  mounts_ready || {
+    echo "omarchy-macos-vm: refusing an unsafe VM mount anchor" >&2
+    return 1
+  }
+}
+
+__priv_up() { assert_mounts_safe && dc up -d; }
+__priv_down() { dc down; }
+
+__priv_up_wait() {
+  assert_mounts_safe || return 1
+  local status
+  status=$(docker inspect --format='{{.State.Status}}' "$CONTAINER" 2>/dev/null)
+  if [[ $status != "running" ]]; then
+    dc up -d || return 1
+  fi
+  local started_at count=0
+  while true; do
+    started_at=$(docker inspect --format='{{.State.StartedAt}}' "$CONTAINER" 2>/dev/null)
+    if [[ -n $started_at ]] && docker logs --since "$started_at" "$CONTAINER" 2>&1 | grep -qi "macos started successfully\|started\|ready\|installed"; then
+      return 0
+    fi
+    sleep 2
+    ((++count > 60)) && {
+      if [[ $(docker inspect --format='{{.State.Status}}' "$CONTAINER" 2>/dev/null) == running ]]; then
+        echo "macOS VM is still starting (first boot downloads macOS). Watch: http://127.0.0.1:8007" >&2
+        return 0
+      fi
+      echo "Timeout: macOS VM container is not running" >&2
+      return 1
+    }
+  done
+}
+
+__priv_status() { docker inspect --format='{{.State.Status}}' "$CONTAINER" 2>/dev/null || true; }
+
+__priv_remove() {
+  assert_mounts_safe || return 1
+  [[ $EXPECTED_STORAGE == "$USERS_DIR/$CALLER_UID/storage" ]] || return 1
+  [[ $EXPECTED_SHARED == "$USERS_DIR/$CALLER_UID/shared" ]] || return 1
+  [[ $(mount_layer_count "$EXPECTED_STORAGE") == 1 &&
+     $(mount_layer_count "$EXPECTED_SHARED") == 1 &&
+     $(mount_descendant_count "$EXPECTED_STORAGE") == 0 &&
+     $(mount_descendant_count "$EXPECTED_SHARED") == 0 ]] || {
+    echo "omarchy-macos-vm: refusing removal with unknown or stacked VM mounts" >&2
+    return 1
+  }
+  dc down || {
+    echo "omarchy-macos-vm: could not stop the macOS VM; storage was not deleted" >&2
+    return 1
+  }
+  if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+    echo "omarchy-macos-vm: macOS container still exists; storage was not deleted" >&2
+    return 1
+  fi
+  docker info >/dev/null 2>&1 || {
+    echo "omarchy-macos-vm: cannot verify Docker state; storage was not deleted" >&2
+    return 1
+  }
+  mounts_ready || {
+    echo "omarchy-macos-vm: VM mount identity changed during removal" >&2
+    return 1
+  }
+  removal_trees_disjoint || return 1
+  find "$EXPECTED_STORAGE" -xdev -mindepth 1 -delete || return 1
+  [[ -z $(find "$EXPECTED_STORAGE" -mindepth 1 -print -quit) ]] || return 1
+  umount -- "$EXPECTED_SHARED" || return 1
+  umount -- "$EXPECTED_STORAGE" || return 1
+  docker rmi "$IMAGE" 2>/dev/null || true
+  rm -f "$COMPOSE_FILE"
+  rmdir -- "$EXPECTED_STORAGE" "$EXPECTED_SHARED" "$CALLER_DATA_ROOT" 2>/dev/null || true
+}
+
+
+# Reverse escaping (same as windows script)
+unescape() {
+  local v=$1
+  v=${v//\$\$/\$}
+  v=${v//\\\"/\"}
+  v=${v//\\\\/\\}
+  printf '%s' "$v"
+}
+
+write_credentials() {
+  local username="$1" password="$2" old_umask dir tmp
+  dir=$(dirname -- "$CREDENTIALS_FILE")
+  mkdir -p "$dir" || return 1
+  chmod 0700 "$dir" || return 1
+  old_umask=$(umask)
+  umask 077
+  tmp=$(mktemp "$dir/.credentials.XXXXXX") || { umask "$old_umask"; return 1; }
+  if ! printf 'USERNAME=%s\nPASSWORD=%s\n' "$username" "$password" >"$tmp" ||
+    ! chmod 0600 "$tmp" || ! mv -fT -- "$tmp" "$CREDENTIALS_FILE"; then
+    rm -f -- "$tmp"
+    umask "$old_umask"
+    return 1
+  fi
+  umask "$old_umask"
+}
+
+read_credential() {
+  local want="$1" key value
+  [[ -f $CREDENTIALS_FILE ]] || return 1
+  while IFS='=' read -r key value; do
+    [[ $key == "$want" ]] && {
+      printf '%s' "$value"
+      return 0
+    }
+  done <"$CREDENTIALS_FILE"
+  return 1
+}
+
+read_compose_value() {
+  local key="$1" file="$2"
+  sed -n "s/^[[:space:]]*${key}: \"\\(.*\\)\"[[:space:]]*\$/\\1/p" "$file" | head -n1
+}
+write_compose() {
+  local ram="$1" cores="$2" disk="$3" username="$4" password="$5" tz="$6" version="$7"
+  printf 'RAM=%s\nCORES=%s\nDISK=%s\nUSERNAME=%s\nPASSWORD=%s\nTZ=%s\nVERSION=%s\n' \
+    "$ram" "$cores" "$disk" "$username" "$password" "$tz" "$version" | priv write_compose
+}
+
+install_macos() {
+  trap "echo ''; echo 'Installation cancelled by user'; exit 1" INT
+  omarchy-pkg-add gum
+  prepare_user_mount_sources || exit 1
+  check_prerequisites 32
+  mkdir -p "$HOME/.local/share/applications"
+  cat <<EOF | tee "$HOME/.local/share/applications/macos-vm.desktop" >/dev/null
+[Desktop Entry]
+Name=macOS
+Comment=Start macOS VM via Docker and connect with VNC
+Exec=uwsm app -- omarchy-macos-vm launch
+Icon=macos
+Terminal=false
+Type=Application
+Categories=System;Virtualization;
+EOF
+  TOTAL_RAM=$(free -h | awk 'NR==2 {print $2}')
+  TOTAL_RAM_GB=$(awk 'NR==1 {printf "%d", $2/1024/1024}' /proc/meminfo)
+  TOTAL_CORES=$(nproc)
+  echo ""
+  echo "System Resources Detected:"
+  echo "  Total RAM: $TOTAL_RAM"
+  echo "  Total CPU Cores: $TOTAL_CORES"
+  echo ""
+  RAM_OPTIONS=""
+  for size in 2 4 8 16 32 64; do
+    if ((size <= TOTAL_RAM_GB)); then
+      RAM_OPTIONS="$RAM_OPTIONS ${size}G"
+    fi
+  done
+  SELECTED_RAM=$(echo $RAM_OPTIONS | tr ' ' '\n' | gum choose --selected="4G" --header="How much RAM for the macOS VM?")
+  [[ -z $SELECTED_RAM ]] && { echo "Installation cancelled"; exit 1; }
+  SELECTED_CORES=$(gum input --placeholder="Number of CPU cores (1-$TOTAL_CORES)" --value="2" --header="CPU cores for macOS VM?" --char-limit=2)
+  [[ -z $SELECTED_CORES ]] && { echo "Installation cancelled"; exit 1; }
+  if ! valid_cores "$SELECTED_CORES" || ((10#$SELECTED_CORES > TOTAL_CORES)); then
+    echo "Invalid cores. Using default: 2 cores"
+    SELECTED_CORES=2
+  fi
+  AVAILABLE_SPACE=$(available_storage_gb) || exit 1
+  MAX_DISK_GB=$((AVAILABLE_SPACE - 10))
+  if ((MAX_DISK_GB < 32)); then
+    echo "❌ Insufficient disk space for macOS VM!" >&2
+    exit 1
+  fi
+  DISK_OPTIONS=""
+  for size in 32 64 128 256 512; do
+    if ((size <= MAX_DISK_GB)); then DISK_OPTIONS="$DISK_OPTIONS ${size}G"; fi
+  done
+  DEFAULT_DISK="64G"
+  if ! echo "$DISK_OPTIONS" | grep -q "64G"; then DEFAULT_DISK="32G"; fi
+  SELECTED_DISK=$(echo $DISK_OPTIONS | tr ' ' '\n' | gum choose --selected="$DEFAULT_DISK" --header="Disk space for macOS VM?")
+  [[ -z $SELECTED_DISK ]] && { echo "Installation cancelled"; exit 1; }
+  SELECTED_LABEL=$(printf '%s\n' "${VERSION_LABELS[@]}" | gum choose --selected="${VERSION_LABELS[0]}" --header="Which macOS version?")
+  [[ -z $SELECTED_LABEL ]] && { echo "Installation cancelled"; exit 1; }
+  for i in "${!VERSION_LABELS[@]}"; do
+    if [[ ${VERSION_LABELS[$i]} == "$SELECTED_LABEL" ]]; then
+      SELECTED_VERSION="${VERSION[$i]}"
+      break
+    fi
+  done
+  DISK_SIZE_NUM=$(echo "$SELECTED_DISK" | sed 's/G//')
+  check_prerequisites "$DISK_SIZE_NUM"
+
+  # Prompt for username and password
+  USERNAME=$(gum input --placeholder="Username (Press enter to use default: docker)" --header="Enter macOS username:")
+  if [[ -z $USERNAME ]]; then
+    USERNAME="docker"
+  fi
+  if ! valid_username "$USERNAME"; then
+    echo "Invalid username (use letters, digits, - or _, up to 20 chars). Using default: docker"
+    USERNAME="docker"
+  fi
+
+  PASSWORD=$(gum input --placeholder="Password (Press enter to use default: admin)" --password --header="Enter macOS password:")
+  if [[ -z $PASSWORD ]]; then
+    PASSWORD="admin"
+    PASSWORD_DISPLAY="(default)"
+  else
+    PASSWORD_DISPLAY="(user-defined)"
+  fi
+  if ! valid_password "$PASSWORD"; then
+    echo "Invalid password (printable characters, up to 64). Using default: admin"
+    PASSWORD="admin"
+    PASSWORD_DISPLAY="(default)"
+  fi
+
+  gum style \
+    --border normal --padding "1 2" --margin "1" --align left --bold \
+    "macOS VM Configuration" \
+    "" \
+    "RAM:      $SELECTED_RAM" \
+    "CPU:      $SELECTED_CORES cores" \
+    "Disk:     $SELECTED_DISK" \
+    "Version:  $SELECTED_LABEL" \
+    "Username: $USERNAME" \
+    "Password: $PASSWORD_DISPLAY"
+  echo ""
+  if ! gum confirm "Proceed with this beautiful configuration?"; then
+    echo "Installation cancelled by user"
+    exit 1
+  fi
+  local tz
+  tz=$(timedatectl show -p Timezone --value 2>/dev/null || echo UTC)
+  write_compose "$SELECTED_RAM" "$SELECTED_CORES" "$SELECTED_DISK" "$USERNAME" "$PASSWORD" "$tz" "$SELECTED_VERSION" || {
+    echo "❌ Failed to write macOS VM configuration." >&2; exit 1; }
+  write_credentials "$USERNAME" "$PASSWORD" || {
+    echo "❌ Failed to store private VNC credentials." >&2
+    exit 1
+  }
+  echo ""
+  echo "Starting macOS VM... (this may take a while)"
+  echo "Web console: http://127.0.0.1:8007"
+  echo "VNC:         127.0.0.1:5900"
+  echo ""
+  if ! priv up; then
+    echo "❌ Failed to start macOS VM!" >&2
+    echo "   Check: sudo systemctl start docker" >&2
+    exit 1
+  fi
+  echo ""
+  echo "macOS VM is spinning up! ✨"
+  echo "Watch progress at: http://127.0.0.1:8007"
+  sleep 3
+  omarchy-launch-webapp "http://127.0.0.1:8007" 2>/dev/null
+  echo ""
+  echo "Monitor at: http://127.0.0.1:8007"
+  echo "To stop: omarchy-macos-vm stop"
+}
+
+remove_macos() {
+  if ! gum confirm --default=false "Remove macOS VM and delete all data?"; then
+    echo "Removal cancelled"; exit 1
+  fi
+  echo "Removing macOS VM..."
+  if [[ -f $COMPOSE_FILE ]]; then
+    priv remove || {
+      echo "❌ macOS VM removal stopped; inspect data before retrying." >&2
+      exit 1
+    }
+  fi
+  rm -f "$HOME/.local/share/applications/macos-vm.desktop"
+  rm -rf "$HOME/.macos"
+  echo ""
+  echo "macOS VM removed cleanly. ✨"
+}
+
+launch_macos() {
+  if [[ ! -f $COMPOSE_FILE ]]; then
+    echo "macOS VM not configured. Run: omarchy-macos-vm install"
+    exit 1
+  fi
+  echo "Starting macOS VM (this may prompt for authorization)..."
+  if ! priv up_wait; then
+    echo "❌ Failed to start macOS VM!" >&2
+    echo "   Try: omarchy-macos-vm status"
+    omarchy-notification-send -u critical "macOS VM" "Failed to start macOS VM"
+    exit 1
+  fi
+  gum style \
+    --border normal --padding "1 2" --margin "1" --align center \
+    "macOS VM Running" \
+    "" \
+    "Web console: http://127.0.0.1:8007" \
+    "VNC access:  127.0.0.1:5900" \
+    "" \
+    "To stop: omarchy-macos-vm stop"
+}
+
+stop_macos() {
+  if [[ ! -f $COMPOSE_FILE ]]; then
+    echo "macOS VM not configured."
+    exit 1
+  fi
+  echo "Stopping macOS VM..."
+  if priv down; then
+    echo "macOS VM stopped."
+  else
+    echo "⚠️  Could not stop the macOS VM (authorization declined?)."
+    exit 1
+  fi
+}
+
+status_macos() {
+  if [[ ! -f $COMPOSE_FILE ]]; then
+    echo "macOS VM not configured."
+    echo "To set up: omarchy-macos-vm install"
+    exit 1
+  fi
+  if ! CONTAINER_STATUS=$(priv status); then
+    echo "Could not query the macOS VM."
+    exit 1
+  fi
+  if [[ -z $CONTAINER_STATUS ]]; then
+    echo "macOS VM container not found."
+    echo "To start: omarchy-macos-vm launch"
+  elif [[ $CONTAINER_STATUS = "running" ]]; then
+    gum style \
+      --border normal --padding "1 2" --margin "1" --align left \
+      "macOS VM Status: RUNNING" \
+      "" \
+      "Web console: http://127.0.0.1:8007" \
+      "VNC:         127.0.0.1:5900" \
+      "" \
+      "To connect: omarchy-macos-vm launch" \
+      "To stop:     omarchy-macos-vm stop"
+  else
+    echo "macOS VM is stopped (status: $CONTAINER_STATUS)"
+    echo "To start: omarchy-macos-vm launch"
+  fi
+}
+
+show_usage() {
+  echo "Usage: omarchy-macos-vm [command] [options]"
+  echo ""
+  echo "Commands:"
+  echo "  install              Install and configure macOS VM"
+  echo "  remove               Remove macOS VM and its data"
+  echo "  launch (start)       Start and connect to macOS VM"
+  echo "  stop (down)          Stop the running macOS VM"
+  echo "  status               Show VM status"
+  echo "  help                 Show this help"
+  echo ""
+  echo "Versions: 15 Sequoia, 14 Sonoma, 13 Ventura, 12 Monterey, 11 Big Sur"
+  echo "Ports:    8007 (web console) | 5900 (VNC)"
+}
+
+case "$1" in
+__priv)
+  ((EUID == 0)) || { echo "omarchy-macos-vm __priv must run as root" >&2; exit 1; }
+  action="$2"; shift 2
+  valid_priv_action "$action" || { echo "omarchy-macos-vm: unknown privileged action" >&2; exit 1; }
+  with_vm_lock "__priv_${action}" "$@"
+  ;;
+install) install_macos ;;
+remove)  remove_macos ;;
+launch | start) launch_macos ;;
+stop | down) stop_macos ;;
+status) status_macos ;;
+help | --help | -h | "") show_usage ;;
+*) echo "Unknown command: $1" >&2; echo "" >&2; show_usage >&2; exit 1 ;;
+esac

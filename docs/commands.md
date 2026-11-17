@@ -1,5 +1,5 @@
 ---
-description: Complete reference for the welcome, snapshot, cleanup, directory, package, container, plugin, and hypr commands in Omarchy Tweaker.
+description: Complete reference for the welcome, snapshot, cleanup, directory, package, container, plugin, hypr, and scripts commands in Omarchy Tweaker.
 icon: material/console-line
 subtitle: CLI reference
 mermaid: true
@@ -20,6 +20,7 @@ Complete reference for the currently implemented Omarchy Tweaker commands.
 | `containers` | Yes | Yes | — |
 | `plugins` | Yes | Yes | — |
 | `hypr` | Yes | Yes | — |
+| `scripts` | Yes | Yes | — |
 
 ```mermaid
 flowchart TD
@@ -49,6 +50,9 @@ flowchart TD
     B -- hypr --> Y{TTY?}
     Y -- Yes --> Z[Confirm, link config, load workspaces]
     Y -- No --> AA[Skip with warning]
+    B -- scripts --> AB{TTY?}
+    AB -- Yes --> AC[Confirm, make scripts executable, link into PATH]
+    AB -- No --> AD[Skip with warning]
 ```
 
 ---
@@ -61,7 +65,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 
 | Behavior | Details |
 |:--|:--|
-| No arguments | Runs the default sequence: banner, snapshot, cleanup, directories, packages, containers, plugins, and hypr. |
+| No arguments | Runs the default sequence: banner, snapshot, cleanup, directories, packages, containers, plugins, hypr, and scripts. |
 | With a subcommand | Shows the banner, then runs the selected command. |
 | `--help` | Shows global help and the available commands. |
 | Completion | Disabled. |
@@ -82,6 +86,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Prepare and start selected Docker containers | `omarchy-tweaker containers` |
 | Install selected Omarchy shell plugins | `omarchy-tweaker plugins` |
 | Link the bundled Hyprland configuration | `omarchy-tweaker hypr` |
+| Make bundled scripts executable and link them into `~/.local/bin/` | `omarchy-tweaker scripts` |
 | Run the full guided workflow | `omarchy-tweaker` |
 | See every command and option | `omarchy-tweaker --help` |
 
@@ -90,10 +95,10 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Code | Meaning |
 |:--:|:--|
 | `0` | The command completed, or the step was skipped safely. |
-| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, package installation, container setup, plugin installation, or Hyprland configuration. |
+| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, package installation, container setup, plugin installation, Hyprland configuration, or script linking. |
 
 A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, selecting no packages, selecting no containers, selecting no
-plugins, or declining the Hyprland configuration exits successfully.
+plugins, declining the Hyprland configuration, or declining script linking exits successfully.
 
 ---
 
@@ -470,6 +475,50 @@ See **[Hyprland](hypr.md)** for the bundled file catalog, symlink behavior, and 
 
 ---
 
+## `scripts`
+
+Make the bundled helper scripts executable and link them into `~/.local/bin/`.
+
+```bash
+omarchy-tweaker scripts
+```
+
+Scripts has no command-line options. It runs last in the default sequence and is also
+available as a standalone command.
+
+### Behavior
+
+1. Discovers the regular files in `src/omarchy_tweaker/script/`.
+2. Lists the scripts and warns about names that already exist in `~/.local/bin/`.
+3. Asks for one confirmation before changing anything.
+4. Creates `~/.local/bin/` when it is missing.
+5. Adds execute bits to each bundled script when they are missing.
+6. Links each bundled script into `~/.local/bin/` under its original name.
+
+Bundled scripts include `create-vm`, `macos-vm`, `setup-security-fingerprint`,
+`snapshot`, and `windows-vm`. A symlink that already points at the correct bundled
+script is left alone; other entries are replaced without a backup.
+
+### Non-interactive use
+
+`omarchy-tweaker scripts` requires an interactive terminal. Without one, it prints a
+warning and skips without changing anything.
+
+### Failure handling
+
+A failed bin directory creation, permission change, or symlink creation is reported by
+name and exits with code `1`. Declining the confirmation is a safe skip and exits with
+code `0`.
+
+### Requirements
+
+- The user home directory must be writable so `~/.local/bin/` can be created.
+- The bundled files in `src/omarchy_tweaker/script/` must be present.
+
+See **[Bundled Scripts](scripts.md)** for the catalog, symlink behavior, and safety details.
+
+---
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -483,6 +532,7 @@ See **[Hyprland](hypr.md)** for the bundled file catalog, symlink behavior, and 
 | `OMARCHY_TWEAKER_CADDY_CONFIG` | Override the host Caddyfile path. |
 | `OMARCHY_TWEAKER_CADDY_DIR` | Override the managed Caddy snippet directory. |
 | `OMARCHY_TWEAKER_HYPR_DIR` | Override the directory containing bundled Hyprland files. |
+| `OMARCHY_TWEAKER_SCRIPTS_DIR` | Override the directory containing bundled helper scripts. |
 
 Logs default to `$XDG_STATE_HOME/omarchy_tweaker/logs/` or `~/.local/state/omarchy_tweaker/logs/`.
 
@@ -534,6 +584,12 @@ omarchy-tweaker plugins
 omarchy-tweaker hypr
 ```
 
+### Link the bundled helper scripts
+
+```bash
+omarchy-tweaker scripts
+```
+
 ### Show global help
 
 ```bash
@@ -550,4 +606,5 @@ omarchy-tweaker --help
 - [Packages](packages.md)
 - [Plugins](plugins.md)
 - [Hyprland](hypr.md)
+- [Bundled Scripts](scripts.md)
 - [Troubleshooting](troubleshooting.md)

@@ -148,6 +148,7 @@ Omarchy-Tweaker/
 │   ├── hypr.md                     # Hyprland configuration reference
 │   ├── packages.md                 # Package installation reference
 │   ├── plugins.md                  # Shell plugin installation reference
+│   ├── scripts.md                  # Bundled script linking reference
 │   ├── development.md              # This page
 │   ├── getting-started.md          # Installation and first run
 │   ├── index.md                    # Documentation home
@@ -168,6 +169,7 @@ Omarchy-Tweaker/
 │   │   ├── config/                 # Bundled plugin catalog and shell config
 │   │   ├── containers/             # Bundled container definitions
 │   │   ├── hypr/                   # Bundled Hyprland Lua configuration
+│   │   ├── script/                 # Bundled helper scripts
 │   │   ├── commands/               # Thin CLI command wrappers
 │   │   ├── screens/                # Banner and welcome screens
 │   │   └── functions/              # Feature workflows, logging, UI, and system info
@@ -188,6 +190,7 @@ Omarchy-Tweaker/
 │   ├── test_main.py
 │   ├── test_packages.py
 │   ├── test_plugins.py
+│   ├── test_scripts.py
 │   ├── test_snapshot.py
 │   ├── test_system_info.py
 │   └── test_ui.py
@@ -473,6 +476,7 @@ uv run pytest tests/test_main.py -v
 uv run pytest tests/test_directory.py -v
 uv run pytest tests/test_packages.py -v
 uv run pytest tests/test_plugins.py -v
+uv run pytest tests/test_scripts.py -v
 uv run pytest tests/test_cleanup.py::test_run_cleanup_step_removes_only_selected_items -v
 uv run pytest -k "cleanup or directory or packages or plugins" -v
 ```
@@ -489,22 +493,26 @@ uv run pytest -k "cleanup or directory or packages or plugins" -v
 
 ### Current Coverage
 
-The suite currently contains **221 tests** covering:
+The suite currently contains **359 tests** covering:
 
 ```mermaid
 pie showData
     title Tests by area
     "UI" : 65
+    "Containers" : 90
+    "CLI" : 32
+    "Hyprland" : 22
     "Logging" : 27
-    "CLI and startup" : 25
+    "Packages" : 19
+    "Plugins" : 18
+    "Bundled scripts" : 17
     "Cleanup" : 16
     "System info" : 15
-    "Plugins" : 18
     "Snapshot" : 10
     "Directories" : 10
-    "Packages" : 19
     "Error handling" : 7
     "Metadata and bootstrap" : 9
+    "Entry point" : 2
 ```
 
 - Application metadata and bootstrap entry points.
@@ -514,7 +522,10 @@ pie showData
 - Cleanup discovery, selection, removal, path validation, and failure reporting.
 - Directory targets, creation, parent checks, conflict handling, and non-interactive skips.
 - Package group selection, confirmation, single-command installation, and failure paths.
+- Container catalog loading, environment generation, Caddy integration, Compose startup, and OmniRoute setup.
 - Plugin catalog loading, selection, non-interactive installation, placement, patch execution, and failure paths.
+- Bundled Hyprland discovery, symlink replacement, and workspaces require-line handling.
+- Bundled script discovery, permission changes, symlink replacement, and failure reporting.
 - Session logging, log-directory resolution, shutdown reports, and interrupt handling.
 - Rich error handling for main-thread, thread, unraisable, and syntax errors.
 - System information formatting and fallbacks.
@@ -567,7 +578,7 @@ Documentation is built with [Zensical](https://zensical.org/docs) and configured
 
 - Home → `index.md`
 - Getting Started → `getting-started.md`
-- Usage → `commands.md`, `packages.md`, `plugins.md`, `cleanup.md`, and `directories.md`
+- Usage → `commands.md`, `containers.md`, `packages.md`, `plugins.md`, `hypr.md`, `scripts.md`, `cleanup.md`, and `directories.md`
 - Project → `architecture.md`, `development.md`, `contributing.md`, and `security.md`
 - Troubleshooting → `troubleshooting.md`
 - Changelog → `changelog.md` (generated)

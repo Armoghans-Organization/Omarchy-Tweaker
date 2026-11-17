@@ -1,0 +1,2497 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# omarchy:summary=Create ISO-based QEMU/KVM VMs or instant Linux sandboxes, with ssh <name>, GUI launchers and virt-manager support
+# omarchy:args=<create|sandbox|launch|start|stop|restart|status|list|info|agent|ssh|ip|console|eject|autostart|snapshot|rename|portfwd|hosts-sync|top|net|remove|doctor|ssh-config|sync-ssh|desktop-sync|menu|help> [name] [options]
+# omarchy:requires-sudo=false
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Config
+# ════════════════════════════════════════════════════════════════════════════
+ISO_DIR="${OMARCHY_VM_ISO_DIR:-$HOME/.ISO}"
+VM_DIR="${OMARCHY_VM_DIR:-$HOME/.VM}"
+IMG_DIR="$ISO_DIR/cloud-images"
+APP_DIR="$HOME/.local/share/applications"
+SSH_DIR="$HOME/.ssh"
+SSH_CONFIG="$SSH_DIR/config"
+SSH_KEY="$SSH_DIR/omarchy_vm_ed25519"
+
+export LIBVIRT_DEFAULT_URI="${OMARCHY_VM_LIBVIRT_URI:-qemu:///system}"
+
+SANDBOX_USER="sandbox"
+SANDBOX_PASS="password"
+CREDENTIALS_FILE="$VM_DIR/.credentials"
+PORTFWD_FILE="$VM_DIR/.portfwd"
+
+OMARCHY_NET_NAME="omarchy-vms"
+OMARCHY_NET_SUBNET="10.0.0.0/24"
+OMARCHY_NET_GATEWAY="10.0.0.1"
+OMARCHY_NET_DHCP_START="10.0.0.10"
+OMARCHY_NET_DHCP_END="10.0.0.200"
+
+HOSTS_MARK="# BEGIN omarchy-vms"
+HOSTS_END="# END omarchy-vms"
+
+AVAILABLE_SANDBOX=(
+  "Ubuntu 24.04 LTS|https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+  "Ubuntu 22.04 LTS|https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+  "Debian 12|https://cdimage.debian.org/cdimage/cloud/12/latest/debian-12-generic-amd64.qcow2"
+  "Debian 13|https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"
+  "Fedora 42|https://download.fedoraproject.org/pub/fedora/linux/releases/42/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-42-1.1.x86_64.qcow2"
+  "Fedora 43|https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2"
+  "Fedora 44|https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2"
+  "Alpine 3.23|https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/cloud/alpine-3.23.7-x86_64-bios-tiny-r0.qcow2"
+  "Alpine 3.24|https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/cloud/alpine-3.24.3-x86_64-tiny-r0.qcow2"
+  "Arch Linux|https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
+)
+DEFAULT_IMAGE="Arch Linux"
+
+CAT_LABELS=()
+declare -A CAT_URL=()
+for _e in "${AVAILABLE_SANDBOX[@]}"; do
+  CAT_LABELS+=("${_e%%|*}")
+  CAT_URL["${_e%%|*}"]="${_e#*|}"
+done
+unset _e
+
+RAM_PRESETS=(2 4 8 16 32 64)
+CPU_PRESETS=(1 2 4 6 8 12 16)
+DISK_PRESETS=(4 8 16 32 64 128 256 512)
+
+# command → package (Arch)
+declare -A PKG=(
+  [virsh]=libvirt [virt-install]=virt-install [qemu-img]=qemu-img [curl]=curl
+  [virt-manager]=virt-manager [virt-viewer]=virt-viewer [xorriso]=xorriso
+  [cloud-localds]=cloud-image-utils [ssh]=openssh [ssh-keygen]=openssh
+  [gum]=gum [jq]=jq [dnsmasq]=dnsmasq [qemu-system-x86_64]=qemu-desktop
+)
+
+if ((EUID == 0)); then
+  export PATH=/usr/bin:/usr/sbin:/bin:/sbin
+  export LC_ALL=C.UTF-8
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+#  gum theme (ANSI palette colours → follows your Omarchy theme)
+# ════════════════════════════════════════════════════════════════════════════
+export GUM_CHOOSE_CURSOR="› " GUM_CHOOSE_CURSOR_FOREGROUND=6 GUM_CHOOSE_SELECTED_FOREGROUND=6 \
+       GUM_CHOOSE_HEADER_FOREGROUND=6 GUM_CHOOSE_ITEM_FOREGROUND=7
+export GUM_INPUT_PROMPT="› " GUM_INPUT_PROMPT_FOREGROUND=6 GUM_INPUT_CURSOR_FOREGROUND=6 \
+       GUM_INPUT_HEADER_FOREGROUND=6
+export GUM_CONFIRM_PROMPT_FOREGROUND=7 GUM_CONFIRM_SELECTED_BACKGROUND=6 GUM_CONFIRM_SELECTED_FOREGROUND=0
+export GUM_SPIN_SPINNER_FOREGROUND=6 GUM_SPIN_TITLE_FOREGROUND=7
+export GUM_FILTER_INDICATOR_FOREGROUND=6 GUM_FILTER_MATCH_FOREGROUND=6 GUM_FILTER_PROMPT_FOREGROUND=6
+
+if [[ -t 1 ]]; then
+  R=$'\e[0m' B=$'\e[1m' DIM=$'\e[90m' RED=$'\e[31m' GRN=$'\e[32m' YLW=$'\e[33m'
+  BLU=$'\e[34m' MAG=$'\e[35m' CYN=$'\e[36m'
+else
+  R="" B="" DIM="" RED="" GRN="" YLW="" BLU="" MAG="" CYN=""
+fi
+BOLD=$B MAGENTA=$MAG
+
+ensure_gum() {
+  command -v gum >/dev/null 2>&1 && return 0
+  echo "gum is required — installing…" >&2
+  if command -v omarchy-pkg-add >/dev/null 2>&1; then omarchy-pkg-add gum
+  else sudo pacman -S --needed --noconfirm gum; fi || { echo "Could not install gum" >&2; exit 1; }
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  UI helpers
+# ════════════════════════════════════════════════════════════════════════════
+ok()     { gum style --foreground 2 "✓ $*"; }
+warn()   { gum style --foreground 3 "! $*"; }
+err()    { gum style --foreground 1 "✗ $*" >&2; }
+note()   { gum style --faint "$*"; }
+die()    { err "$@"; exit 1; }
+cancel() { note "Cancelled."; exit 0; }
+title()  { gum style --bold --foreground 6 --margin "1 0 0 0" "◈ $*"; }
+box()    { local t=$1; shift; gum style --border rounded --border-foreground 8 --padding "1 2" --margin "1 0" "${B}${CYN}${t}${R}" "" "$@"; }
+kv()     { printf '%s%-10s%s %s' "$DIM" "$1" "$R" "$2"; }
+pause()  { gum input --prompt "↵ " --placeholder "press enter to continue" >/dev/null || true; }
+need_tty() { [[ -t 0 && -t 1 ]] || die "${1:-Interactive terminal required — pass the value as an argument}"; }
+is_tty() { [[ -t 0 && -t 1 ]]; }
+
+# spin <title> <cmd…>  — shows a spinner, propagates the exit code
+spin() {
+  local t=$1; shift
+  if [[ -t 1 ]]; then
+    gum spin --spinner dot --title "$t" --show-error -- "$@"
+  else
+    echo "$t" >&2; "$@" >/dev/null
+  fi
+}
+
+# human readable bytes
+hb() {
+  awk -v b="${1:-0}" 'BEGIN {
+    split("B KiB MiB GiB TiB", u, " "); i = 1
+    while (b >= 1024 && i < 5) { b /= 1024; i++ }
+    fmt = (i == 1) ? "%d %s" : "%.1f %s"; printf fmt, b, u[i]
+  }'
+}
+
+fmt_uptime() { # seconds → "2d 3h 14m"
+  local s=${1%%.*} d h m out=""
+  s=${s:-0}
+  d=$((s / 86400)); h=$((s % 86400 / 3600)); m=$((s % 3600 / 60))
+  if ((d)); then out+="${d}d "; fi
+  if ((h)); then out+="${h}h "; fi
+  out+="${m}m"
+  printf '%s' "$out"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Validation
+# ════════════════════════════════════════════════════════════════════════════
+valid_name()  { [[ $1 =~ ^[a-zA-Z][a-zA-Z0-9_-]{0,31}$ ]]; }
+valid_ram()   { [[ $1 =~ ^[0-9]{1,3}G$ ]]; }
+valid_cores() { [[ $1 =~ ^[0-9]{1,2}$ ]] && ((10#$1 >= 1)); }
+valid_disk()  { [[ $1 =~ ^[0-9]{1,4}G$ ]]; }
+valid_port()  { [[ $1 =~ ^[0-9]{1,5}$ ]] && ((10#$1 >= 1 && 10#$1 <= 65535)); }
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Cleanup on abort
+# ════════════════════════════════════════════════════════════════════════════
+_cleanup_dir=""
+cleanup() { if [[ -n $_cleanup_dir ]]; then rm -rf "$_cleanup_dir"; fi; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Environment checks — all LAZY, only what a command actually needs
+# ════════════════════════════════════════════════════════════════════════════
+need() {
+  local c missing=()
+  for c in "$@"; do
+    command -v "$c" >/dev/null 2>&1 || missing+=("${PKG[$c]:-$c}")
+  done
+  if ((${#missing[@]} == 0)); then return 0; fi
+  warn "Missing packages: ${missing[*]}"
+  gum confirm "Install them now?" || die "Cannot continue without: ${missing[*]}"
+  if command -v omarchy-pkg-add >/dev/null 2>&1; then omarchy-pkg-add "${missing[@]}"
+  else sudo pacman -S --needed --noconfirm "${missing[@]}"; fi || die "Install failed: ${missing[*]}"
+}
+
+need_seed_tool() {
+  if command -v cloud-localds >/dev/null 2>&1 || command -v xorriso >/dev/null 2>&1; then return 0; fi
+  need xorriso
+}
+
+ensure_libvirt() {
+  need virsh
+  if virsh list --name >/dev/null 2>&1; then return 0; fi
+  warn "libvirt isn't responding — starting it…"
+  { sudo systemctl enable --now libvirtd.socket \
+    || sudo systemctl enable --now libvirtd \
+    || sudo systemctl enable --now virtqemud.socket; } >/dev/null 2>&1 || true
+  local _
+  for _ in 1 2 3 4 5 6; do
+    if virsh list --name >/dev/null 2>&1; then return 0; fi
+    sleep 0.5
+  done
+  err "Cannot connect to libvirt at $LIBVIRT_DEFAULT_URI"
+  note "Try: sudo usermod -aG libvirt,kvm \$USER   (then log out and back in)"
+  exit 1
+}
+
+ensure_dirs() {
+  mkdir -p "$ISO_DIR" "$IMG_DIR" "$VM_DIR" "$APP_DIR" "$SSH_DIR"
+  chmod 700 "$SSH_DIR" 2>/dev/null || true
+  touch "$SSH_CONFIG" 2>/dev/null || true
+  chmod 600 "$SSH_CONFIG" 2>/dev/null || true
+}
+
+ensure_ssh_key() {
+  if [[ -f $SSH_KEY ]]; then return 0; fi
+  need ssh-keygen
+  ssh-keygen -t ed25519 -f "$SSH_KEY" -N "" -C "omarchy-vm" >/dev/null 2>&1 || die "Failed to generate SSH key"
+  chmod 600 "$SSH_KEY"; chmod 644 "$SSH_KEY.pub"
+}
+
+# One virsh call to check, then fix only what is wrong: define / start / autostart
+ensure_network() {
+  local info
+  info=$(virsh net-info "$OMARCHY_NET_NAME" 2>/dev/null) || info=""
+  if [[ -z $info ]]; then
+    need dnsmasq
+    virsh net-define /dev/stdin >/dev/null 2>&1 <<EOF || die "Failed to define network $OMARCHY_NET_NAME"
+<network>
+  <name>$OMARCHY_NET_NAME</name>
+  <forward mode='nat'/>
+  <bridge name='virbr-omarchy' stp='on' delay='0'/>
+  <ip address='$OMARCHY_NET_GATEWAY' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='$OMARCHY_NET_DHCP_START' end='$OMARCHY_NET_DHCP_END'/>
+    </dhcp>
+  </ip>
+</network>
+EOF
+    virsh net-autostart "$OMARCHY_NET_NAME" >/dev/null 2>&1 || true
+    virsh net-start "$OMARCHY_NET_NAME" >/dev/null 2>&1 || die "Could not start network $OMARCHY_NET_NAME (is dnsmasq installed? subnet conflict?)"
+    ok "Created network $OMARCHY_NET_NAME ($OMARCHY_NET_SUBNET)"
+  else
+    if [[ ! $info =~ Active:[[:space:]]+yes ]]; then virsh net-start "$OMARCHY_NET_NAME" >/dev/null 2>&1 || true; fi
+    if [[ ! $info =~ Autostart:[[:space:]]+yes ]]; then virsh net-autostart "$OMARCHY_NET_NAME" >/dev/null 2>&1 || true; fi
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  VM state / IP helpers  (functions marked "export -f" run inside gum spin)
+# ════════════════════════════════════════════════════════════════════════════
+vm_state()  { virsh domstate "$1" 2>/dev/null; }
+vm_exists() { virsh domstate "$1" >/dev/null 2>&1; }
+
+first_ipv4() {
+  local s=$1 m
+  while [[ $s =~ ([0-9]+\.){3}[0-9]+ ]]; do
+    m=${BASH_REMATCH[0]}
+    if [[ $m != 127.* ]]; then printf '%s' "$m"; return 0; fi
+    s=${s#*"$m"}
+  done
+  return 1
+}
+
+# get_vm_ip <name> [source…]   default: lease (fast) → agent → arp
+get_vm_ip() {
+  local name=$1 src out; shift
+  if (($# == 0)); then set -- lease agent arp; fi
+  for src in "$@"; do
+    out=$(timeout 3 virsh domifaddr "$name" --source "$src" 2>/dev/null) || continue
+    first_ipv4 "$out" && return 0
+  done
+  return 1
+}
+
+wait_ip() {
+  local n=$1 t=${2:-90} i
+  for ((i = 0; i < t; i++)); do
+    get_vm_ip "$n" lease >/dev/null && return 0
+    sleep 1
+  done
+  return 1
+}
+
+wait_ssh() {
+  local ip=$1 t=${2:-60} i
+  for ((i = 0; i < t; i++)); do
+    timeout 2 bash -c 'exec 3<>"/dev/tcp/$0/22"' "$ip" 2>/dev/null && return 0
+    sleep 1
+  done
+  return 1
+}
+
+wait_state() {
+  local n=$1 want=$2 t=${3:-30} i
+  for ((i = 0; i < t * 2; i++)); do
+    [[ $(virsh domstate "$n" 2>/dev/null) == "$want" ]] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+vi_cloud() { # <os-variant> <virt-install args…>
+  local v=$1; shift
+  virt-install --os-variant "$v" "$@" >/dev/null 2>&1 || virt-install --os-variant generic "$@" >/dev/null
+}
+vi_iso() {
+  virt-install --os-variant detect=on,require=off --boot uefi "$@" >/dev/null 2>&1 \
+    || virt-install --os-variant detect=on,require=off "$@" >/dev/null
+}
+export -f first_ipv4 get_vm_ip wait_ip wait_ssh wait_state vi_cloud vi_iso
+
+# Snapshot of every VM in ONE list call + parallel IP lookups
+declare -a VM_NAMES=()
+declare -A VM_STATE=() VM_IP=() VM_AUTO=() VM_TYPE=()
+load_vms() {
+  VM_NAMES=(); VM_STATE=(); VM_IP=(); VM_AUTO=(); VM_TYPE=()
+  local out line n t tmp
+  out=$(virsh list --all 2>/dev/null) || die "Cannot list VMs"
+  while IFS= read -r line; do
+    if [[ $line =~ ^[[:space:]]*([0-9]+|-)[[:space:]]+([^[:space:]]+)[[:space:]]+(.+)$ ]]; then
+      VM_NAMES+=("${BASH_REMATCH[2]}")
+      VM_STATE["${BASH_REMATCH[2]}"]="${BASH_REMATCH[3]}"
+    fi
+  done <<<"$out"
+  if ((${#VM_NAMES[@]} == 0)); then return 0; fi
+
+  out=$(virsh list --all --autostart --name 2>/dev/null || true)
+  while IFS= read -r n; do
+    if [[ -n $n ]]; then VM_AUTO[$n]=1; fi
+  done <<<"$out"
+
+  if [[ -f $CREDENTIALS_FILE ]]; then
+    while IFS='|' read -r n _ _ _ _ t; do
+      if [[ -n $n ]]; then VM_TYPE[$n]=$t; fi
+    done <"$CREDENTIALS_FILE"
+  fi
+
+  tmp=$(mktemp -d)
+  for n in "${VM_NAMES[@]}"; do
+    if [[ ${VM_STATE[$n]} == running ]]; then
+      { get_vm_ip "$n" lease arp >"$tmp/$n" 2>/dev/null || true; } &
+    fi
+  done
+  wait
+  for n in "${VM_NAMES[@]}"; do
+    if [[ -s $tmp/$n ]]; then VM_IP[$n]=$(<"$tmp/$n"); fi
+  done
+  rm -rf "$tmp"
+}
+
+# pick_vm <header> [running|stopped|""] [back]   → prints the chosen name
+pick_vm() {
+  local header=$1 want=${2:-} back=${3:-} out line n st sym item pick
+  local -a items=() names=()
+  out=$(virsh list --all 2>/dev/null) || { err "Cannot list VMs"; return 1; }
+  while IFS= read -r line; do
+    [[ $line =~ ^[[:space:]]*([0-9]+|-)[[:space:]]+([^[:space:]]+)[[:space:]]+(.+)$ ]] || continue
+    n=${BASH_REMATCH[2]}; st=${BASH_REMATCH[3]}
+    if [[ $want == running && $st != running ]]; then continue; fi
+    if [[ $want == stopped && $st == running ]]; then continue; fi
+    case $st in running) sym="●";; paused*) sym="◐";; *) sym="○";; esac
+    printf -v item '%s %-26s %s' "$sym" "$n" "$st"
+    items+=("$item"); names+=("$n")
+  done <<<"$out"
+
+  if ((${#items[@]} == 0)); then warn "No ${want:+$want }VMs found" >&2; return 1; fi
+  if ((${#items[@]} == 1)) && [[ -z $back ]]; then
+    gum style --faint "Using ${names[0]}" >&2
+    printf '%s' "${names[0]}"; return 0
+  fi
+  if [[ -n $back ]]; then items+=("← Back"); fi
+  pick=$(gum choose --header "$header" --height 14 "${items[@]}") || return 1
+  if [[ $pick == "← Back" ]]; then return 1; fi
+  read -r _ n _ <<<"$pick"
+  printf '%s' "$n"
+}
+
+# target_vm <name|""> <header> [filter]  → sets NAME and STATE
+NAME="" STATE=""
+target_vm() {
+  NAME=${1:-}
+  if [[ -z $NAME ]]; then
+    need_tty "Specify a VM name"
+    NAME=$(pick_vm "${2:-Select a VM}" "${3:-}") || exit 1
+  fi
+  STATE=$(vm_state "$NAME") || die "VM '$NAME' does not exist"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Credentials + SSH config
+# ════════════════════════════════════════════════════════════════════════════
+update_credentials() { # <name> [new-line]   (empty line = remove)
+  mkdir -p "$VM_DIR"
+  local tmp l; tmp=$(mktemp "$VM_DIR/.cred.XXXXXX")
+  if [[ -f $CREDENTIALS_FILE ]]; then
+    while IFS= read -r l; do
+      if [[ $l != "$1|"* ]]; then printf '%s\n' "$l"; fi
+    done <"$CREDENTIALS_FILE" >"$tmp"
+  fi
+  if [[ -n ${2:-} ]]; then printf '%s\n' "$2" >>"$tmp"; fi
+  chmod 600 "$tmp"; mv "$tmp" "$CREDENTIALS_FILE"
+}
+remove_credentials() { update_credentials "$1" ""; }
+
+strip_ssh_block() { # prints SSH config without <name>'s block (marked or legacy)
+  if [[ ! -f $SSH_CONFIG ]]; then return 0; fi
+  awk -v n="$1" '
+    skip { if ($0 == "# END OMARCHY-VM " n) { skip=0; eat=1 } ; next }
+    $0 == "# BEGIN OMARCHY-VM " n { skip=1; next }
+    leg && /^[[:space:]]/ { next }
+    leg { leg=0 }
+    eat && /^[[:space:]]*$/ { eat=0; next }
+    { eat=0 }
+    $0 == "Host " n { leg=1; next }
+    { print }
+  ' "$SSH_CONFIG"
+}
+
+write_ssh_config() { # stdin → SSH_CONFIG (atomic)
+  local tmp="$SSH_CONFIG.tmp.$$"
+  cat >"$tmp"; mv "$tmp" "$SSH_CONFIG"
+  chmod 600 "$SSH_CONFIG" 2>/dev/null || true
+}
+
+sync_ssh_config() { # <name> [ip]
+  local name=$1 ip=${2:-} rest
+  if [[ -z $ip ]]; then ip=$(get_vm_ip "$name" || true); fi
+  [[ -n $ip ]] || return 1
+  rest=$(strip_ssh_block "$name")
+  {
+    if [[ -n $rest ]]; then printf '%s\n\n' "$rest"; fi
+    cat <<EOF
+# BEGIN OMARCHY-VM $name
+Host $name
+  HostName $ip
+  User $SANDBOX_USER
+  IdentityFile $SSH_KEY
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  LogLevel ERROR
+# END OMARCHY-VM $name
+
+EOF
+  } | write_ssh_config
+}
+
+drop_ssh_block() { # <name>
+  if [[ -f $SSH_CONFIG ]]; then strip_ssh_block "$1" | write_ssh_config; fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Image / disk / cloud-init helpers
+# ════════════════════════════════════════════════════════════════════════════
+IMG_PATH=""
+fetch_image() { # <label> → IMG_PATH
+  local label=$1 url=${CAT_URL[$1]:-}
+  [[ -n $url ]] || die "Unknown image '$label'. Available: ${CAT_LABELS[*]}"
+  IMG_PATH="$IMG_DIR/${url##*/}"
+  if [[ -s $IMG_PATH ]]; then return 0; fi
+  mkdir -p "$IMG_DIR"
+  note "Downloading $label (cached for next time)…"
+  curl -fL --progress-bar -C - -o "$IMG_PATH.part" "$url" || die "Download failed — re-run to resume: $url"
+  mv "$IMG_PATH.part" "$IMG_PATH"
+}
+
+make_overlay() { # <base> <overlay> <size>  — copy-on-write, instant
+  qemu-img create -f qcow2 -F qcow2 -b "$1" "$2" "$3" >/dev/null 2>&1 && return 0
+  cp --reflink=auto "$1" "$2"
+  qemu-img resize "$2" "$3" >/dev/null 2>&1 || true
+}
+
+make_seed() { # <seed.iso> <user-data> <meta-data>
+  if command -v cloud-localds >/dev/null 2>&1; then
+    cloud-localds "$1" "$2" "$3" >/dev/null 2>&1
+  else
+    xorriso -as mkisofs -o "$1" -V cidata -J -r "$2" "$3" >/dev/null 2>&1
+  fi
+}
+
+fs_driver() {
+  if [[ -x /usr/lib/virtiofsd ]] || command -v virtiofsd >/dev/null 2>&1; then echo virtiofs; else echo 9p; fi
+}
+
+write_cloud_init() { # <name> <dir> [mount_dir]
+  local name=$1 dir=$2 mount=${3:-} pub
+  pub=$(<"$SSH_KEY.pub")
+  {
+    cat <<EOF
+#cloud-config
+hostname: $name
+users:
+  - name: $SANDBOX_USER
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    plain_text_passwd: $SANDBOX_PASS
+    ssh_authorized_keys:
+      - $pub
+chpasswd:
+  expire: false
+ssh_pwauth: true
+package_update: false
+EOF
+    # make sure the guest agent exists (powers `agent` / IP discovery) on any distro
+    cat <<'EOF'
+runcmd:
+  - [ sh, -c, "command -v qemu-ga >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y qemu-guest-agent; } >/dev/null 2>&1 || dnf install -y qemu-guest-agent >/dev/null 2>&1 || pacman -Sy --noconfirm qemu-guest-agent >/dev/null 2>&1 || apk add qemu-guest-agent >/dev/null 2>&1 || true" ]
+  - [ sh, -c, "systemctl enable --now qemu-guest-agent >/dev/null 2>&1 || systemctl start qemu-guest-agent >/dev/null 2>&1 || { rc-update add qemu-guest-agent default && rc-service qemu-guest-agent start; } >/dev/null 2>&1 || true" ]
+EOF
+    if [[ -n $mount ]]; then
+      if [[ $(fs_driver) == virtiofs ]]; then
+        printf 'mounts:\n  - [ host0, /mnt/host0, virtiofs, "defaults,nofail", "0", "0" ]\n'
+      else
+        printf 'mounts:\n  - [ host0, /mnt/host0, 9p, "trans=virtio,version=9p2000.L,nofail", "0", "0" ]\n'
+      fi
+    fi
+  } >"$dir/user-data"
+  printf 'instance-id: %s\nlocal-hostname: %s\n' "$name" "$name" >"$dir/meta-data"
+}
+
+os_variant() {
+  case $1 in
+    Ubuntu*) local v=${1#Ubuntu }; echo "ubuntu${v%% *}";;
+    Debian*) echo "debian${1##* }";;
+    Fedora*) echo "fedora${1##* }";;
+    Alpine*) echo "alpinelinux${1##* }";;
+    Arch*)   echo archlinux;;
+    *)       echo generic;;
+  esac
+}
+
+TOTAL_RAM_GB=0 TOTAL_CORES=1
+sys_resources() {
+  local kb
+  read -r _ kb _ </proc/meminfo
+  TOTAL_RAM_GB=$((kb / 1024 / 1024))
+  TOTAL_CORES=$(nproc)
+}
+
+free_gb() {
+  local a
+  a=$(df -BG --output=avail "$VM_DIR" 2>/dev/null | tail -n1) || true
+  a=${a//[!0-9]/}
+  echo "${a:-0}"
+}
+
+# choose_preset <header> <default> <max> <suffix> <presets…>
+choose_preset() {
+  local header=$1 def=$2 max=$3 suf=$4 p; shift 4
+  local -a opts=()
+  for p in "$@"; do
+    if ((p <= max)); then opts+=("$p$suf"); fi
+  done
+  if ((${#opts[@]} == 0)); then opts=("$def$suf"); fi
+  gum choose --header "$header" --selected "$def$suf" "${opts[@]}"
+}
+
+open_gui() {
+  if [[ ${OMARCHY_VM_VIEWER:-} != virt-manager ]] && command -v virt-viewer >/dev/null 2>&1; then
+    setsid -f virt-viewer --connect "$LIBVIRT_DEFAULT_URI" "$1" >/dev/null 2>&1
+  else
+    need virt-manager
+    setsid -f virt-manager --connect "$LIBVIRT_DEFAULT_URI" --show-domain-console "$1" >/dev/null 2>&1
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  fastfetch-style renderer  (used by `info` and `agent`)
+#    fill the global array L with "Key|Value" lines, then call fetch_render
+# ════════════════════════════════════════════════════════════════════════════
+declare -a L=() LOGO=()
+LOGO_CLR=""
+li()   { L+=("$1|$2"); }                           # always add
+lif()  { if [[ -n ${2:-} ]]; then L+=("$1|$2"); fi; }  # add only if value is non-empty
+
+distro_of() { # free text → arch|ubuntu|debian|fedora|alpine|generic
+  local s=${1,,}
+  case $s in
+    *ubuntu*)  echo ubuntu;;
+    *debian*)  echo debian;;
+    *fedora*)  echo fedora;;
+    *alpine*)  echo alpine;;
+    *arch*)    echo arch;;
+    *)         echo generic;;
+  esac
+}
+
+set_logo() {
+  case $1 in
+    arch)
+      LOGO_CLR=$CYN
+      mapfile -t LOGO <<'EOF'
+          /\
+         /  \
+        /    \
+       /      \
+      /   ,,   \
+     /   |  |   \
+    /   _/  \_   \
+   /  .-'    '-.  \
+  /  /          \  \
+ /_-'            '-_\
+EOF
+      ;;
+    ubuntu)
+      LOGO_CLR=$RED
+      mapfile -t LOGO <<'EOF'
+           _
+       ---(_)
+     _/  ---  \
+    (_) |   |
+      \  --- _/
+         ---(_)
+EOF
+      ;;
+    debian)
+      LOGO_CLR=$RED
+      mapfile -t LOGO <<'EOF'
+    _____
+   /  __ \
+  |  /    |
+  |  \___-
+  -_
+    --_
+EOF
+      ;;
+    fedora)
+      LOGO_CLR=$BLU
+      mapfile -t LOGO <<'EOF'
+        ,'''''.
+       |   ,.  |
+       |  |  '_'
+  ,....|  |..
+.'  ,_;|   ..'
+|  |   |  |
+|  ',_,'  |
+ '.     ,'
+   '''''
+EOF
+      ;;
+    alpine)
+      LOGO_CLR=$BLU
+      mapfile -t LOGO <<'EOF'
+     /\ /\
+    // \  \
+   //   \  \
+  ///    \  \
+ //       \  \
+          \
+EOF
+      ;;
+    *)
+      LOGO_CLR=$YLW
+      mapfile -t LOGO <<'EOF'
+    .--.
+   |o_o |
+   |:_/ |
+  //   \ \
+ (|     | )
+/'\_   _/`\
+\___)=(___/
+EOF
+      ;;
+  esac
+}
+
+# fetch_render <user@host> <distro>
+fetch_render() {
+  local title=$1 w=0 rows i c line key pal1="" pal2=""
+  local user=${title%%@*} host=${title#*@}
+  local -a info=()
+  set_logo "$2"
+
+  info+=("${LOGO_CLR}${B}${user}${R}@${LOGO_CLR}${B}${host}${R}")
+  info+=("${DIM}$(printf '%*s' "${#title}" '' | tr ' ' '-')${R}")
+  for line in "${L[@]}"; do
+    key=${line%%|*}
+    info+=("${LOGO_CLR}${B}${key}${R}: ${line#*|}")
+  done
+  if [[ -t 1 ]]; then
+    for c in 0 1 2 3 4 5 6 7; do pal1+=$'\e[4'"${c}m   "; pal2+=$'\e[10'"${c}m   "; done
+    info+=("" "${pal1}${R}" "${pal2}${R}")
+  fi
+
+  for line in "${LOGO[@]}"; do
+    if ((${#line} > w)); then w=${#line}; fi
+  done
+  w=$((w + 3))
+  rows=${#info[@]}
+  if ((${#LOGO[@]} > rows)); then rows=${#LOGO[@]}; fi
+
+  echo
+  for ((i = 0; i < rows; i++)); do
+    printf '%s%-*s%s%s\n' "$LOGO_CLR" "$w" "${LOGO[i]:-}" "$R" "${info[i]:-}"
+  done
+  echo
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Help
+# ════════════════════════════════════════════════════════════════════════════
+show_usage() {
+  local txt
+  read -r -d '' txt <<EOF || true
+${B}${CYN}◈ omarchy-create-vm${R}  ${DIM}Fast KVM VMs & Instant Sandboxes${R}
+
+${B}Usage:${R}  omarchy-create-vm ${DIM}[command] [name] [options]${R}
+        ${DIM}Run with no command to open the interactive menu${R}
+        ${DIM}Any command that takes a VM name opens a picker if you omit it${R}
+
+${B}${GRN}Creation${R}
+  ${GRN}sandbox${R} [name] [dir]                Create instant sandbox VM
+                                      ${DIM}Flags: --image, --ram, --cpus, --disk, --mount${R}
+  ${GRN}create${R}  [name]                      Create VM from cloud image or ISO
+                                      ${DIM}Flags: --cloud <name> | --iso <path>, --ram, --cpus, --disk, -y${R}
+
+${B}${YLW}Control${R}
+  ${YLW}launch${R} [name]                       Start VM and open display
+  ${YLW}start${R}  [name]                       Start VM  ${DIM}|${R}  ${RED}stop${R} [-f] [name]  ${DIM}|${R}  ${CYN}restart${R} [name]
+  ${CYN}status${R} [name]                       Short VM status
+  ${CYN}list${R}                                List all VMs with IPs and state
+
+${B}${CYN}Inspect${R}
+  ${CYN}info${R}  [name]                        fastfetch-style view of the VM ${DIM}(libvirt side, works when stopped)${R}
+  ${CYN}agent${R} [name]                        fastfetch-style view of the guest OS ${DIM}(via qemu-guest-agent)${R}
+  ${CYN}top${R}                                 btop-style live monitor ${DIM}(host + every VM)${R}
+  ${CYN}ip${R} [name]                           Network details (IP, GW, DNS, MAC)
+
+${B}${CYN}Access${R}
+  ${GRN}ssh${R} [name] [cmd...]                 SSH into VM ${DIM}(auto-starts if stopped)${R}
+  ${CYN}console${R} [name]                      Serial console
+  ${CYN}eject${R} [name]                        Eject ISO/seed media
+  ${CYN}portfwd${R} <list|add|remove|clear> [name] [host-port] [guest-port]
+  ${CYN}sync-ssh${R} [name|all]                 Sync ~/.ssh/config with current IPs
+  ${CYN}ssh-config${R} [name]                   Show SSH configuration ${DIM}(highlighted)${R}
+  ${CYN}hosts-sync${R} [sync|clean]             Add/remove VM names in /etc/hosts ${DIM}(sudo)${R}
+
+${B}${MAGENTA}Management${R}
+  ${RED}remove${R} [-y] [name]                  Delete VM, data and ALL remnants (hosts, ssh, known_hosts…)
+  ${MAGENTA}autostart${R} [on|off|status] [name]  Toggle VM autostart
+  ${MAGENTA}snapshot${R} <create|list|revert|delete> [name] [snap]
+  ${MAGENTA}rename${R} [old] [new]
+  ${CYN}desktop-sync${R}                        Create .desktop launchers
+  ${CYN}net${R} [create|start|stop|status]      Manage the ${OMARCHY_NET_NAME} network
+
+${B}Diagnostics${R}
+  ${YLW}doctor${R} [--fix]                      Check dependencies, libvirt, network & system
+  menu                                Interactive TUI
+
+${DIM}Paths:${R}
+  VMs:       ${DIM}$VM_DIR${R}
+  ISOs:      ${DIM}$ISO_DIR${R}
+  Images:    ${DIM}$IMG_DIR${R}
+  Network:   ${DIM}$OMARCHY_NET_NAME ($OMARCHY_NET_SUBNET)${R}
+  SSH Key:   ${DIM}$SSH_KEY${R}
+EOF
+  gum style --border rounded --border-foreground 6 --padding "1 3" --margin "1 0" "$txt"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Create: shared cloud-image provisioning (used by `create` and `sandbox`)
+# ════════════════════════════════════════════════════════════════════════════
+# provision_cloud_vm <name> <base> <ram> <cpus> <disk> <mount|""> <kind> <image-label> <box-title>
+provision_cloud_vm() {
+  local name=$1 base=$2 ram=$3 cpus=$4 disk=$5 mount=$6 kind=$7 image=$8 label=$9
+  local dir="$VM_DIR/$name" overlay seed ip=""
+  overlay="$dir/disk.qcow2"; seed="$dir/seed.iso"
+  mkdir -p "$dir"; _cleanup_dir=$dir
+
+  make_overlay "$base" "$overlay" "$disk"
+  write_cloud_init "$name" "$dir" "$mount"
+  make_seed "$seed" "$dir/user-data" "$dir/meta-data" || die "Failed to build cloud-init seed"
+
+  local -a args=(
+    --name "$name" --memory "$((${ram%G} * 1024))" --vcpus "$cpus"
+    --metadata "description=$image"
+    --disk "path=$overlay,format=qcow2,bus=virtio"
+    --disk "path=$seed,device=cdrom"
+    --import
+    --network "network=$OMARCHY_NET_NAME,model=virtio"
+    --graphics spice --video virtio --channel spicevmc
+    --channel unix,target_type=virtio,name=org.qemu.guest_agent.0
+    --noautoconsole
+  )
+  if [[ -n $mount ]]; then
+    if [[ $(fs_driver) == virtiofs ]]; then
+      args+=(--memorybacking source.type=memfd,access.mode=shared
+             --filesystem "source.dir=$mount,target.dir=host0,driver.type=virtiofs")
+    else
+      args+=(--filesystem "$mount,host0,mode=passthrough")
+    fi
+  fi
+
+  spin "Defining $label…" bash -c 'vi_cloud "$@"' _ "$(os_variant "$image")" "${args[@]}" || die "virt-install failed"
+  _cleanup_dir=""
+
+  spin "Booting · waiting for DHCP lease…" bash -c 'wait_ip "$1" 120' _ "$name" || true
+  ip=$(get_vm_ip "$name" lease || true)
+  update_credentials "$name" "$name|$SANDBOX_USER|$SANDBOX_PASS|$ip|$SSH_KEY|$kind"
+  if [[ -n $ip ]]; then sync_ssh_config "$name" "$ip" || true; fi
+  desktop_sync >/dev/null 2>&1 || true
+
+  local -a lines=("$(kv Name "$name")" "$(kv User "$SANDBOX_USER")" "$(kv Password "$SANDBOX_PASS")"
+         "$(kv IP "${ip:-pending — run: omarchy-create-vm sync-ssh $name}")"
+         "$(kv Specs "${cpus} vCPU · ${ram} RAM · ${disk} disk")")
+  if [[ -n $mount ]]; then lines+=("$(kv Mount "$mount → /mnt/host0")"); fi
+  lines+=("" "${DIM}ssh $name${R}")
+  box "$label ready" "${lines[@]}"
+
+  if is_tty && [[ -n $ip ]] && gum confirm "SSH into $name now?"; then
+    exec "$SELF" ssh "$name"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  create
+# ════════════════════════════════════════════════════════════════════════════
+pick_iso() {
+  local -A map=(); local -a labels=(); local f sz label pick
+  local -a files
+  shopt -s nullglob nocaseglob
+  files=("$ISO_DIR"/*.iso)
+  shopt -u nullglob nocaseglob
+  if ((${#files[@]})); then
+    while IFS=$'\t' read -r sz f; do
+      label="${f##*/}  ($sz)"; labels+=("$label"); map[$label]=$f
+    done < <(du -h --apparent-size "${files[@]}")
+  else
+    note "Tip: drop ISOs into $ISO_DIR to list them here" >&2
+  fi
+  labels+=("Browse files…")
+  pick=$(gum choose --header "Select ISO" --height 12 "${labels[@]}") || return 1
+  if [[ $pick == "Browse files…" ]]; then
+    gum file --height 15 "$([[ -d $ISO_DIR ]] && echo "$ISO_DIR" || echo "$HOME")" || return 1
+  else
+    printf '%s' "${map[$pick]}"
+  fi
+}
+
+prompt_name() { # <header> <placeholder|--value> <default> → prints a valid, unused name
+  local header=$1 n
+  while :; do
+    n=$(gum input --header "$header" ${3:+--value "$3"} --placeholder "${2:-my-vm}") || cancel
+    if ! valid_name "$n"; then warn "Letters, digits, - and _ only; start with a letter; max 32" >&2; continue; fi
+    if vm_exists "$n"; then warn "'$n' already exists" >&2; continue; fi
+    printf '%s' "$n"; return 0
+  done
+}
+
+create_vm() {
+  local name="" iso="" cloud="" ram="" cpus="" disk="" yes=0
+  while (($#)); do
+    case $1 in
+      --iso)    iso=${2:?--iso needs a path}; shift 2;;
+      --cloud)  cloud=${2:?--cloud needs an image name}; shift 2;;
+      --ram)    ram=${2:?--ram needs a size, e.g. 4G}; shift 2;;
+      --cpus|--cores) cpus=${2:?--cpus needs a number}; shift 2;;
+      --disk)   disk=${2:?--disk needs a size, e.g. 64G}; shift 2;;
+      -y|--yes) yes=1; shift;;
+      -*)       die "Unknown option: $1";;
+      *)        name=$1; shift;;
+    esac
+  done
+
+  need virsh virt-install qemu-img curl; need_seed_tool
+  ensure_libvirt; ensure_dirs; ensure_ssh_key; ensure_network
+  sys_resources
+  title "New virtual machine"
+
+  # ── name ──
+  if [[ -z $name ]]; then
+    need_tty "Specify a VM name"
+    name=$(prompt_name "VM name" "my-vm" "")
+  else
+    valid_name "$name" || die "Invalid VM name (letters, digits, - and _ only; start with a letter)"
+    if vm_exists "$name"; then die "VM '$name' already exists"; fi
+  fi
+
+  # ── source ──
+  local kind="" base="" pick
+  if [[ -n $iso ]]; then kind=iso
+  elif [[ -n $cloud ]]; then kind=cloud
+  else
+    need_tty "Pass --iso <file> or --cloud <image>"
+    pick=$(gum choose --header "Install source" \
+      "Cloud image   ready in seconds · ssh + cloud-init" \
+      "ISO file      full interactive installer") || cancel
+    if [[ $pick == Cloud* ]]; then kind=cloud; else kind=iso; fi
+  fi
+
+  if [[ $kind == iso ]]; then
+    if [[ -z $iso ]]; then iso=$(pick_iso) || cancel; fi
+    iso=${iso/#\~/$HOME}
+    [[ -f $iso ]] || die "ISO not found: $iso"
+    iso=$(realpath "$iso")
+  else
+    if [[ -z $cloud ]]; then
+      cloud=$(gum choose --header "Cloud image" --height 12 --selected "$DEFAULT_IMAGE" "${CAT_LABELS[@]}") || cancel
+    fi
+    [[ -n ${CAT_URL[$cloud]:-} ]] || die "Unknown image '$cloud'. Available: ${CAT_LABELS[*]}"
+  fi
+
+  # ── resources ──
+  if [[ -z $ram ]]; then ram=$(choose_preset "Memory (host has ${TOTAL_RAM_GB}G)" 4 "$TOTAL_RAM_GB" G "${RAM_PRESETS[@]}") || cancel; fi
+  valid_ram "$ram" || die "Invalid --ram '$ram' (example: 4G)"
+  if [[ -z $cpus ]]; then cpus=$(choose_preset "vCPU cores (host has $TOTAL_CORES)" 2 "$TOTAL_CORES" "" "${CPU_PRESETS[@]}") || cancel; fi
+  valid_cores "$cpus" || die "Invalid --cpus '$cpus'"
+  local max_disk=$(($(free_gb) - 10))
+  ((max_disk >= 16)) || die "Not enough free space in $VM_DIR"
+  if [[ -z $disk ]]; then disk=$(choose_preset "Disk size (${max_disk}G usable)" 64 "$max_disk" G "${DISK_PRESETS[@]}") || cancel; fi
+  valid_disk "$disk" || die "Invalid --disk '$disk' (example: 64G)"
+
+  box "Review" \
+    "$(kv Name "$name")" \
+    "$(kv Source "$([[ $kind == cloud ]] && echo "$cloud (cloud image)" || echo "${iso##*/}")")" \
+    "$(kv Memory "$ram")" "$(kv vCPUs "$cpus")" "$(kv Disk "$disk (thin)")" \
+    "$(kv Network "$OMARCHY_NET_NAME")"
+  if ((!yes)); then need_tty "Use --yes to skip confirmation"; gum confirm "Create this VM?" || cancel; fi
+
+  # ── build ──
+  if [[ $kind == cloud ]]; then
+    fetch_image "$cloud"; base=$IMG_PATH
+    provision_cloud_vm "$name" "$base" "$ram" "$cpus" "$disk" "" cloud "$cloud" "VM '$name'"
+    return 0
+  fi
+
+  local dir="$VM_DIR/$name"
+  mkdir -p "$dir"; _cleanup_dir=$dir
+  qemu-img create -f qcow2 "$dir/disk.qcow2" "$disk" >/dev/null || die "Failed to create disk"
+  spin "Defining VM…" bash -c 'vi_iso "$@"' _ \
+    --name "$name" --memory "$((${ram%G} * 1024))" --vcpus "$cpus" \
+    --metadata "description=ISO ${iso##*/}" \
+    --disk "path=$dir/disk.qcow2,format=qcow2,bus=virtio" --cdrom "$iso" \
+    --network "network=$OMARCHY_NET_NAME,model=virtio" \
+    --graphics spice --video virtio --channel spicevmc \
+    --channel unix,target_type=virtio,name=org.qemu.guest_agent.0 \
+    --noautoconsole || die "virt-install failed"
+  _cleanup_dir=""
+  update_credentials "$name" "$name|unknown|unknown|unknown|$SSH_KEY|iso"
+  desktop_sync >/dev/null 2>&1 || true
+  box "VM '$name' created" "$(kv ISO "${iso##*/}")" "$(kv Disk "$dir/disk.qcow2")" "" \
+    "${DIM}After install:  omarchy-create-vm eject $name${R}"
+  if is_tty && gum confirm "Start it and open the installer now?"; then
+    virsh start "$name" >/dev/null 2>&1 || true
+    open_gui "$name"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  sandbox
+# ════════════════════════════════════════════════════════════════════════════
+create_sandbox() {
+  local name="" mount="" image="" ram="" cpus="" disk="" custom=0 positional=0
+  while (($#)); do
+    case $1 in
+      --image) image=${2:?--image needs a name}; custom=1; shift 2;;
+      --ram)   ram=${2:?--ram needs a size}; custom=1; shift 2;;
+      --cpus)  cpus=${2:?--cpus needs a number}; custom=1; shift 2;;
+      --disk)  disk=${2:?--disk needs a size}; custom=1; shift 2;;
+      --mount) mount=${2:?--mount needs a directory}; custom=1; shift 2;;
+      -*)      die "Unknown option: $1";;
+      *)
+        positional=$((positional + 1))
+        if ((positional == 1)); then name=$1
+        else
+          [[ -e $1 ]] || die "Mount path not found: $1"
+          mount=$1; custom=1
+        fi
+        shift;;
+    esac
+  done
+
+  need virsh virt-install qemu-img curl; need_seed_tool
+  ensure_libvirt; ensure_dirs; ensure_ssh_key; ensure_network
+  sys_resources
+  title "New sandbox"
+
+  if [[ -z $name ]]; then
+    need_tty "Specify a sandbox name"
+    local suggest; printf -v suggest 'sbx-%04x' "$RANDOM"
+    name=$(prompt_name "Sandbox name" "$suggest" "$suggest")
+  else
+    valid_name "$name" || die "Invalid sandbox name (letters, digits, - and _ only; start with a letter)"
+    if vm_exists "$name"; then die "VM '$name' already exists"; fi
+  fi
+
+  # defaults
+  if [[ -z $image ]]; then image=$DEFAULT_IMAGE; fi
+  if [[ -z $cpus ]]; then cpus=2; fi
+  if [[ -z $disk ]]; then disk=32G; fi
+  if [[ -z $ram ]]; then if ((TOTAL_RAM_GB >= 8)); then ram=4G; else ram=2G; fi; fi
+
+  # interactive customisation (skipped entirely when any flag/path was given)
+  if ((!custom)) && is_tty; then
+    local mode
+    mode=$(gum choose --header "Setup" \
+      "⚡ Quick      $DEFAULT_IMAGE · $cpus vCPU · $ram RAM" \
+      "⚙ Customize  image, resources, host directory") || cancel
+    if [[ $mode == "⚙"* ]]; then
+      image=$(gum choose --header "Image" --height 12 --selected "$DEFAULT_IMAGE" "${CAT_LABELS[@]}") || cancel
+      ram=$(choose_preset "Memory (host has ${TOTAL_RAM_GB}G)" "${ram%G}" "$TOTAL_RAM_GB" G "${RAM_PRESETS[@]}") || cancel
+      cpus=$(choose_preset "vCPU cores (host has $TOTAL_CORES)" 2 "$TOTAL_CORES" "" "${CPU_PRESETS[@]}") || cancel
+      if gum confirm --default=false "Mount a host directory into the sandbox?"; then
+        mount=$(gum input --header "Host directory" --value "$PWD") || cancel
+      fi
+    fi
+  fi
+
+  valid_ram "$ram" || die "Invalid RAM '$ram'"
+  valid_cores "$cpus" || die "Invalid CPU count '$cpus'"
+  valid_disk "$disk" || die "Invalid disk '$disk'"
+  if [[ -n $mount ]]; then
+    mount=${mount/#\~/$HOME}
+    [[ -d $mount ]] || die "Mount path is not a directory: $mount"
+    mount=$(realpath "$mount")
+  fi
+
+  fetch_image "$image"
+  provision_cloud_vm "$name" "$IMG_PATH" "$ram" "$cpus" "$disk" "$mount" sandbox "$image" "Sandbox '$name'"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Power control
+# ════════════════════════════════════════════════════════════════════════════
+start_vm() {
+  ensure_libvirt
+  target_vm "${1:-}" "VM to start" stopped
+  if [[ $STATE == running ]]; then note "'$NAME' is already running"; return 0; fi
+  virsh start "$NAME" >/dev/null || die "Failed to start '$NAME'"
+  ok "Started '$NAME'"
+}
+
+stop_vm() {
+  local force=0 name=""
+  while (($#)); do
+    case $1 in -f|--force) force=1;; *) name=$1;; esac
+    shift
+  done
+  ensure_libvirt
+  target_vm "$name" "VM to stop" running
+  if [[ $STATE != running ]]; then note "'$NAME' is not running"; return 0; fi
+  if ((force)); then
+    virsh destroy "$NAME" >/dev/null || die "Failed to power off '$NAME'"
+    ok "Powered off '$NAME'"; return 0
+  fi
+  virsh shutdown "$NAME" >/dev/null 2>&1 || true
+  if spin "Shutting down $NAME…" bash -c 'wait_state "$1" "shut off" 30' _ "$NAME"; then
+    ok "Stopped '$NAME'"
+  else
+    warn "'$NAME' did not shut down in 30s"
+    if is_tty && gum confirm "Force power off?"; then
+      virsh destroy "$NAME" >/dev/null || die "Failed to power off '$NAME'"
+      ok "Powered off '$NAME'"
+    fi
+  fi
+}
+
+restart_vm() {
+  ensure_libvirt
+  target_vm "${1:-}" "VM to restart"
+  if [[ $STATE == running ]]; then
+    virsh reboot "$NAME" >/dev/null 2>&1 || { virsh destroy "$NAME" >/dev/null && virsh start "$NAME" >/dev/null; } \
+      || die "Failed to restart '$NAME'"
+  else
+    virsh start "$NAME" >/dev/null || die "Failed to start '$NAME'"
+  fi
+  ok "Restarted '$NAME'"
+}
+
+launch_vm() {
+  ensure_libvirt
+  target_vm "${1:-}" "VM to open"
+  if [[ $STATE != running ]]; then virsh start "$NAME" >/dev/null || die "Failed to start '$NAME'"; fi
+  open_gui "$NAME"
+  ok "Opened display for '$NAME'"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Snapshots
+# ════════════════════════════════════════════════════════════════════════════
+pick_snap() { # <vm> <header>
+  local list
+  list=$(virsh snapshot-list "$1" --name 2>/dev/null | sed '/^$/d') || true
+  if [[ -z $list ]]; then warn "No snapshots for '$1'" >&2; return 1; fi
+  gum filter --header "$2" <<<"$list"
+}
+
+vm_snapshot() { # <create|list|revert|delete> [vm] [snapshot]
+  ensure_libvirt
+  local action=${1:-} name=${2:-} snap=${3:-}
+  if [[ -z $action ]]; then
+    need_tty "Usage: omarchy-create-vm snapshot <create|list|revert|delete> [name] [snap]"
+    action=$(gum choose --header "Snapshots" create list revert delete) || cancel
+  fi
+  case $action in
+    create|add)
+      target_vm "$name" "Snapshot which VM?"
+      if [[ -z $snap ]]; then
+        snap="snap-$(date +%Y%m%d-%H%M%S)"
+        if is_tty; then snap=$(gum input --header "Snapshot name" --value "$snap") || cancel; fi
+      fi
+      spin "Creating snapshot '$snap'…" virsh snapshot-create-as "$NAME" "$snap" --description "omarchy-create-vm $(date -Iseconds)" \
+        || die "Snapshot failed (VMs with UEFI firmware or raw disks may not support internal snapshots)"
+      ok "Snapshot '$snap' created for '$NAME'";;
+    list|ls)
+      target_vm "$name" "List snapshots of"
+      if [[ -z $(virsh snapshot-list "$NAME" --name 2>/dev/null | sed '/^$/d') ]]; then note "No snapshots for $NAME"; return 0; fi
+      title "Snapshots · $NAME"
+      virsh snapshot-list "$NAME";;
+    revert|restore)
+      target_vm "$name" "Revert which VM?"
+      if [[ -z $snap ]]; then need_tty "Specify a snapshot name"; snap=$(pick_snap "$NAME" "Revert to…") || cancel; fi
+      if is_tty; then gum confirm --default=false "Revert '$NAME' to '$snap'? Current state will be lost." || cancel; fi
+      spin "Reverting to '$snap'…" virsh snapshot-revert "$NAME" "$snap" || die "Revert failed"
+      ok "Reverted '$NAME' to '$snap'";;
+    delete|rm)
+      target_vm "$name" "Delete snapshot of"
+      if [[ -z $snap ]]; then need_tty "Specify a snapshot name"; snap=$(pick_snap "$NAME" "Delete…") || cancel; fi
+      if is_tty; then gum confirm --default=false "Delete snapshot '$snap' of '$NAME'?" || cancel; fi
+      spin "Deleting '$snap'…" virsh snapshot-delete "$NAME" "$snap" || die "Delete failed"
+      ok "Deleted snapshot '$snap' from '$NAME'";;
+    *)
+      show_usage >&2; exit 1;;
+  esac
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Rename
+# ════════════════════════════════════════════════════════════════════════════
+vm_rename() {
+  ensure_libvirt
+  local old=${1:-} new=${2:-} was_running=0 xml l
+  target_vm "$old" "VM to rename"; old=$NAME
+  if [[ -z $new ]]; then
+    need_tty "Usage: omarchy-create-vm rename <old> <new>"
+    new=$(gum input --header "New name for '$old'" --placeholder "new-name") || cancel
+  fi
+  valid_name "$new" || die "Invalid VM name (letters, digits, - and _ only; start with a letter)"
+  if vm_exists "$new"; then die "VM '$new' already exists"; fi
+
+  if [[ $STATE != "shut off" ]]; then
+    need_tty "'$old' must be shut off to rename it"
+    gum confirm "'$old' must be shut off to rename. Stop it now?" || cancel
+    was_running=1
+    stop_vm "$old"
+    [[ $(vm_state "$old") == "shut off" ]] || die "'$old' is still running"
+  fi
+
+  virsh domrename "$old" "$new" >/dev/null || die "domrename failed"
+
+  # move the VM directory and repoint the disk paths in the domain XML
+  if [[ -d $VM_DIR/$old ]]; then
+    mv "$VM_DIR/$old" "$VM_DIR/$new"
+    xml=$(virsh dumpxml --inactive "$new")
+    xml=${xml//"$VM_DIR/$old/"/"$VM_DIR/$new/"}
+    virsh define /dev/stdin <<<"$xml" >/dev/null || die "Could not update disk paths — directory is now $VM_DIR/$new"
+  fi
+
+  if [[ -f $CREDENTIALS_FILE ]]; then
+    while IFS= read -r l; do
+      if [[ $l == "$old|"* ]]; then update_credentials "$old" "$new|${l#*|}"; break; fi
+    done <"$CREDENTIALS_FILE"
+  fi
+  drop_ssh_block "$old"
+  rm -f "$APP_DIR/${old}-vm.desktop"
+  desktop_sync >/dev/null 2>&1 || true
+
+  if ((was_running)); then
+    virsh start "$new" >/dev/null 2>&1 || true
+    sleep 1
+    sync_ssh_config "$new" "$(wait_ip "$new" 30 >/dev/null 2>&1 && get_vm_ip "$new" lease || true)" 2>/dev/null || true
+  fi
+  ok "Renamed '$old' → '$new'"
+  note "The guest hostname is unchanged inside the VM."
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  info  — fastfetch-style, libvirt side (works for stopped VMs too)
+# ════════════════════════════════════════════════════════════════════════════
+dom_field() { # <dominfo-text> <key>
+  awk -F: -v k="$2" '$1 == k { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }' <<<"$1"
+}
+
+vm_info() {
+  ensure_libvirt
+  target_vm "${1:-}" "Show info for"
+  local dinfo xml desc osid distro ip="" mac="" fw cpumode kib used n cap alloc dev tgt typ src
+  local state_s auto snaps dirsize type="" shared ifaces
+
+  dinfo=$(virsh dominfo "$NAME" 2>/dev/null) || die "Cannot read '$NAME'"
+  xml=$(virsh dumpxml "$NAME" 2>/dev/null) || die "Cannot read '$NAME'"
+  desc=$(virsh desc "$NAME" 2>/dev/null || true); desc=${desc//$'\n'/ }
+  osid=$(grep -oE "<libosinfo:os id=[\"'][^\"']+" <<<"$xml" | sed -E "s/.*[\"']//" | head -1 || true)
+  distro=$(distro_of "$desc $osid")
+  if [[ -z $desc && -n $osid ]]; then desc=${osid#*//}; fi
+
+  if [[ $STATE == running ]]; then ip=$(get_vm_ip "$NAME" lease arp || true); fi
+  case $STATE in
+    running) state_s="${GRN}● running${R}";;
+    paused*) state_s="${YLW}◐ $STATE${R}";;
+    *)       state_s="${DIM}○ $STATE${R}";;
+  esac
+  if grep -q '<loader' <<<"$xml"; then fw=UEFI; else fw=BIOS; fi
+  cpumode=$(grep -oE "<cpu mode=['\"][^'\"]+" <<<"$xml" | sed -E "s/.*['\"]//" | head -1 || true)
+  if [[ -f $CREDENTIALS_FILE ]]; then
+    while IFS='|' read -r n _ _ _ _ typ; do if [[ $n == "$NAME" ]]; then type=$typ; fi; done <"$CREDENTIALS_FILE"
+  fi
+
+  L=()
+  li "State" "$state_s"
+  lif "OS" "$desc"
+  li "Firmware" "$fw · $(dom_field "$dinfo" "OS Type")"
+  li "CPU" "$(dom_field "$dinfo" "CPU(s)") vCPU${cpumode:+ ($cpumode)}"
+  kib=$(dom_field "$dinfo" "Max memory"); kib=${kib%% *}
+  used=$(dom_field "$dinfo" "Used memory"); used=${used%% *}
+  if [[ $STATE == running ]]; then
+    li "Memory" "$(hb $((${used:-0} * 1024))) / $(hb $((${kib:-0} * 1024)))"
+  else
+    li "Memory" "$(hb $((${kib:-0} * 1024)))"
+  fi
+
+  # disks
+  while read -r typ dev tgt src; do
+    case $dev in
+      disk)
+        cap=0; alloc=0
+        while IFS=: read -r n kib; do
+          kib=${kib//[!0-9]/}
+          case $n in Capacity) cap=${kib:-0};; Allocation) alloc=${kib:-0};; esac
+        done < <(virsh domblkinfo "$NAME" "$tgt" 2>/dev/null || true)
+        li "Disk ($tgt)" "$(hb "$alloc") / $(hb "$cap")";;
+      cdrom)
+        if [[ -z $src || $src == - ]]; then li "CD ($tgt)" "${DIM}empty${R}"; else li "CD ($tgt)" "${src##*/}"; fi;;
+    esac
+  done < <(virsh domblklist --details "$NAME" 2>/dev/null | tail -n +3)
+
+  # network
+  ifaces=$(virsh domiflist "$NAME" 2>/dev/null | tail -n +3)
+  while read -r _ _ src _ mac; do
+    if [[ -n ${src:-} ]]; then li "Network" "$src · ${mac:-?}"; fi
+  done <<<"$ifaces"
+  lif "Local IP" "$ip"
+
+  shared=$(sed -n '/<filesystem/,/<\/filesystem>/p' <<<"$xml" | grep -oE "<source dir=['\"][^'\"]+" | sed -E "s/.*['\"]//" | head -1 || true)
+  lif "Shared" "${shared:+$shared → /mnt/host0}"
+
+  auto=$(dom_field "$dinfo" "Autostart"); li "Autostart" "${auto:-?}"
+  snaps=$(virsh snapshot-list "$NAME" --name 2>/dev/null | sed '/^$/d' | wc -l || echo 0)
+  if ((snaps > 0)); then li "Snapshots" "$snaps"; fi
+  lif "Type" "$type"
+  if [[ -d $VM_DIR/$NAME ]]; then
+    dirsize=$(du -sh "$VM_DIR/$NAME" 2>/dev/null | cut -f1 || true)
+    lif "Storage" "$dirsize · $VM_DIR/$NAME"
+  fi
+  if grep -q "^Host $NAME\$" "$SSH_CONFIG" 2>/dev/null; then li "SSH" "ssh $NAME"; fi
+  li "UUID" "$(dom_field "$dinfo" UUID)"
+
+  fetch_render "${NAME}@kvm" "$distro"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  agent  — fastfetch-style, guest side (qemu-guest-agent)
+# ════════════════════════════════════════════════════════════════════════════
+ga() { # <vm> <json>  → raw JSON reply
+  timeout 6 virsh qemu-agent-command "$1" --timeout 4 "$2" 2>/dev/null
+}
+
+ga_exec() { # <vm> <path> [args…] → stdout of the guest process
+  local name=$1 path=$2 args pid st _; shift 2
+  if (($#)); then args=$(jq -cn '$ARGS.positional' --args "$@"); else args='[]'; fi
+  pid=$(ga "$name" "$(jq -cn --arg p "$path" --argjson a "$args" \
+        '{execute:"guest-exec",arguments:{path:$p,arg:$a,"capture-output":true}}')" | jq -r '.return.pid // empty') || return 1
+  [[ -n $pid ]] || return 1
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    st=$(ga "$name" "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$pid}}") || return 1
+    if [[ $(jq -r '.return.exited // false' <<<"$st") == true ]]; then
+      jq -r '.return["out-data"] // empty' <<<"$st" | base64 -d 2>/dev/null
+      return 0
+    fi
+    sleep 0.2
+  done
+  return 1
+}
+
+vm_agent() {
+  ensure_libvirt; need jq
+  target_vm "${1:-}" "Guest info for" running
+  [[ $STATE == running ]] || die "'$NAME' is not running — start it, or try: omarchy-create-vm info $NAME"
+  ga "$NAME" '{"execute":"guest-ping"}' >/dev/null \
+    || die "Guest agent not responding on '$NAME' (still booting, or qemu-guest-agent isn't running in the guest). Try: omarchy-create-vm info $NAME"
+
+  local osj hostj fsj netj usj pretty arch kernel osid host users disk net out up load mt=0 ma=0 vcpus
+  osj=$(ga "$NAME" '{"execute":"guest-get-osinfo"}' || true)
+  hostj=$(ga "$NAME" '{"execute":"guest-get-host-name"}' || true)
+  fsj=$(ga "$NAME" '{"execute":"guest-get-fsinfo"}' || true)
+  netj=$(ga "$NAME" '{"execute":"guest-network-get-interfaces"}' || true)
+  usj=$(ga "$NAME" '{"execute":"guest-get-users"}' || true)
+
+  pretty=$(jq -r '.return["pretty-name"] // .return.name // empty' <<<"$osj" 2>/dev/null || true)
+  arch=$(jq -r '.return.machine // empty' <<<"$osj" 2>/dev/null || true)
+  kernel=$(jq -r '.return["kernel-release"] // empty' <<<"$osj" 2>/dev/null || true)
+  osid=$(jq -r '.return.id // empty' <<<"$osj" 2>/dev/null || true)
+  host=$(jq -r '.return["host-name"] // empty' <<<"$hostj" 2>/dev/null || true)
+  users=$(jq -r '[.return[]?.user] | unique | join(", ")' <<<"$usj" 2>/dev/null || true)
+  net=$(jq -r '[.return[]? | select(.name != "lo") | .name as $n | .["ip-addresses"][]?
+               | select(.["ip-address-type"] == "ipv4") | "\($n): \(.["ip-address"])/\(.prefix)"] | join(", ")' <<<"$netj" 2>/dev/null || true)
+  disk=$(jq -r '[.return[]? | select(.mountpoint == "/")][0] // empty
+               | "\(.["used-bytes"] // 0) \(.["total-bytes"] // 0) \(.type // "")"' <<<"$fsj" 2>/dev/null || true)
+
+  # uptime / load / memory in a single guest-exec (falls back to host-side balloon stats)
+  out=$(ga_exec "$NAME" /bin/cat /proc/uptime /proc/loadavg /proc/meminfo 2>/dev/null || true)
+  up=$(awk 'NR == 1 { print $1 }' <<<"$out")
+  load=$(awk 'NR == 2 { print $1, $2, $3 }' <<<"$out")
+  read -r mt ma < <(awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 } END { print t + 0, a + 0 }' <<<"$out")
+  if ((mt == 0)); then
+    read -r mt ma < <(virsh dommemstat "$NAME" 2>/dev/null | awk '$1 == "available" { t = $2 } $1 == "unused" { u = $2 } END { print t + 0, u + 0 }')
+  fi
+  vcpus=$(dom_field "$(virsh dominfo "$NAME" 2>/dev/null)" "CPU(s)")
+
+  L=()
+  li "OS" "${pretty:-Unknown}${arch:+ $arch}"
+  li "Host" "QEMU/KVM · libvirt domain $NAME"
+  lif "Kernel" "$kernel"
+  if [[ -n $up ]]; then li "Uptime" "$(fmt_uptime "$up")"; fi
+  lif "Users" "$users"
+  li "CPU" "${vcpus:-?} vCPU"
+  if ((mt > 0)); then
+    local usedk=$((mt - ma))
+    li "Memory" "$(hb $((usedk * 1024))) / $(hb $((mt * 1024))) ($((usedk * 100 / mt))%)"
+  fi
+  if [[ -n $disk ]]; then
+    local du dt dfs
+    read -r du dt dfs <<<"$disk"
+    if ((dt > 0)); then li "Disk (/)" "$(hb "$du") / $(hb "$dt") ($((du * 100 / dt))%)${dfs:+ - $dfs}"; fi
+  fi
+  lif "Load" "$load"
+  lif "Local IP" "$net"
+  li "Network" "$OMARCHY_NET_NAME"
+
+  fetch_render "${SANDBOX_USER}@${host:-$NAME}" "$(distro_of "${pretty} ${osid}")"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  top — btop-style live monitor (host CPU per core, RAM, every VM with
+#        history graphs, I/O rates, and a detail pane for the selected VM)
+# ════════════════════════════════════════════════════════════════════════════
+TOP_HIST=240          # samples kept per graph
+TOP_STTY=""
+TOP_CORES=1
+TOP_HOST_PCT=0 TOP_HOST_MEMPCT=0 TOP_MEM_TOTAL=0 TOP_MEM_USED=0
+TOP_SEL=0 TOP_TICKS=0
+declare -a TOP_NAMES=() TOP_OUT=() TOP_CUR_TOT=() TOP_CUR_IDL=() TOP_PREV_TOT=() TOP_PREV_IDL=() TOP_CORE_PCT=()
+declare -A TOP_ST=() TOP_CPU=() TOP_MEM=() TOP_MAXKB=() TOP_VCPU=() TOP_IP=()
+declare -A TOP_RX=() TOP_TX=() TOP_RD=() TOP_WR=()
+declare -A TOP_P_CPU=() TOP_P_RX=() TOP_P_TX=() TOP_P_RD=() TOP_P_WR=()
+declare -A TOP_HCPU=() TOP_HMEM=()
+PCT=0 BAR="" SPARK="" RATE="" KIBS="" REP="" KEY=""
+
+top_restore() {
+  printf '\e[0m\e[?25h\e[?1049l'
+  if [[ -n ${TOP_STTY:-} ]]; then stty "$TOP_STTY" 2>/dev/null || true; fi
+  return 0
+}
+
+_rep() { # <char> <count> → REP
+  local c=$1 n=$2 i out=""
+  for ((i = 0; i < n; i++)); do out+=$c; done
+  REP=$out
+}
+
+# top_bar <pct> <width> → BAR (coloured fill + dim track)
+top_bar() {
+  local p=${1:-0} w=$2 f i col on="" off=""
+  if (( p < 0 )); then p=0; fi
+  if (( p > 100 )); then p=100; fi
+  f=$(( p * w / 100 ))
+  if (( p >= 85 )); then col=$RED
+  elif (( p >= 60 )); then col=$YLW
+  else col=$GRN; fi
+  for ((i = 0; i < f; i++)); do on+="█"; done
+  for ((i = f; i < w; i++)); do off+="░"; done
+  BAR="${col}${on}${DIM}${off}${R}"
+}
+
+# top_spark <width> <values…> → SPARK (last <width> values as block graph)
+top_spark() {
+  local w=$1; shift
+  local -a v=("$@") chars=(" " "▁" "▂" "▃" "▄" "▅" "▆" "▇" "█")
+  local n=${#v[@]} s=0 i x lvl col out="" k
+  if (( n > w )); then s=$(( n - w )); fi
+  if (( n < w )); then for ((k = 0; k < w - n; k++)); do out+=" "; done; fi
+  for ((i = s; i < n; i++)); do
+    x=${v[i]%.*}; x=${x:-0}
+    if (( x < 0 )); then x=0; fi
+    if (( x > 100 )); then x=100; fi
+    lvl=$(( (x * 8 + 99) / 100 ))
+    if (( x >= 85 )); then col=$RED
+    elif (( x >= 60 )); then col=$YLW
+    else col=$GRN; fi
+    out+="${col}${chars[lvl]}"
+  done
+  SPARK="${out}${R}"
+}
+
+# top_rate <bytes/s> → RATE (fixed 8 columns)
+top_rate() {
+  local b=${1:-0}
+  if (( b < 1024 )); then printf -v RATE '%5dB/s' "$b"
+  elif (( b < 1048576 )); then printf -v RATE '%5dK/s' $(( b / 1024 ))
+  elif (( b < 1073741824 )); then printf -v RATE '%5dM/s' $(( b / 1048576 ))
+  else printf -v RATE '%5dG/s' $(( b / 1073741824 )); fi
+}
+
+# top_kib <KiB> → KIBS (short human size)
+top_kib() {
+  local k=${1:-0} t
+  if (( k < 1024 )); then printf -v KIBS '%dK' "$k"
+  elif (( k < 1048576 )); then printf -v KIBS '%dM' $(( k / 1024 ))
+  else t=$(( k * 10 / 1048576 )); printf -v KIBS '%d.%dG' $(( t / 10 )) $(( t % 10 )); fi
+}
+
+# top_hist_push <assoc-name> <key> <value> — keeps the last TOP_HIST samples
+top_hist_push() {
+  local -n _arr=$1
+  local -a _h=(${_arr[$2]:-})
+  _h+=("${3:-0}")
+  if (( ${#_h[@]} > TOP_HIST )); then _h=("${_h[@]: -TOP_HIST}"); fi
+  _arr[$2]="${_h[*]}"
+}
+
+# top_section <title> <plain right-hand text>
+top_section() {
+  local t=$1 r=${2:-} n
+  n=$(( W - ${#t} - ${#r} - 8 ))
+  if (( n < 2 )); then n=2; fi
+  _rep "─" "$n"
+  TOP_OUT+=("${B}${CYN}╭─ ${t} ${R}${DIM}${REP}${R} ${DIM}${r}${R}")
+}
+
+# top_sample_cpu — reads /proc/stat: index 0 = total, 1.. = cores
+top_sample_cpu() {
+  local line name a b c d e f g h
+  local -a t=() i=()
+  while IFS= read -r line; do
+    [[ $line == cpu* ]] || break
+    read -r name a b c d e f g h _ <<<"$line"
+    t+=($(( ${a:-0} + ${b:-0} + ${c:-0} + ${d:-0} + ${e:-0} + ${f:-0} + ${g:-0} + ${h:-0} )))
+    i+=($(( ${d:-0} + ${e:-0} )))
+  done </proc/stat
+  TOP_PREV_TOT=("${TOP_CUR_TOT[@]}")
+  TOP_PREV_IDL=("${TOP_CUR_IDL[@]}")
+  TOP_CUR_TOT=("${t[@]}")
+  TOP_CUR_IDL=("${i[@]}")
+}
+
+# top_pct_of <index> → PCT (busy % between the last two samples)
+top_pct_of() {
+  local idx=$1 dt di
+  dt=$(( ${TOP_CUR_TOT[idx]:-0} - ${TOP_PREV_TOT[idx]:-0} ))
+  di=$(( ${TOP_CUR_IDL[idx]:-0} - ${TOP_PREV_IDL[idx]:-0} ))
+  if (( dt > 0 )); then PCT=$(( (dt - di) * 100 / dt )); else PCT=0; fi
+  if (( PCT < 0 )); then PCT=0; fi
+  if (( PCT > 100 )); then PCT=100; fi
+  return 0
+}
+
+# top_list_vms — every defined VM with its state (running / shut off / paused…)
+top_list_vms() {
+  local out line n
+  TOP_NAMES=()
+  out=$(virsh list --all 2>/dev/null) || return 0
+  while IFS= read -r line; do
+    if [[ $line =~ ^[[:space:]]*([0-9]+|-)[[:space:]]+([^[:space:]]+)[[:space:]]+(.+)$ ]]; then
+      n=${BASH_REMATCH[2]}
+      TOP_NAMES+=("$n")
+      TOP_ST[$n]=${BASH_REMATCH[3]}
+    fi
+  done <<<"$out"
+  return 0
+}
+
+# sample_domstats → "name cpu_ns vcpus mem_kib max_kib rx tx rd wr" per active VM
+sample_domstats() {
+  virsh domstats --list-active --cpu-total --balloon --vcpu --interface --block 2>/dev/null | awk '
+    function emit() { if (n != "") print n, c+0, v+0, m+0, mx+0, rx+0, tx+0, rd+0, wr+0 }
+    /^Domain:/ { emit(); n = $2; gsub(/\047/, "", n); c = 0; v = 1; m = 0; mx = 0; rx = 0; tx = 0; rd = 0; wr = 0; next }
+    {
+      k = $1; sub(/=.*/, "", k)
+      val = $1; sub(/^[^=]*=/, "", val)
+      if (k == "cpu.time") c = val
+      else if (k == "vcpu.current") v = val
+      else if (k == "balloon.current") m = val
+      else if (k == "balloon.maximum") mx = val
+      else if (k ~ /^net\.[0-9]+\.rx\.bytes$/) rx += val
+      else if (k ~ /^net\.[0-9]+\.tx\.bytes$/) tx += val
+      else if (k ~ /^block\.[0-9]+\.rd\.bytes$/) rd += val
+      else if (k ~ /^block\.[0-9]+\.wr\.bytes$/) wr += val
+    }
+    END { emit() }'
+}
+
+# top_collect <elapsed-ms> — one sampling tick for host and every VM
+top_collect() {
+  local dt_ms=$1 dt_ns i k val mt=0 ma=0 pc m_pct n c v m mx rx tx rd wr
+  local t_rx t_tx t_rd t_wr
+  dt_ns=$(( dt_ms * 1000000 ))
+
+  top_sample_cpu
+  while read -r k val _; do
+    case $k in
+      MemTotal:)     mt=$val ;;
+      MemAvailable:) ma=$val ;;
+    esac
+  done </proc/meminfo
+  TOP_MEM_TOTAL=$mt
+  TOP_MEM_USED=$(( mt - ma ))
+
+  top_pct_of 0
+  TOP_HOST_PCT=$PCT
+  top_hist_push TOP_HCPU _host "$PCT"
+  TOP_CORE_PCT=()
+  for (( i = 1; i < ${#TOP_CUR_TOT[@]}; i++ )); do
+    top_pct_of "$i"
+    TOP_CORE_PCT+=("$PCT")
+  done
+  if (( mt > 0 )); then m_pct=$(( TOP_MEM_USED * 100 / mt )); else m_pct=0; fi
+  TOP_HOST_MEMPCT=$m_pct
+  top_hist_push TOP_HMEM _host "$m_pct"
+
+  while read -r n c v m mx rx tx rd wr; do
+    [[ -n $n ]] || continue
+    v=${v:-1}
+    if (( v < 1 )); then v=1; fi
+    pc=$(( (c - ${TOP_P_CPU[$n]:-$c}) * 100 / (dt_ns * v) ))
+    if (( pc < 0 )); then pc=0; fi
+    if (( pc > 100 )); then pc=100; fi
+    TOP_CPU[$n]=$pc
+    TOP_VCPU[$n]=$v
+    TOP_MAXKB[$n]=$mx
+    if (( mx > 0 )); then TOP_MEM[$n]=$(( m * 100 / mx )); else TOP_MEM[$n]=0; fi
+
+    t_rx=$(( (rx - ${TOP_P_RX[$n]:-$rx}) * 1000 / dt_ms ))
+    t_tx=$(( (tx - ${TOP_P_TX[$n]:-$tx}) * 1000 / dt_ms ))
+    t_rd=$(( (rd - ${TOP_P_RD[$n]:-$rd}) * 1000 / dt_ms ))
+    t_wr=$(( (wr - ${TOP_P_WR[$n]:-$wr}) * 1000 / dt_ms ))
+    if (( t_rx < 0 )); then t_rx=0; fi
+    if (( t_tx < 0 )); then t_tx=0; fi
+    if (( t_rd < 0 )); then t_rd=0; fi
+    if (( t_wr < 0 )); then t_wr=0; fi
+    TOP_RX[$n]=$t_rx; TOP_TX[$n]=$t_tx; TOP_RD[$n]=$t_rd; TOP_WR[$n]=$t_wr
+
+    TOP_P_CPU[$n]=$c; TOP_P_RX[$n]=$rx; TOP_P_TX[$n]=$tx
+    TOP_P_RD[$n]=$rd; TOP_P_WR[$n]=$wr
+
+    top_hist_push TOP_HCPU "$n" "$pc"
+    top_hist_push TOP_HMEM "$n" "${TOP_MEM[$n]}"
+  done < <(sample_domstats)
+
+  TOP_TICKS=$(( TOP_TICKS + 1 ))
+  for n in "${TOP_NAMES[@]}"; do
+    if [[ ${TOP_ST[$n]:-} == running ]]; then
+      if [[ -z ${TOP_IP[$n]:-} ]] || (( TOP_TICKS % 15 == 0 )); then
+        TOP_IP[$n]=$(get_vm_ip "$n" lease || true)
+      fi
+    else
+      TOP_IP[$n]=""
+    fi
+  done
+}
+
+# top_read_key <timeout-seconds> → KEY (arrow keys arrive as $'\e[A' etc.)
+top_read_key() {
+  KEY=""
+  IFS= read -rsn1 -t "$1" KEY 2>/dev/null || true
+  if [[ $KEY == $'\e' ]]; then
+    local k2="" k3=""
+    IFS= read -rsn1 -t 0.05 k2 2>/dev/null || true
+    IFS= read -rsn1 -t 0.05 k3 2>/dev/null || true
+    KEY=$'\e'"$k2$k3"
+  fi
+}
+
+top_handle_key() {
+  local total=${#TOP_NAMES[@]}
+  case $1 in
+    q|Q)              exit 0 ;;
+    j|$'\e[B')        if (( TOP_SEL < total - 1 )); then TOP_SEL=$(( TOP_SEL + 1 )); fi ;;
+    k|$'\e[A')        if (( TOP_SEL > 0 )); then TOP_SEL=$(( TOP_SEL - 1 )); fi ;;
+    g)                TOP_SEL=0 ;;
+    G)                if (( total > 0 )); then TOP_SEL=$(( total - 1 )); fi ;;
+  esac
+  return 0
+}
+
+top_render() {
+  local W H i n st ip cb cp mb mp rx tx rd wr mark sn stc nm sp row
+  local cell line cnt per bw vis start used_lines total k out_n
+  local used_s tot_s trx=0 ttx=0 trd=0 twr=0 a1 a2 a3 a4 now up ipw
+
+  W=$(tput cols 2>/dev/null || echo 100); H=$(tput lines 2>/dev/null || echo 30)
+  if (( W < 64 )); then W=64; fi
+  if (( H < 16 )); then H=16; fi
+  total=${#TOP_NAMES[@]}
+  if (( total == 0 )); then
+    TOP_SEL=0
+  elif (( TOP_SEL >= total )); then
+    TOP_SEL=$(( total - 1 ))
+  fi
+  bw=6
+  if (( W >= 110 )); then bw=10; fi
+  TOP_OUT=()
+
+  now=$(date +%H:%M:%S)
+  up=$(fmt_uptime "$(cut -d' ' -f1 /proc/uptime)")
+  TOP_OUT+=("${B}${CYN} ◈ omarchy top${R}  ${DIM}${now} · up ${up} · load $(cut -d' ' -f1-3 /proc/loadavg) · ${TOP_CORES} cores · q quit · ↑↓/jk select${R}")
+
+  # ── CPU ──
+  top_section "CPU" "${TOP_HOST_PCT}% total"
+  printf -v cp '%3d%%' "$TOP_HOST_PCT"
+  top_spark $(( W - 16 )) ${TOP_HCPU[_host]:-0}
+  TOP_OUT+=("  ${B}${cp}${R} ${SPARK}")
+
+  per=$(( (W - 2) / 15 )); if (( per < 1 )); then per=1; fi
+  line=""; cnt=0
+  for (( i = 0; i < ${#TOP_CORE_PCT[@]}; i++ )); do
+    top_bar "${TOP_CORE_PCT[i]}" 6
+    printf -v cell '%2d %s %3d%%' "$i" "$BAR" "${TOP_CORE_PCT[i]}"
+    line+="$cell "
+    cnt=$(( cnt + 1 ))
+    if (( cnt % per == 0 )); then TOP_OUT+=("  $line"); line=""; fi
+  done
+  if [[ -n $line ]]; then TOP_OUT+=("  $line"); fi
+
+  # ── MEM ──
+  top_kib "$TOP_MEM_USED"; used_s=$KIBS
+  top_kib "$TOP_MEM_TOTAL"; tot_s=$KIBS
+  top_section "MEM" "${used_s} / ${tot_s}"
+  top_bar "$TOP_HOST_MEMPCT" $(( W - 34 ))
+  printf -v mp '%3d%%' "$TOP_HOST_MEMPCT"
+  TOP_OUT+=("  ${BAR} ${B}${mp}${R}  ${used_s} used")
+  top_spark $(( W - 16 )) ${TOP_HMEM[_host]:-0}
+  TOP_OUT+=("  ${SPARK}")
+
+  # ── I/O totals ──
+  for n in "${TOP_NAMES[@]}"; do
+    [[ ${TOP_ST[$n]:-} == running ]] || continue
+    trx=$(( trx + ${TOP_RX[$n]:-0} )); ttx=$(( ttx + ${TOP_TX[$n]:-0} ))
+    trd=$(( trd + ${TOP_RD[$n]:-0} )); twr=$(( twr + ${TOP_WR[$n]:-0} ))
+  done
+  top_section "NETWORK · DISK" "all running VMs"
+  top_rate "$trx"; a1=$RATE
+  top_rate "$ttx"; a2=$RATE
+  top_rate "$trd"; a3=$RATE
+  top_rate "$twr"; a4=$RATE
+  TOP_OUT+=("  ${GRN}▼${R} in ${a1}    ${MAG}▲${R} out ${a2}    ${CYN}◀${R} read ${a3}    ${YLW}▶${R} write ${a4}")
+
+  # ── VM table ──
+  top_section "VIRTUAL MACHINES" "${total} defined"
+  if (( total == 0 )); then
+    TOP_OUT+=("  ${DIM}no virtual machines — create one with: omarchy-create-vm sandbox${R}")
+  else
+    ipw=15
+    TOP_OUT+=("${DIM}  $(printf '%-14s %-8s %-*s %-*s %-8s %-8s %-8s %-8s %s' NAME STATE $((bw + 5)) CPU $((bw + 5)) MEM IN OUT READ WRITE IP)${R}")
+
+    used_lines=${#TOP_OUT[@]}
+    vis=$(( H - used_lines - 7 )); if (( vis < 1 )); then vis=1; fi
+    if (( TOP_SEL >= vis )); then start=$(( TOP_SEL - vis + 1 )); else start=0; fi
+
+    for (( i = start; i < total && i < start + vis; i++ )); do
+      n=${TOP_NAMES[i]}; st=${TOP_ST[$n]:-}
+      if [[ $st == running ]]; then
+        top_bar "${TOP_CPU[$n]:-0}" "$bw"; cb=$BAR
+        printf -v cp '%3d%%' "${TOP_CPU[$n]:-0}"
+        top_bar "${TOP_MEM[$n]:-0}" "$bw"; mb=$BAR
+        printf -v mp '%3d%%' "${TOP_MEM[$n]:-0}"
+        top_rate "${TOP_RX[$n]:-0}"; rx=$RATE
+        top_rate "${TOP_TX[$n]:-0}"; tx=$RATE
+        top_rate "${TOP_RD[$n]:-0}"; rd=$RATE
+        top_rate "${TOP_WR[$n]:-0}"; wr=$RATE
+        ip=${TOP_IP[$n]:--}
+        stc=$GRN
+      else
+        printf -v cb '%*s' "$bw" ''; cb="${DIM}${cb// /·}${R}"
+        printf -v mb '%*s' "$bw" ''; mb="${DIM}${mb// /·}${R}"
+        cp="   -"; mp="   -"
+        rx="       -"; tx="       -"; rd="       -"; wr="       -"
+        ip="-"
+        if [[ $st == paused* ]]; then stc=$YLW; else stc=$DIM; fi
+      fi
+      if (( i == TOP_SEL )); then mark="${CYN}▶ ${R}"; sn=$B; else mark="  "; sn=""; fi
+      printf -v nm '%-14.14s' "$n"
+      printf -v sp '%-8.8s' "$st"
+      row="${mark}${sn}${nm}${R} ${stc}${sp}${R} ${cb} ${cp} ${mb} ${mp} ${GRN}${rx}${R} ${MAG}${tx}${R} ${CYN}${rd}${R} ${YLW}${wr}${R} ${DIM}${ip}${R}"
+      TOP_OUT+=("$row")
+    done
+  fi
+
+  # ── Detail for the selected VM ──
+  if (( total > 0 )); then
+    n=${TOP_NAMES[TOP_SEL]}; st=${TOP_ST[$n]:-}
+    top_section "DETAIL" "$n"
+    if [[ $st == running ]]; then
+      printf -v cp '%3d%%' "${TOP_CPU[$n]:-0}"
+      top_spark $(( W - 22 )) ${TOP_HCPU[$n]:-0}
+      TOP_OUT+=("  cpu ${B}${cp}${R} ${SPARK}")
+      printf -v mp '%3d%%' "${TOP_MEM[$n]:-0}"
+      top_spark $(( W - 22 )) ${TOP_HMEM[$n]:-0}
+      top_kib "${TOP_MAXKB[$n]:-0}"
+      TOP_OUT+=("  mem ${B}${mp}${R} ${SPARK}")
+      TOP_OUT+=("  ip ${TOP_IP[$n]:--}   vCPU ${TOP_VCPU[$n]:-?}   max ${KIBS}   state ${GRN}${st}${R}")
+    else
+      TOP_OUT+=("  ${DIM}${n} is ${st:-unknown} — start it to see live graphs${R}")
+      TOP_OUT+=("")
+      TOP_OUT+=("")
+    fi
+  fi
+
+  # ── draw (single write, no flicker) ──
+  out_n=${#TOP_OUT[@]}
+  printf '\e[H'
+  for (( k = 0; k < out_n && k < H - 1; k++ )); do
+    printf '%s\e[K\n' "${TOP_OUT[k]}"
+  done
+  printf '\e[J'
+}
+
+vm_usage() {
+  ensure_libvirt
+  need_tty "top needs an interactive terminal"
+  TOP_STTY=$(stty -g 2>/dev/null || true)
+  stty -echo -icanon 2>/dev/null || true
+  printf '\e[?1049h\e[?25l'
+  trap 'top_restore' EXIT
+  trap 'exit 0' INT TERM
+  TOP_CORES=$(nproc)
+
+  top_sample_cpu
+  sleep 0.3
+  top_sample_cpu
+  top_list_vms
+
+  local t_prev t_now dt_ms
+  t_prev=$(date +%s%3N)
+  while :; do
+    t_now=$(date +%s%3N)
+    dt_ms=$(( t_now - t_prev ))
+    if (( dt_ms >= 1000 )); then
+      top_list_vms
+      top_collect "$dt_ms"
+      t_prev=$t_now
+    fi
+    top_render
+    top_read_key 0.2
+    top_handle_key "$KEY"
+  done
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Port forwarding (real SSH tunnels, one control socket per forward)
+# ════════════════════════════════════════════════════════════════════════════
+pf_sock() { printf '%s/.pf-%s-%s.sock' "$VM_DIR" "$1" "$2"; }
+
+pf_stop() { # <name> <hostport>
+  local sock; sock=$(pf_sock "$1" "$2")
+  ssh -S "$sock" -O exit "$1" >/dev/null 2>&1 || true
+  rm -f "$sock"
+}
+
+pf_drop_line() { # <exact line>
+  local tmp; tmp=$(mktemp)
+  grep -vxF -- "$1" "$PORTFWD_FILE" >"$tmp" || true
+  mv "$tmp" "$PORTFWD_FILE"
+}
+
+pf_drop_vm() { # <name>  — stop + forget every forward of a VM
+  local n h g
+  if [[ ! -s $PORTFWD_FILE ]]; then return 0; fi
+  while read -r n h g; do
+    if [[ $n == "$1" ]]; then pf_stop "$n" "$h"; pf_drop_line "$n $h $g"; fi
+  done < <(cat "$PORTFWD_FILE")
+  return 0
+}
+
+vm_portfwd() { # <list|add|remove|clear> [vm] [host-port] [guest-port]
+  local action=${1:-list} name=${2:-} hostp=${3:-} guestp=${4:-} n h g ip line sock st
+  ensure_libvirt; need ssh; mkdir -p "$VM_DIR"; touch "$PORTFWD_FILE"
+  case $action in
+    list|ls)
+      if [[ ! -s $PORTFWD_FILE ]]; then note "No port forwards"; return 0; fi
+      title "Port forwards"
+      while read -r n h g; do
+        if ssh -S "$(pf_sock "$n" "$h")" -O check "$n" >/dev/null 2>&1; then st="${GRN}● active${R}"; else st="${DIM}○ dead${R}"; fi
+        printf '  %s  localhost:%-6s → %s:%-6s\n' "$st" "$h" "$n" "$g"
+      done <"$PORTFWD_FILE";;
+    add)
+      ensure_dirs; ensure_ssh_key
+      target_vm "$name" "Forward ports for" running
+      [[ $STATE == running ]] || die "'$NAME' is not running"
+      if [[ -z $hostp ]]; then need_tty "Usage: portfwd add <name> <host-port> <guest-port>"; hostp=$(gum input --header "Host port" --placeholder "8080") || cancel; fi
+      if [[ -z $guestp ]]; then need_tty "Usage: portfwd add <name> <host-port> <guest-port>"; guestp=$(gum input --header "Guest port" --placeholder "80") || cancel; fi
+      valid_port "$hostp" && valid_port "$guestp" || die "Ports must be numbers between 1 and 65535"
+      if grep -qE "^[^ ]+ $hostp " "$PORTFWD_FILE"; then die "Host port $hostp is already forwarded"; fi
+      ip=$(get_vm_ip "$NAME" lease arp || true); [[ -n $ip ]] || die "'$NAME' has no IP yet"
+      sync_ssh_config "$NAME" "$ip" || true
+      sock=$(pf_sock "$NAME" "$hostp")
+      ssh -f -N -M -S "$sock" -o ExitOnForwardFailure=yes -L "127.0.0.1:$hostp:127.0.0.1:$guestp" "$NAME" \
+        || die "Could not open tunnel (is sshd up? is port $hostp free?)"
+      echo "$NAME $hostp $guestp" >>"$PORTFWD_FILE"
+      ok "localhost:$hostp → $NAME:$guestp";;
+    remove|rm)
+      if [[ -n $name && -n $hostp ]]; then
+        line=$(grep -E "^$name $hostp " "$PORTFWD_FILE" || true)
+      else
+        [[ -s $PORTFWD_FILE ]] || { note "No port forwards"; return 0; }
+        need_tty "Usage: portfwd remove <name> <host-port>"
+        line=$(gum filter --header "Remove which forward?" <"$PORTFWD_FILE") || cancel
+      fi
+      [[ -n $line ]] || die "No such forward"
+      read -r n h g <<<"$line"
+      pf_stop "$n" "$h"; pf_drop_line "$line"
+      ok "Removed localhost:$h → $n:$g";;
+    clear)
+      if is_tty; then gum confirm "Stop and clear all port forwards?" || cancel; fi
+      while read -r n h g; do pf_stop "$n" "$h"; done <"$PORTFWD_FILE"
+      : >"$PORTFWD_FILE"
+      ok "Cleared";;
+    *)
+      die "Usage: omarchy-create-vm portfwd <list|add|remove|clear> [name] [host-port] [guest-port]";;
+  esac
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Hosts sync
+# ════════════════════════════════════════════════════════════════════════════
+hosts_sync() {
+  local mode=${1:-sync} n ip tmp out count=0
+  case $mode in on) mode=sync;; off) mode=clean;; esac
+  [[ $mode == sync || $mode == clean ]] || die "Usage: omarchy-create-vm hosts-sync [sync|clean]"
+  ensure_libvirt
+  tmp=$(mktemp); out=$(mktemp)
+
+  awk -v b="$HOSTS_MARK" -v e="$HOSTS_END" '$0 == b { skip = 1; next } $0 == e { skip = 0; next } !skip' /etc/hosts >"$tmp"
+  cp "$tmp" "$out"
+
+  if [[ $mode == sync ]]; then
+    load_vms
+    {
+      printf '%s\n' "$HOSTS_MARK"
+      for n in "${VM_NAMES[@]}"; do
+        ip=${VM_IP[$n]:-}
+        if [[ -n $ip ]]; then printf '%s %s.local %s\n' "$ip" "$n" "$n"; count=$((count + 1)); fi
+      done
+      printf '%s\n' "$HOSTS_END"
+    } >"$tmp.block"
+    count=$(grep -cv '^#' "$tmp.block" || true)
+    if ((count > 0)); then cat "$tmp.block" >>"$out"; fi
+    rm -f "$tmp.block"
+  fi
+
+  if cmp -s "$out" /etc/hosts; then
+    note "/etc/hosts already up to date"
+  else
+    if is_tty; then gum confirm "Update /etc/hosts (sudo)?" || { rm -f "$tmp" "$out"; cancel; }; fi
+    sudo install -m 644 "$out" /etc/hosts || die "Failed to update /etc/hosts"
+    if [[ $mode == sync ]]; then ok "Updated /etc/hosts ($count VMs)"; else ok "Removed VM entries from /etc/hosts"; fi
+  fi
+  rm -f "$tmp" "$out"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  List / status / ip
+# ════════════════════════════════════════════════════════════════════════════
+list_vm() {
+  ensure_libvirt
+  load_vms
+  if ((${#VM_NAMES[@]} == 0)); then
+    box "No virtual machines" "${DIM}omarchy-create-vm sandbox   instant sandbox${R}" "${DIM}omarchy-create-vm create    from ISO / cloud image${R}"
+    return 0
+  fi
+  local n st sym auto rows=$'STATE\tNAME\tIP\tTYPE\tAUTOSTART'
+  for n in "${VM_NAMES[@]}"; do
+    st=${VM_STATE[$n]}
+    case $st in running) sym="● running";; paused*) sym="◐ paused";; "shut off") sym="○ off";; *) sym="◌ $st";; esac
+    auto=no; if [[ -n ${VM_AUTO[$n]:-} ]]; then auto=yes; fi
+    rows+=$'\n'"$sym"$'\t'"$n"$'\t'"${VM_IP[$n]:--}"$'\t'"${VM_TYPE[$n]:--}"$'\t'"$auto"
+  done
+  if [[ ! -t 1 ]]; then printf '%s\n' "$rows"; return 0; fi
+  title "Virtual machines"
+  gum table --print --separator $'\t' --border rounded --border.foreground 8 --header.foreground 6 <<<"$rows" 2>/dev/null \
+    || column -t -s $'\t' <<<"$rows"
+}
+
+status_vm() {
+  ensure_libvirt
+  target_vm "${1:-}" "VM to inspect"
+  local dinfo ip="" kib mem cpu auto type="" size="" k n dot
+  dinfo=$(virsh dominfo "$NAME")
+  if [[ $STATE == running ]]; then ip=$(get_vm_ip "$NAME" lease arp || true); fi
+  kib=$(dom_field "$dinfo" "Max memory"); kib=${kib%% *}; kib=${kib:-0}
+  if ((kib >= 1048576)); then mem="$((kib / 1048576)) GiB"; else mem="$((kib / 1024)) MiB"; fi
+  cpu=$(dom_field "$dinfo" "CPU(s)"); auto=$(dom_field "$dinfo" "Autostart")
+  if [[ -f $CREDENTIALS_FILE ]]; then
+    while IFS='|' read -r n _ _ _ _ k; do if [[ $n == "$NAME" ]]; then type=$k; fi; done <"$CREDENTIALS_FILE"
+  fi
+  if [[ -d $VM_DIR/$NAME ]]; then size=$(du -sh "$VM_DIR/$NAME" 2>/dev/null | cut -f1 || true); fi
+  if [[ $STATE == running ]]; then dot="${GRN}●"; else dot="${DIM}○"; fi
+  box "$NAME" \
+    "$(kv State "$dot ${R}$STATE")" \
+    "$(kv IP "${ip:--}")" \
+    "$(kv vCPUs "${cpu:-?}")" "$(kv Memory "$mem")" \
+    "$(kv Disk "${size:--}")" \
+    "$(kv Autostart "${auto:-?}")" \
+    "$(kv Type "${type:--}")"
+}
+
+show_ip() {
+  ensure_libvirt
+  target_vm "${1:-}" "Show network details for"
+  local ip mac bridge ifname ifl
+  ip=$(get_vm_ip "$NAME" lease arp || true)
+  ifl=$(virsh domiflist "$NAME" 2>/dev/null | tail -n +3)
+  read -r ifname _ _ _ mac <<<"$(awk -v n="$OMARCHY_NET_NAME" '$3 == n { print; exit }' <<<"$ifl")"
+  bridge=$(virsh net-info "$OMARCHY_NET_NAME" 2>/dev/null | awk '/^Bridge:/ { print $2 }')
+
+  local -a lines=("$(kv VM "$NAME")" "$(kv State "$STATE")")
+  if [[ -n $ip ]]; then lines+=("$(kv IPv4 "$ip")"); fi
+  if [[ -n ${mac:-} ]]; then lines+=("$(kv MAC "$mac")"); fi
+  if [[ -n $ip ]]; then
+    lines+=("$(kv Gateway "$OMARCHY_NET_GATEWAY")" "$(kv DNS "$OMARCHY_NET_GATEWAY")" "$(kv Netmask 255.255.255.0)")
+  fi
+  lines+=("$(kv Network "$OMARCHY_NET_NAME ($OMARCHY_NET_SUBNET)")")
+  if [[ -n $bridge ]]; then lines+=("$(kv Bridge "$bridge")"); fi
+  if [[ -n ${ifname:-} ]]; then lines+=("$(kv Interface "$ifname")"); fi
+
+  if [[ -n $ip ]]; then
+    lines+=("" "${DIM}ssh $NAME${R}")
+    gum style --border rounded --border-foreground 6 --padding "1 3" --margin "1" \
+      "$(gum style --bold --foreground 6 "◈ Network Details")" "" "${lines[@]}"
+  else
+    lines+=("" "${DIM}Still booting? Try: omarchy-create-vm sync-ssh $NAME${R}")
+    gum style --border rounded --border-foreground 3 --padding "1 3" --margin "1" \
+      "$(gum style --bold --foreground 3 "◈ No IP Assigned")" "" "${lines[@]}"
+    return 1
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Access
+# ════════════════════════════════════════════════════════════════════════════
+ssh_vm() {
+  local name=${1:-}
+  if (($#)); then shift; fi
+  ensure_libvirt; ensure_dirs; ensure_ssh_key; need ssh
+  target_vm "$name" "SSH into"
+  if [[ $STATE != running ]]; then virsh start "$NAME" >/dev/null || die "Failed to start '$NAME'"; fi
+  local ip
+  ip=$(get_vm_ip "$NAME" lease arp || true)
+  if [[ -z $ip ]]; then
+    spin "Waiting for $NAME to get an IP…" bash -c 'wait_ip "$1" 120' _ "$NAME" || die "No IP for '$NAME'"
+    ip=$(get_vm_ip "$NAME" lease) || die "No IP for '$NAME'"
+  fi
+  if ! wait_ssh "$ip" 1; then
+    spin "Waiting for sshd on $ip…" bash -c 'wait_ssh "$1" 90' _ "$ip" || die "sshd on $ip didn't come up"
+  fi
+  sync_ssh_config "$NAME" "$ip" || true
+  exec ssh "$NAME" "$@"
+}
+
+# ssh_highlight — colourises an ssh config on stdin (plain text when piped)
+ssh_highlight() {
+  if [[ ! -t 1 ]]; then cat; return 0; fi
+  awk -v R="$R" -v B="$B" -v DIM="$DIM" -v RED="$RED" -v GRN="$GRN" -v YLW="$YLW" \
+      -v BLU="$BLU" -v MAG="$MAG" -v CYN="$CYN" '
+    function colour(k) {
+      if (k == "Host" || k == "Match")                                   return B MAG
+      if (k == "HostName")                                               return B CYN
+      if (k == "User")                                                   return GRN
+      if (k == "IdentityFile" || k == "CertificateFile")                 return YLW
+      if (k == "IdentitiesOnly" || k == "StrictHostKeyChecking" ||
+          k == "UserKnownHostsFile" || k == "LogLevel" || k == "ProxyJump") return BLU
+      return B
+    }
+    /^# BEGIN OMARCHY-VM/ { print B GRN $0 R; next }
+    /^# END OMARCHY-VM/   { print DIM $0 R; next }
+    /^[[:space:]]*#/      { print DIM $0 R; next }
+    /^[[:space:]]*$/      { print; next }
+    {
+      ind = ""
+      if (match($0, /^[[:space:]]+/)) { ind = substr($0, 1, RLENGTH); rest = substr($0, RLENGTH + 1) }
+      else rest = $0
+      k = rest; sub(/[[:space:]].*/, "", k)
+      v = substr(rest, length(k) + 1)
+      print ind colour(k) k R v
+    }'
+}
+
+ssh_config() {
+  local name=${1:-} out
+  if [[ -z $name ]]; then
+    if [[ -s $SSH_CONFIG ]]; then
+      if is_tty; then title "SSH config · $SSH_CONFIG"; fi
+      ssh_highlight <"$SSH_CONFIG"
+    else
+      note "No SSH config entries"
+    fi
+    return 0
+  fi
+  out=$(awk -v n="$name" '$0 == "# BEGIN OMARCHY-VM " n { p = 1 } p { print } $0 == "# END OMARCHY-VM " n { p = 0 }' "$SSH_CONFIG" 2>/dev/null || true)
+  if [[ -n $out ]]; then
+    printf '%s\n' "$out" | ssh_highlight
+  else
+    note "No SSH config for '$name'"
+  fi
+}
+
+sync_ssh_all() {
+  local name=${1:-all} n found=0
+  ensure_libvirt; ensure_dirs
+  load_vms
+  for n in "${VM_NAMES[@]}"; do
+    if [[ $name != all && $name != "$n" ]]; then continue; fi
+    found=1
+    if [[ -n ${VM_IP[$n]:-} ]] && sync_ssh_config "$n" "${VM_IP[$n]}"; then
+      ok "$n  ${VM_IP[$n]}"
+    else
+      warn "$n  no IP (not running?)"
+    fi
+  done
+  if ((!found)); then die "VM '$name' does not exist"; fi
+}
+
+vm_console() {
+  ensure_libvirt
+  target_vm "${1:-}" "VM console"
+  if [[ $STATE != running ]]; then virsh start "$NAME" >/dev/null || die "Failed to start '$NAME'"; sleep 1; fi
+  note "Serial console for '$NAME' — leave with Ctrl+]"
+  exec virsh console "$NAME"
+}
+
+vm_eject() {
+  ensure_libvirt
+  target_vm "${1:-}" "VM to eject media from"
+  local dtype target done=0
+  local -a flags=(--config)
+  if [[ $STATE == running ]]; then flags+=(--live); fi
+  while read -r _ dtype target _; do
+    if [[ $dtype == cdrom && -n $target ]]; then
+      if virsh change-media "$NAME" "$target" --eject "${flags[@]}" --force >/dev/null 2>&1; then done=1; fi
+    fi
+  done < <(virsh domblklist "$NAME" --details 2>/dev/null)
+  if ((done)); then ok "Ejected media from '$NAME'"; else die "No CD-ROM media to eject on '$NAME'"; fi
+}
+
+vm_autostart() {
+  local action=${1:-} name=${2:-}
+  ensure_libvirt
+  if [[ $action == status && -z $name ]]; then virsh list --all --autostart; return 0; fi
+  # allow `autostart <name>` shorthand
+  if [[ -n $action && $action != on && $action != off && $action != status && -z $name ]]; then name=$action; action=""; fi
+  target_vm "$name" "VM"
+  if [[ -z $action ]]; then
+    need_tty "Usage: omarchy-create-vm autostart [on|off|status] [name]"
+    action=$(gum choose --header "Autostart for $NAME" "on" "off" "status") || cancel
+  fi
+  case $action in
+    on)     virsh autostart "$NAME" >/dev/null && ok "Autostart enabled for '$NAME'";;
+    off)    virsh autostart --disable "$NAME" >/dev/null && ok "Autostart disabled for '$NAME'";;
+    status) virsh dominfo "$NAME" | grep Autostart;;
+    *)      die "Usage: omarchy-create-vm autostart [on|off|status] [name]";;
+  esac
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Desktop launchers / network
+# ════════════════════════════════════════════════════════════════════════════
+desktop_sync() {
+  ensure_libvirt
+  mkdir -p "$APP_DIR"
+  local n f count=0 names
+  local -A want=()
+  names=$(virsh list --all --name 2>/dev/null || true)
+  while IFS= read -r n; do
+    [[ -n $n ]] || continue
+    want["$APP_DIR/${n}-vm.desktop"]=1; count=$((count + 1))
+    cat >"$APP_DIR/${n}-vm.desktop" <<EOF
+[Desktop Entry]
+Name=$n VM
+Comment=Start and connect to $n VM
+Exec=uwsm app -- omarchy-create-vm launch $n
+Icon=computer
+Terminal=false
+Type=Application
+Categories=System;Virtualization;
+X-Omarchy-VM=true
+EOF
+  done <<<"$names"
+  shopt -s nullglob
+  for f in "$APP_DIR"/*-vm.desktop; do
+    if [[ -z ${want[$f]:-} ]] && grep -q '^X-Omarchy-VM=true' "$f" 2>/dev/null; then rm -f "$f"; fi
+  done
+  shopt -u nullglob
+  ok "Launchers synced ($count) → $APP_DIR"
+}
+
+manage_network() {
+  local action=${1:-} info act aut
+  ensure_libvirt
+  if [[ -z $action ]]; then
+    if is_tty; then action=$(gum choose --header "Network $OMARCHY_NET_NAME" status start stop create) || cancel
+    else action=status; fi
+  fi
+  case $action in
+    create) ensure_network; ok "Network ready";;
+    start)  if virsh net-start "$OMARCHY_NET_NAME" >/dev/null 2>&1; then ok "Network started"; else warn "Already running, or not defined"; fi;;
+    stop)   if virsh net-destroy "$OMARCHY_NET_NAME" >/dev/null 2>&1; then ok "Network stopped"; else warn "Not running"; fi;;
+    status)
+      if info=$(virsh net-info "$OMARCHY_NET_NAME" 2>/dev/null); then
+        act=no aut=no
+        if [[ $info =~ Active:[[:space:]]+yes ]]; then act=yes; fi
+        if [[ $info =~ Autostart:[[:space:]]+yes ]]; then aut=yes; fi
+        box "$OMARCHY_NET_NAME" "$(kv Subnet "$OMARCHY_NET_SUBNET")" "$(kv Gateway "$OMARCHY_NET_GATEWAY")" \
+          "$(kv DHCP "$OMARCHY_NET_DHCP_START – $OMARCHY_NET_DHCP_END")" "$(kv Active "$act")" "$(kv Autostart "$aut")"
+      else
+        warn "Network $OMARCHY_NET_NAME not defined (created on first VM)"
+      fi;;
+    *) die "Usage: omarchy-create-vm net [create|start|stop|status]";;
+  esac
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  remove — deletes the VM, its disks, and EVERY remnant:
+#    libvirt domain (+ NVRAM, snapshots, managed save), VM folder, port-forward
+#    tunnels, ~/.ssh/config block, ~/.ssh/known_hosts entries, /etc/hosts lines,
+#    app launcher, saved credentials. Also cleans leftovers of an undefined VM.
+# ════════════════════════════════════════════════════════════════════════════
+vm_leftovers() { # <name> → 0 if anything of that VM is still on this machine
+  local n=$1
+  [[ -d $VM_DIR/$n ]] && return 0
+  grep -qF "# BEGIN OMARCHY-VM $n" "$SSH_CONFIG" 2>/dev/null && return 0
+  grep -qE "^Host $n\$" "$SSH_CONFIG" 2>/dev/null && return 0
+  grep -qE "(^|[[:space:]])$n(\.local)?([[:space:]]|\$)" /etc/hosts 2>/dev/null && return 0
+  grep -q "^$n|" "$CREDENTIALS_FILE" 2>/dev/null && return 0
+  [[ -e $APP_DIR/${n}-vm.desktop ]] && return 0
+  grep -q "^$n " "$PORTFWD_FILE" 2>/dev/null && return 0
+  return 1
+}
+
+remove_vm() {
+  local yes=0 name="" defined=0 st ip s h tmp out kh
+  local -a done_steps=() skipped=() candidates=() lines=()
+  while (($#)); do
+    case $1 in -y|--yes) yes=1;; *) name=$1;; esac
+    shift
+  done
+  ensure_libvirt
+
+  if [[ -z $name ]]; then
+    need_tty "Specify a VM name"
+    name=$(pick_vm "VM to remove") || exit 1
+  fi
+  valid_name "$name" || die "Invalid VM name (letters, digits, - and _ only; start with a letter)"
+
+  if vm_exists "$name"; then defined=1; fi
+  if ((!defined)) && ! vm_leftovers "$name"; then
+    die "VM '$name' does not exist and nothing of it was left behind"
+  fi
+
+  if ((!yes)); then
+    need_tty "Use --yes to remove without confirmation"
+    gum confirm --default=false "Permanently remove '$name' and ALL its data and remnants?" || cancel
+  fi
+
+  # 1 · remember every address the VM was known by, before it disappears
+  if ((defined)); then
+    st=$(vm_state "$name")
+    if [[ $st == running ]]; then
+      ip=$(get_vm_ip "$name" lease arp || true)
+      if [[ -n $ip ]]; then candidates+=("$ip"); fi
+    fi
+  fi
+  while read -r ip; do
+    if [[ -n $ip ]]; then candidates+=("$ip"); fi
+  done < <(awk -v n="$name" '$0 == "# BEGIN OMARCHY-VM " n { p = 1; next } $0 == "# END OMARCHY-VM " n { p = 0 } p && $1 == "HostName" { print $2 }' "$SSH_CONFIG" 2>/dev/null || true)
+  while read -r ip; do
+    if [[ -n $ip ]]; then candidates+=("$ip"); fi
+  done < <(awk -v n="$name" '$3 == n || $2 == n ".local" { print $1 }' /etc/hosts 2>/dev/null || true)
+
+  # 2 · power off and undefine (disks, NVRAM, snapshots, autostart)
+  if ((defined)); then
+    if [[ $(vm_state "$name") != "shut off" ]]; then virsh destroy "$name" >/dev/null 2>&1 || true; fi
+    if virsh undefine "$name" --remove-all-storage --nvram --managed-save --snapshots-metadata >/dev/null 2>&1 \
+      || virsh undefine "$name" --nvram --managed-save --snapshots-metadata >/dev/null 2>&1 \
+      || virsh undefine "$name" >/dev/null 2>&1; then
+      done_steps+=("libvirt domain, disks, NVRAM and snapshots")
+    else
+      skipped+=("libvirt domain (undefine failed — check: virsh dominfo $name)")
+    fi
+    if vm_exists "$name"; then die "Could not undefine '$name' — check: virsh dominfo $name"; fi
+  fi
+
+  # 3 · VM folder (disk overlay, cloud-init seed, user-data)
+  if [[ -d $VM_DIR/$name ]]; then
+    rm -rf "${VM_DIR:?}/$name"
+    done_steps+=("VM folder $VM_DIR/$name")
+  fi
+
+  # 4 · port-forward tunnels, their sockets and records
+  if [[ -s $PORTFWD_FILE ]] && grep -q "^$name " "$PORTFWD_FILE" 2>/dev/null; then
+    pf_drop_vm "$name"
+    done_steps+=("port-forward tunnels and records")
+  fi
+
+  # 5 · ~/.ssh/config block (marked or legacy)
+  if grep -qE "^(# BEGIN OMARCHY-VM $name\$|Host $name\$)" "$SSH_CONFIG" 2>/dev/null; then
+    drop_ssh_block "$name"
+    done_steps+=("~/.ssh/config block")
+  fi
+
+  # 6 · ~/.ssh/known_hosts entries (name, name.local and every IP it had)
+  kh="$SSH_DIR/known_hosts"
+  if [[ -f $kh ]]; then
+    for h in "$name" "$name.local" ${candidates[@]+"${candidates[@]}"}; do
+      if ssh-keygen -F "$h" -f "$kh" >/dev/null 2>&1; then
+        if ssh-keygen -R "$h" -f "$kh" >/dev/null 2>&1; then
+          done_steps+=("known_hosts entry for $h")
+        fi
+      fi
+    done
+  fi
+
+  # 7 · /etc/hosts lines (inside the marked block and anywhere else)
+  if grep -qE "(^|[[:space:]])$name(\.local)?([[:space:]]|\$)" /etc/hosts 2>/dev/null; then
+    tmp=$(mktemp); out=$(mktemp)
+    awk -v n="$name" '
+      /^[[:space:]]*#/ { print; next }
+      {
+        keep = 1
+        for (i = 2; i <= NF; i++) if ($i == n || $i == n ".local") keep = 0
+        if (keep) print
+      }' /etc/hosts >"$out"
+    if ! cmp -s "$out" /etc/hosts; then
+      if sudo install -m 644 "$out" /etc/hosts 2>/dev/null; then
+        done_steps+=("/etc/hosts lines")
+      else
+        skipped+=("/etc/hosts (sudo failed — remove the '$name' lines by hand)")
+      fi
+    fi
+    rm -f "$tmp" "$out"
+  fi
+
+  # 8 · app launcher
+  if [[ -e $APP_DIR/${name}-vm.desktop ]]; then
+    rm -f "$APP_DIR/${name}-vm.desktop"
+    done_steps+=("app launcher")
+  fi
+
+  # 9 · saved credentials
+  if grep -q "^$name|" "$CREDENTIALS_FILE" 2>/dev/null; then
+    remove_credentials "$name"
+    done_steps+=("saved credentials")
+  fi
+
+  desktop_sync >/dev/null 2>&1 || true
+
+  for s in ${done_steps[@]+"${done_steps[@]}"}; do lines+=("✓ $s"); done
+  for s in ${skipped[@]+"${skipped[@]}"}; do lines+=("! $s"); done
+  if ((${#lines[@]} == 0)); then lines+=("nothing to remove"); fi
+  if ((defined)); then
+    box "Removed '$name'" "${lines[@]}"
+  else
+    box "Cleaned leftovers of '$name'" "${lines[@]}"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Doctor
+# ════════════════════════════════════════════════════════════════════════════
+DOC=()
+chk() { # ok|warn|fail <label> [detail]
+  local icon
+  case $1 in ok) icon="${GRN}✓";; warn) icon="${YLW}!";; *) icon="${RED}✗";; esac
+  DOC+=("${icon}${R} $2${3:+  ${DIM}$3${R}}")
+}
+
+doctor() {
+  local fix=0 a c info routes line groups vmcount pkg
+  local -a missing=()
+  for a in "$@"; do
+    if [[ $a == --fix || $a == fix ]]; then fix=1; fi
+  done
+  DOC=()
+  title "System Diagnostics"
+  for c in virsh virt-install qemu-img qemu-system-x86_64 curl ssh jq gum; do
+    if command -v "$c" >/dev/null 2>&1; then chk ok "$c" "$(command -v "$c")"
+    else chk fail "$c" "missing"; missing+=("$c"); fi
+  done
+  if command -v dnsmasq >/dev/null 2>&1; then chk ok "dnsmasq" "NAT DHCP/DNS"; else chk warn "dnsmasq" "needed for the $OMARCHY_NET_NAME network"; missing+=(dnsmasq); fi
+  if command -v cloud-localds >/dev/null 2>&1 || command -v xorriso >/dev/null 2>&1; then chk ok "cloud-init seed" "available"; else chk fail "cloud-init seed" "install xorriso or cloud-image-utils"; missing+=(xorriso); fi
+  if command -v virt-viewer >/dev/null 2>&1; then chk ok "virt-viewer" "GUI console"
+  elif command -v virt-manager >/dev/null 2>&1; then chk ok "virt-manager" "GUI console"
+  else chk warn "display client" "install virt-viewer or virt-manager"; fi
+  if [[ $(fs_driver) == virtiofs ]]; then chk ok "virtiofsd" "fast shared folders"; else chk warn "virtiofsd" "missing (using 9p fallback)"; fi
+
+  if [[ -r /dev/kvm ]]; then chk ok "/dev/kvm" "accessible"; else chk fail "/dev/kvm" "not accessible"; fi
+  groups=" $(id -nG) "
+  if [[ $groups == *" libvirt "* ]]; then chk ok "group: libvirt" "member"; else chk warn "group: libvirt" "not a member"; fi
+  if [[ $groups == *" kvm "* ]]; then chk ok "group: kvm" "member"; else chk warn "group: kvm" "not a member"; fi
+
+  if command -v virsh >/dev/null 2>&1 && virsh list --name >/dev/null 2>&1; then
+    chk ok "libvirt" "$LIBVIRT_DEFAULT_URI"
+    if info=$(virsh net-info "$OMARCHY_NET_NAME" 2>/dev/null); then
+      if [[ $info =~ Active:[[:space:]]+yes ]]; then chk ok "network $OMARCHY_NET_NAME" "$OMARCHY_NET_SUBNET (active)"
+      else chk warn "network $OMARCHY_NET_NAME" "defined but inactive"; fi
+    else
+      chk warn "network $OMARCHY_NET_NAME" "will be created on first use"
+    fi
+    vmcount=$(virsh list --all --name 2>/dev/null | sed '/^$/d' | wc -l)
+    chk ok "VMs registered" "$vmcount found"
+  else
+    chk fail "libvirt" "cannot connect to $LIBVIRT_DEFAULT_URI"
+  fi
+
+  routes=$(ip -4 route show 2>/dev/null || true)
+  while IFS= read -r line; do
+    if [[ $line == 10.0.0.0/24* && $line != *virbr-omarchy* ]]; then chk warn "subnet conflict" "$OMARCHY_NET_SUBNET already routed elsewhere"; break; fi
+  done <<<"$routes"
+
+  if [[ -f $SSH_KEY ]]; then chk ok "SSH key" "$SSH_KEY"; else chk warn "SSH key" "generated on first use"; fi
+  mkdir -p "$VM_DIR" "$ISO_DIR" "$IMG_DIR" 2>/dev/null || true
+  chk ok "Storage ($VM_DIR)" "$(free_gb)G free"
+  gum style --border rounded --border-foreground 6 --padding "1 3" --margin "1 0" "${DOC[@]}"
+
+  if ((!fix)); then
+    if ((${#missing[@]} || ${#DOC[@]} > 0)) && printf '%s\n' "${DOC[@]}" | grep -q '✗'; then note "Run: omarchy-create-vm doctor --fix"; fi
+    return 0
+  fi
+
+  gum style --border rounded --border-foreground 3 --padding "1 2" --margin "1 0" "$(gum style --bold --foreground 3 "◈ Guided fixes — you choose each")"
+  if ((${#missing[@]})); then
+    local -a pkgs=()
+    for c in "${missing[@]}"; do pkg=${PKG[$c]:-$c}; pkgs+=("$pkg"); done
+    if gum confirm "Install missing: ${pkgs[*]}?"; then
+      if command -v omarchy-pkg-add >/dev/null 2>&1; then omarchy-pkg-add "${pkgs[@]}"; else sudo pacman -S --needed --noconfirm "${pkgs[@]}"; fi || true
+    fi
+  fi
+  if [[ $groups != *" libvirt "* ]]; then
+    if gum confirm "Add $USER to the libvirt group?"; then sudo usermod -aG libvirt "$USER" && ok "Added to libvirt (log out and back in)"; fi
+  fi
+  if [[ $groups != *" kvm "* ]]; then
+    if gum confirm "Add $USER to the kvm group?"; then sudo usermod -aG kvm "$USER" && ok "Added to kvm (log out and back in)"; fi
+  fi
+  if ! systemctl is-active --quiet libvirtd 2>/dev/null && ! systemctl is-active --quiet libvirtd.socket 2>/dev/null \
+     && ! systemctl is-active --quiet virtqemud 2>/dev/null && ! systemctl is-active --quiet virtqemud.socket 2>/dev/null; then
+    if gum confirm "Enable and start the libvirt daemon?"; then
+      { sudo systemctl enable --now libvirtd.socket || sudo systemctl enable --now libvirtd || sudo systemctl enable --now virtqemud.socket; } 2>/dev/null || true
+    fi
+  fi
+  if command -v virsh >/dev/null 2>&1 && virsh list --name >/dev/null 2>&1; then
+    if ! virsh net-info "$OMARCHY_NET_NAME" >/dev/null 2>&1; then
+      if gum confirm "Create and start the $OMARCHY_NET_NAME network?"; then ensure_network || true; fi
+    elif ! virsh net-info "$OMARCHY_NET_NAME" | grep -q "Active:.*yes"; then
+      if gum confirm "Start the $OMARCHY_NET_NAME network?"; then virsh net-start "$OMARCHY_NET_NAME" || true; fi
+    fi
+  fi
+  if [[ ! -f $SSH_KEY ]]; then
+    if gum confirm "Generate an SSH key for VMs ($SSH_KEY)?"; then ensure_dirs; ensure_ssh_key && ok "SSH key generated"; fi
+  fi
+  if [[ ! -r /dev/kvm ]]; then
+    if gum confirm "Try loading KVM modules?"; then
+      { sudo modprobe kvm; sudo modprobe kvm_intel || sudo modprobe kvm_amd; } 2>/dev/null || true
+    fi
+  fi
+  ok "Guided fixes done"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Interactive menu  (each action re-invokes this script → set -e stays strict,
+#  and a failed/cancelled action never kills the menu)
+# ════════════════════════════════════════════════════════════════════════════
+run() { "$SELF" "$@" || true; }
+
+vm_actions() {
+  local n=$1 st act ip
+  while :; do
+    st=$(vm_state "$n") || { warn "'$n' no longer exists"; return 0; }
+    local -a items=()
+    if [[ $st == running ]]; then
+      items=("Open display" "SSH" "Serial console" "Info" "Guest info (agent)" "Status" "Stop" "Restart" "Copy IP" "Snapshots" "Port forward" "Autostart" "Rename" "Remove")
+    else
+      items=("Start" "Start + open display" "Info" "Status" "Snapshots" "Autostart" "Eject ISO" "Rename" "Remove")
+    fi
+    items+=("← Back")
+    act=$(gum choose --header "$n · $st" --height 16 "${items[@]}") || return 0
+    case $act in
+      "Open display"|"Start + open display") run launch "$n";;
+      SSH)                run ssh "$n";;
+      "Serial console")   run console "$n";;
+      Info)               run info "$n"; pause;;
+      "Guest info (agent)") run agent "$n"; pause;;
+      Status)             run status "$n"; pause;;
+      Start)              run start "$n";;
+      Stop)               run stop "$n";;
+      Restart)            run restart "$n";;
+      "Copy IP")
+        ip=$(get_vm_ip "$n" lease arp || true)
+        if [[ -z $ip ]]; then warn "No IP yet"
+        elif command -v wl-copy >/dev/null 2>&1; then printf '%s' "$ip" | wl-copy && ok "Copied $ip"
+        else note "$ip"; fi;;
+      Snapshots)
+        act=$(gum choose --header "Snapshots · $n" create list revert delete) || continue
+        run snapshot "$act" "$n"; pause;;
+      "Port forward")
+        act=$(gum choose --header "Port forwards" add list remove) || continue
+        if [[ $act == add ]]; then run portfwd add "$n"; elif [[ $act == list ]]; then run portfwd list; pause; else run portfwd remove; fi;;
+      Autostart)          run autostart "" "$n";;
+      "Eject ISO")        run eject "$n";;
+      Rename)             run rename "$n"; return 0;;
+      Remove)             run remove "$n"; return 0;;
+      *)                  return 0;;
+    esac
+  done
+}
+
+vm_browser() {
+  local n
+  while :; do
+    n=$(pick_vm "Virtual machines" "" back) || return 0
+    vm_actions "$n"
+  done
+}
+
+main_menu() {
+  need_tty "Not a terminal — run: omarchy-create-vm help"
+  trap : INT
+  gum style --bold --foreground 6 --margin "1 0 0 0" "◈ omarchy vm"
+  local c
+  while :; do
+    c=$(gum choose --header "What would you like to do?" --height 12 \
+      "Virtual machines" \
+      "+ New sandbox     instant, copy-on-write" \
+      "+ New VM          cloud image or ISO" \
+      "Live usage" \
+      "Network" \
+      "Doctor" \
+      "Help" \
+      "Quit") || exit 0
+    case $c in
+      "Virtual machines") vm_browser;;
+      "+ New sandbox"*)   run sandbox;;
+      "+ New VM"*)        run create;;
+      "Live usage")       run top;;
+      Network)            run net status; pause;;
+      Doctor)             run doctor; pause;;
+      Help)               show_usage; pause;;
+      *)                  exit 0;;
+    esac
+  done
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Dispatch  (skipped when the file is sourced, e.g. for tests)
+# ════════════════════════════════════════════════════════════════════════════
+main() {
+  ensure_gum
+  local cmd=${1:-}
+  if (($#)); then shift; fi
+  case $cmd in
+    "")
+      if is_tty; then main_menu; else show_usage; fi;;
+    menu|--menu|-m)        main_menu;;
+    create|new)            create_vm "$@";;
+    sandbox|sbx)           create_sandbox "$@";;
+    launch|open)           launch_vm "${1:-}";;
+    start|up)              start_vm "${1:-}";;
+    stop|down)             stop_vm "$@";;
+    restart|reboot)        restart_vm "${1:-}";;
+    status)                status_vm "${1:-}";;
+    list|ls)               list_vm;;
+    info)                  vm_info "${1:-}";;
+    agent|fetch)           vm_agent "${1:-}";;
+    top|usage|stats)       vm_usage;;
+    ssh)                   ssh_vm "$@";;
+    ssh-config)            ssh_config "${1:-}";;
+    ip)                    show_ip "${1:-}";;
+    sync-ssh)              sync_ssh_all "${1:-all}";;
+    console)               vm_console "${1:-}";;
+    eject)                 vm_eject "${1:-}";;
+    autostart)             vm_autostart "${1:-}" "${2:-}";;
+    snapshot|snap)         vm_snapshot "$@";;
+    rename|mv)             vm_rename "$@";;
+    portfwd)               vm_portfwd "$@";;
+    hosts-sync|host-sync)  hosts_sync "${1:-}";;
+    desktop-sync)          desktop_sync;;
+    net)                   manage_network "${1:-}";;
+    remove|rm)             remove_vm "$@";;
+    doctor)                doctor "$@";;
+    help|--help|-h)        show_usage;;
+    *)                     err "Unknown command: $cmd"; show_usage >&2; exit 1;;
+  esac
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi

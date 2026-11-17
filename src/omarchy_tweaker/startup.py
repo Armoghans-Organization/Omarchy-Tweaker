@@ -11,6 +11,7 @@ from omarchy_tweaker.functions.hypr import run_hypr_step
 from omarchy_tweaker.functions.logger import get_session
 from omarchy_tweaker.functions.packages import run_packages_step
 from omarchy_tweaker.functions.plugins import run_plugins_step
+from omarchy_tweaker.functions.scripts import run_scripts_step
 from omarchy_tweaker.functions.snapshot import run_snapshot_step
 from omarchy_tweaker.screens.banner import show_banner
 
@@ -23,6 +24,7 @@ DEFAULT_SEQUENCE: tuple[Callable[[], object], ...] = (
     run_containers_step,
     run_plugins_step,
     run_hypr_step,
+    run_scripts_step,
 )
 
 

@@ -122,13 +122,16 @@ The default sequence is:
 7. **Plugins** — offers the fixed Omarchy shell plugin catalog and installs the bundled
    shell configuration after successful installation.
 8. **Hyprland** — links the bundled Lua configuration and loads the workspaces module.
+9. **Bundled Scripts** — makes the bundled helper scripts executable and links them into
+   `~/.local/bin/`.
 
 Every step can be skipped. If the terminal is not interactive, interactive steps skip
 safely instead of guessing. See **[Commands](commands.md)** for per-command rules.
 
-Package, container, plugin, and Hyprland setup also run in the default sequence. Run
-`omarchy-tweaker packages`, `omarchy-tweaker containers`, `omarchy-tweaker plugins`, or
-`omarchy-tweaker hypr` directly when you want one feature without the earlier steps.
+Package, container, plugin, Hyprland, and script setup also run in the default sequence.
+Run `omarchy-tweaker packages`, `omarchy-tweaker containers`, `omarchy-tweaker plugins`,
+`omarchy-tweaker hypr`, or `omarchy-tweaker scripts` directly when you want one feature
+without the earlier steps.
 
 ### Explore commands
 
@@ -142,15 +145,17 @@ uv run omarchy-tweaker packages --help
 uv run omarchy-tweaker containers --help
 uv run omarchy-tweaker plugins --help
 uv run omarchy-tweaker hypr --help
+uv run omarchy-tweaker scripts --help
 ```
 
 The `welcome` command shows the banner plus a system overview containing OS, kernel,
 desktop, CPU, GPU, memory, disk, uptime, and hostname details.
 
 !!! note "Before removing or replacing anything"
-    Cleanup is permanent, and the Hyprland step replaces matching config files with symlinks
-    without creating backups. Review **[Cleanup](cleanup.md)**, **[Hyprland](hypr.md)**, and
-    the **[Security Policy](security.md)** before confirming.
+    Cleanup is permanent, and the Hyprland and Bundled Scripts steps replace matching files
+    with symlinks without creating backups. Review **[Cleanup](cleanup.md)**,
+    **[Hyprland](hypr.md)**, **[Bundled Scripts](scripts.md)**, and the
+    **[Security Policy](security.md)** before confirming.
 
 ---
 
@@ -188,5 +193,6 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Packages](packages.md) — package catalog and installation workflow.
 - [Plugins](plugins.md) — shell plugin catalog, placement, and patch workflow.
 - [Hyprland](hypr.md) — bundled Lua files, symlinks, and workspaces loading.
+- [Bundled Scripts](scripts.md) — script catalog, permissions, and PATH links.
 - [Architecture](architecture.md) — how the application works internally.
 - [Troubleshooting](troubleshooting.md) — common problems and fixes.

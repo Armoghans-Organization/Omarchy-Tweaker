@@ -22,6 +22,7 @@ nav = [
         {"Containers" = "containers.md"},
         {"Plugins" = "plugins.md"},
         {"Hyprland" = "hypr.md"},
+        {"Bundled Scripts" = "scripts.md"},
         {"Cleanup" = "cleanup.md"},
         {"Directories" = "directories.md"},
     ]},

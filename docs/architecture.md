@@ -31,9 +31,10 @@ flowchart TD
     P --> Q[Container step]
     Q --> R[Plugin step]
     R --> S[Hyprland step]
+    S --> T[Script linking step]
     F -- Yes --> K[Typer CLI]
     K --> L[Root callback shows banner]
-    L --> M[welcome / snapshot / cleanup / directories / packages / containers / plugins / hypr]
+    L --> M[welcome / snapshot / cleanup / directories / packages / containers / plugins / hypr / scripts]
     E --> N[Write shutdown report]
 ```
 
@@ -51,7 +52,7 @@ sequenceDiagram
     App->>Logger: application_session()
     alt No arguments
         App->>Step: run_default()
-        Step->>Step: Banner, snapshot, cleanup, directories, packages, containers, plugins, hypr
+        Step->>Step: Banner, snapshot, cleanup, directories, packages, containers, plugins, hypr, scripts
     else Subcommand
         App->>CLI: Dispatch command
         CLI->>Step: Run selected command
@@ -92,6 +93,12 @@ src/
 │   │   ├── input.lua            # Bundled Hyprland input and gestures
 │   │   ├── looknfeel.lua        # Bundled Hyprland appearance
 │   │   └── workspaces.lua       # Bundled Hyprland workspaces and rules
+│   ├── script/
+│   │   ├── create-vm            # QEMU/KVM VM and sandbox manager
+│   │   ├── macos-vm             # macOS VM helper
+│   │   ├── setup-security-fingerprint # Fingerprint authentication setup
+│   │   ├── snapshot             # Snapper snapshot helper
+│   │   └── windows-vm           # Windows VM helper
 │   ├── commands/
 │   │   ├── __init__.py          # Command registration
 │   │   ├── cleanup.py           # cleanup command wrapper
@@ -100,6 +107,7 @@ src/
 │   │   ├── hypr.py              # hypr command wrapper
 │   │   ├── packages.py          # packages command wrapper
 │   │   ├── plugins.py           # plugins command wrapper
+│   │   ├── scripts.py           # scripts command wrapper
 │   │   ├── snapshot.py          # snapshot command wrapper
 │   │   └── welcome.py           # welcome command wrapper
 │   ├── screens/
@@ -115,6 +123,7 @@ src/
 │       ├── logger.py            # Session logging
 │       ├── packages.py          # Pacman and AUR package installation
 │       ├── plugins.py           # Omarchy shell plugin installation
+│       ├── scripts.py           # Bundled script executable and symlink workflow
 │       ├── snapshot.py          # Snapshot workflow
 │       ├── system_info.py       # OS and hardware information
 │       └── ui.py                # Rich and InquirerPy UI toolkit
@@ -132,9 +141,9 @@ The layout is flat by design. There is no implemented `cli/`, `core/`, or `model
 ```mermaid
 pie showData
     title Source modules by area
-    "Functions" : 11
+    "Functions" : 12
     "Entry and core" : 6
-    "Commands" : 9
+    "Commands" : 10
     "Screens" : 3
     "Bootstrap" : 2
 ```
@@ -155,10 +164,12 @@ pie showData
 | `functions/hypr.py` | Link bundled Hyprland files and add the workspaces require line. |
 | `functions/packages.py` | Present Pacman and AUR package groups, confirm selections, and install each group. |
 | `functions/plugins.py` | Load the fixed plugin catalog, confirm selections, install plugins, apply positions, run optional patches, and replace `~/.config/omarchy/shell.json`. |
+| `functions/scripts.py` | Make bundled scripts executable and link them into `~/.local/bin/`. |
 | `config/plugins.ini` | Fixed Omarchy shell plugin catalog, placement, and patch metadata. |
 | `config/shell.json` | Bundled Omarchy shell configuration for bar layout and plugin list. |
 | `containers/*` | Bundled Docker Compose definitions and manifests. |
 | `hypr/*.lua` | Bundled Hyprland Lua configuration files. |
+| `script/*` | Bundled helper scripts linked into the user's PATH. |
 | `functions/snapshot.py` | Confirm and run `omarchy snapshot create`. |
 | `functions/system_info.py` | Collect OS, CPU, GPU, memory, disk, and uptime data. |
 | `functions/logger.py` | Write structured session logs. |
@@ -183,14 +194,15 @@ DEFAULT_SEQUENCE = (
     run_containers_step,
     run_plugins_step,
     run_hypr_step,
+    run_scripts_step,
 )
 ```
 
 `run_default()` logs each step and calls them in order. A step can skip itself without raising an exception.
 
-Package installation, container setup, plugin installation, and Hyprland configuration run
-after directory setup in the default sequence. They are also available as the standalone
-`packages`, `containers`, `plugins`, and `hypr` commands.
+Package installation, container setup, plugin installation, Hyprland configuration, and
+script linking run after directory setup in the default sequence. They are also available
+as the standalone `packages`, `containers`, `plugins`, `hypr`, and `scripts` commands.
 
 The banner is part of the default sequence. For subcommands, the Typer root callback shows the banner instead, so it is not duplicated.
 

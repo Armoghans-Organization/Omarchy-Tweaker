@@ -1,0 +1,345 @@
+#!/usr/bin/env bash
+
+# ========================================================================================
+# Setup Security Fingerprint
+# Configure fingerprint authentication for sudo, polkit, and the Omarchy lock screen.
+#
+# Original: /usr/share/omarchy/bin/omarchy-setup-security-fingerprint
+#
+# Requires: fprintd, libfprint, and Omarchy hardware helpers.
+# Optional: gum for the styled interface. Without gum the script still works, plainly.
+# ========================================================================================
+
+set -Eeuo pipefail
+
+# ── Tuning ────────────────────────────────────────────────────────────────────
+
+readonly VERIFY_MAX_ATTEMPTS=12
+readonly FPRINTD_START_WAIT=5
+readonly FPRINTD_RESTART_WAIT=3
+readonly FPRINTD_GATE='auth      [success=1 default=ignore] pam_exec.so quiet /usr/bin/omarchy-hw-laptop-closed'
+
+# ── Interface ─────────────────────────────────────────────────────────────────
+
+gum_available=false
+command -v gum >/dev/null 2>&1 && gum_available=true
+
+readonly C_PRIMARY=99
+readonly C_SUCCESS=79
+readonly C_WARN=214
+readonly C_ERROR=204
+readonly C_MUTED=245
+readonly C_SURFACE=235
+
+step() {
+    local index="$1"
+    local title="$2"
+    if "$gum_available"; then
+        printf '\n%s %s\n' \
+            "$(gum style --background "$C_PRIMARY" --foreground 0 --bold --padding '0 1' "$index")" \
+            "$(gum style --foreground "$C_PRIMARY" --bold "$title")"
+    else
+        printf '\n%s  %s\n' "$index" "$title"
+    fi
+}
+
+hint() {
+    if "$gum_available"; then
+        gum style --foreground "$C_MUTED" --padding '0 0 0 3' "$*"
+    else
+        printf '   %s\n' "$*"
+    fi
+}
+
+info() {
+    if "$gum_available"; then
+        gum style --foreground "$C_PRIMARY" "▸ $*"
+    else
+        printf '▸ %s\n' "$*"
+    fi
+}
+
+ok() {
+    if "$gum_available"; then
+        gum style --foreground "$C_SUCCESS" --bold "✓ $*"
+    else
+        printf '✓ %s\n' "$*"
+    fi
+}
+
+warn() {
+    if "$gum_available"; then
+        gum style --foreground "$C_WARN" "! $*"
+    else
+        printf '! %s\n' "$*" >&2
+    fi
+}
+
+fail() {
+    if "$gum_available"; then
+        gum style --foreground "$C_ERROR" --bold "✗ $*" >&2
+    else
+        printf '✗ %s\n' "$*" >&2
+    fi
+}
+
+confirm() {
+    local question="$1"
+    "$gum_available" || return 0
+    gum confirm --default \
+        --prompt.foreground "$C_PRIMARY" \
+        --selected.background "$C_PRIMARY" --selected.foreground 0 \
+        "$question"
+}
+
+spin() {
+    local title="$1"
+    shift
+    if "$gum_available"; then
+        gum spin --spinner pulse --spinner.foreground "$C_PRIMARY" \
+            --title "$title" --title.foreground "$C_MUTED" -- "$@"
+    else
+        info "$title"
+        "$@"
+    fi
+}
+
+pause() {
+    local title="$1"
+    local seconds="$2"
+    if "$gum_available"; then
+        gum spin --spinner dot --spinner.foreground "$C_MUTED" \
+            --title "$title" --title.foreground "$C_MUTED" -- sleep "$seconds"
+    else
+        info "$title"
+        sleep "$seconds"
+    fi
+}
+
+die() {
+    fail "$*"
+    exit 1
+}
+
+on_error() {
+    local code=$?
+    local line="${BASH_LINENO[0]:-?}"
+    fail "Unexpected failure on line ${line} (exit ${code})."
+    warn "PAM configuration is only touched after a successful fingerprint match."
+    exit "$code"
+}
+trap on_error ERR
+
+# ── Preflight ────────────────────────────────────────────────────────────────
+
+step '01' 'Preflight'
+command -v omarchy-hw-fingerprint >/dev/null 2>&1 || die 'Omarchy fingerprint hardware helper was not found.'
+omarchy-hw-fingerprint || die 'No supported fingerprint sensor was detected.'
+for cmd in fprintd-enroll fprintd-verify fprintd-list; do
+    command -v "$cmd" >/dev/null 2>&1 || die "Missing command: $cmd"
+done
+command -v omarchy-pkg-missing >/dev/null 2>&1 || die 'Missing Omarchy package helper: omarchy-pkg-missing'
+command -v pacman >/dev/null 2>&1 || die 'pacman was not found; this script is intended for Omarchy/Arch Linux.'
+sudo -v || die 'Administrator authentication failed.'
+ok 'Hardware and required tools are ready.'
+
+step '02' 'Dependencies'
+if omarchy-pkg-missing libfprint-git fprintd usbutils; then
+    if confirm 'Install libfprint-git, fprintd and usbutils?'; then
+        spin 'Installing fingerprint packages...' \
+            sudo pacman -S --needed --noconfirm libfprint-git fprintd usbutils
+        ok 'Fingerprint packages installed.'
+    else
+        die 'Required fingerprint packages are missing.'
+    fi
+else
+    ok 'Required fingerprint packages are already installed.'
+fi
+
+# ── fprintd lifecycle ────────────────────────────────────────────────────────
+
+reset_fprintd() {
+    warn 'Resetting fingerprint service...'
+    sudo systemctl stop fprintd 2>/dev/null || true
+    sleep 2
+    spin 'Starting fingerprint service...' sudo systemctl start fprintd
+    pause 'Waiting for the fingerprint reader...' "$FPRINTD_START_WAIT"
+}
+
+restart_fprintd() {
+    warn 'Reader did not respond; restarting fprintd...'
+    spin 'Restarting fprintd...' sudo systemctl restart fprintd
+    pause 'Waiting for fprintd to recover...' "$FPRINTD_RESTART_WAIT"
+}
+
+# ── Fingerprint verification ────────────────────────────────────────────────
+
+verify_fingerprint() {
+    local attempt=1
+    local output
+    local exit_code
+
+    while (( attempt <= VERIFY_MAX_ATTEMPTS )); do
+        info "Verification attempt ${attempt}/${VERIFY_MAX_ATTEMPTS}"
+        hint 'Swipe the same finger naturally across the reader.'
+
+        set +e
+        output="$(fprintd-verify -f right-index-finger 2>&1)"
+        exit_code=$?
+        set -e
+        hint "$output"
+
+        if grep -q 'verify-match' <<<"$output"; then
+            ok 'Fingerprint matched.'
+            return 0
+        fi
+
+        if grep -q 'verify-no-match' <<<"$output"; then
+            if (( attempt < VERIFY_MAX_ATTEMPTS )); then
+                warn 'That swipe did not match. Try again.'
+                pause 'Ready for another swipe...' 1
+                ((attempt += 1))
+                continue
+            fi
+            break
+        fi
+
+        if grep -Eiq \
+            'transfer timed out|transfer failed|already open|failed to claim device|Open failed with error|device busy' \
+            <<<"$output"; then
+            if (( attempt < VERIFY_MAX_ATTEMPTS )); then
+                restart_fprintd
+                info 'Trying verification again...'
+                ((attempt += 1))
+                continue
+            fi
+            break
+        fi
+
+        warn "Unexpected verification response (exit ${exit_code})."
+        if (( attempt < VERIFY_MAX_ATTEMPTS )); then
+            restart_fprintd
+            ((attempt += 1))
+            continue
+        fi
+        break
+    done
+
+    fail "Fingerprint verification did not succeed after ${VERIFY_MAX_ATTEMPTS} attempts."
+    return 1
+}
+
+# ── PAM configuration ────────────────────────────────────────────────────────
+
+setup_pam_file() {
+    local pam_file="$1"
+    local label="$2"
+
+    if [[ ! -f "$pam_file" ]]; then
+        warn "${label} PAM file not found; skipping."
+        return 0
+    fi
+
+    if ! grep -q 'pam_fprintd\.so' "$pam_file"; then
+        info "Enabling fingerprint authentication for ${label}..."
+        sudo sed -i '1i auth      sufficient pam_fprintd.so' "$pam_file"
+    fi
+
+    if ! grep -q 'omarchy-hw-laptop-closed' "$pam_file"; then
+        info "Adding laptop-lid check to ${label}..."
+        sudo sed -i "/pam_fprintd\\.so/i $FPRINTD_GATE" "$pam_file"
+    fi
+}
+
+setup_pam_config() {
+    local stamp
+    stamp="$(date +%Y%m%d-%H%M%S)"
+
+    sudo cp -a /etc/pam.d/sudo "/etc/pam.d/sudo.bak.${stamp}"
+    if [[ -f /etc/pam.d/polkit-1 ]]; then
+        sudo cp -a /etc/pam.d/polkit-1 "/etc/pam.d/polkit-1.bak.${stamp}"
+    fi
+
+    setup_pam_file /etc/pam.d/sudo sudo
+
+    if [[ -f /etc/pam.d/polkit-1 ]]; then
+        setup_pam_file /etc/pam.d/polkit-1 polkit
+    else
+        info 'Creating polkit fingerprint PAM configuration...'
+        sudo tee /etc/pam.d/polkit-1 >/dev/null <<EOF
+$FPRINTD_GATE
+auth      sufficient pam_fprintd.so
+auth      required pam_unix.so
+
+account   required pam_unix.so
+password  required pam_unix.so
+session   required pam_unix.so
+EOF
+    fi
+}
+
+setup_lock_fingerprint_pam() {
+    info 'Configuring Omarchy lock-screen authentication...'
+    sudo tee /etc/pam.d/omarchy-lock-fingerprint >/dev/null <<'EOF'
+#%PAM-1.0
+auth       required                    pam_fprintd.so
+account    include                     system-local-login
+EOF
+}
+
+# ── Enrollment ───────────────────────────────────────────────────────────────
+
+step '03' 'Prepare the reader'
+reset_fprintd
+
+step '04' 'Enroll your right index finger'
+if "$gum_available"; then
+    gum style \
+        --border rounded --border-foreground "$C_MUTED" \
+        --background "$C_SURFACE" --padding '0 2' \
+        "$(gum style --foreground "$C_PRIMARY" --bold 'Place your right index finger on the reader.')" \
+        "$(gum style --foreground "$C_MUTED" 'Lift between swipes and vary the position slightly.')"
+else
+    hint 'Place your right index finger on the reader.'
+    hint 'Lift between swipes and vary the position slightly.'
+fi
+
+if ! fprintd-enroll -f right-index-finger; then
+    die 'Fingerprint enrollment failed. PAM configuration was not changed.'
+fi
+ok 'Fingerprint enrolled.'
+
+step '05' 'Verify your fingerprint'
+info 'Restarting the reader before verification (helps the VFS5011 reader).'
+reset_fprintd
+
+info "Fingerprints currently enrolled for ${USER}:"
+fprintd-list "$USER" || warn 'Could not list enrolled fingerprints.'
+hint 'Swipe your RIGHT INDEX finger when prompted.'
+verify_fingerprint || {
+    fail 'Verification failed; your fingerprint remains enrolled and PAM is unchanged.'
+    exit 1
+}
+
+# ── Apply system authentication only after a successful match ────────────────
+
+step '06' 'Apply authentication settings'
+if confirm 'Enable fingerprint auth for sudo, polkit and the lock screen?'; then
+    warn 'Updating PAM configuration; existing files will be backed up first.'
+    setup_pam_config
+    setup_lock_fingerprint_pam
+    ok 'PAM configuration updated.'
+else
+    die 'Authentication settings were not applied.'
+fi
+
+# ── Complete ─────────────────────────────────────────────────────────────────
+
+printf '\n'
+ok 'Fingerprint authentication has been configured.'
+hint 'sudo, polkit and the Omarchy lock screen are ready.'
+hint 'Lock your session with Super + L.'
+
+if ! "$gum_available"; then
+    warn 'Install gum for the styled interface.'
+fi

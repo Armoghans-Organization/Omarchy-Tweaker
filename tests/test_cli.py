@@ -10,6 +10,7 @@ import omarchy_tweaker.commands.directory as directory_command
 import omarchy_tweaker.commands.hypr as hypr_command
 import omarchy_tweaker.commands.packages as packages_command
 import omarchy_tweaker.commands.plugins as plugins_command
+import omarchy_tweaker.commands.scripts as scripts_command
 import omarchy_tweaker.commands.snapshot as snapshot_command
 import omarchy_tweaker.functions.cleanup as cleanup_module
 import omarchy_tweaker.startup as startup_module
@@ -20,6 +21,7 @@ from omarchy_tweaker.functions.directory import DirectoryResult, run_directory_s
 from omarchy_tweaker.functions.hypr import HyprResult, run_hypr_step
 from omarchy_tweaker.functions.packages import PackageResult
 from omarchy_tweaker.functions.plugins import PluginResult
+from omarchy_tweaker.functions.scripts import ScriptResult, run_scripts_step
 from omarchy_tweaker.functions.snapshot import SnapshotResult, run_snapshot_step
 from omarchy_tweaker.screens.banner import show_banner
 
@@ -116,6 +118,10 @@ def test_default_sequence_includes_containers_step() -> None:
 
 def test_default_sequence_includes_hypr_step() -> None:
     assert run_hypr_step in startup_module.DEFAULT_SEQUENCE
+
+
+def test_default_sequence_includes_scripts_step() -> None:
+    assert run_scripts_step in startup_module.DEFAULT_SEQUENCE
 
 
 def test_default_sequence_runs_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -333,6 +339,34 @@ def test_hypr_command_exits_zero_when_skipped(
     assert result.exit_code == 0
 
 
+def test_scripts_command_exits_nonzero_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        scripts_command,
+        "run_scripts_step",
+        lambda: ScriptResult.FAILED,
+    )
+
+    result = runner.invoke(app, ["scripts"])
+
+    assert result.exit_code == 1
+
+
+def test_scripts_command_exits_zero_when_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        scripts_command,
+        "run_scripts_step",
+        lambda: ScriptResult.SKIPPED,
+    )
+
+    result = runner.invoke(app, ["scripts"])
+
+    assert result.exit_code == 0
+
+
 def test_welcome_command_shows_welcome() -> None:
     result = runner.invoke(app, ["welcome"])
 
@@ -357,5 +391,6 @@ def test_help_lists_commands() -> None:
     assert "directories" in result.output
     assert "hypr" in result.output
     assert "packages" in result.output
+    assert "scripts" in result.output
     assert "snapshot" in result.output
     assert "welcome" in result.output

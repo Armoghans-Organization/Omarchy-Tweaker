@@ -67,6 +67,7 @@ A growing collection of tools and resources, including:
 * **Documentation**: Notes, guides, and documentation to help understand and maintain my setup
 * **Customization**: Tweaks and modifications to enhance the look, feel, and behavior of my Omarchy environment.
 * **Hyprland Configuration**: Bundled Lua files are linked into `~/.config/hypr/` and the workspaces module is loaded automatically.
+* **Bundled Scripts**: Helper scripts are made executable and linked into `~/.local/bin/` so they are available on your PATH.
 
 ## Platform Compatibility
 

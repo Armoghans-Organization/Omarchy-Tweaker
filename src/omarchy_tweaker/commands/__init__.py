@@ -11,6 +11,7 @@ from omarchy_tweaker.commands import (
     hypr,
     packages,
     plugins,
+    scripts,
     snapshot,
     welcome,
 )
@@ -28,5 +29,6 @@ def register_commands(app: typer.Typer) -> None:
     hypr.register(app)
     packages.register(app)
     plugins.register(app)
+    scripts.register(app)
     snapshot.register(app)
     welcome.register(app)

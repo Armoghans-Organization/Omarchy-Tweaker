@@ -1,5 +1,5 @@
 ---
-description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, package installation, plugin installation, Hyprland configuration, and documentation builds.
+description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, package installation, plugin installation, Hyprland configuration, bundled script linking, and documentation builds.
 icon: material/help-circle
 subtitle: Fixes and diagnosis
 mermaid: true
@@ -17,7 +17,7 @@ flowchart TD
     D -- Yes --> E[Use an interactive terminal]
     D -- No --> F{Omarchy command found?}
     F -- No --> G[Check PATH and Omarchy install]
-    F -- Yes --> H{Snapshot, cleanup, directories, packages, containers, plugins, or hypr?}
+    F -- Yes --> H{Snapshot, cleanup, directories, packages, containers, plugins, hypr, or scripts?}
     H -- Snapshot --> I[Run omarchy snapshot create]
     H -- Cleanup --> J[Check discovery rules]
     J --> K[See Cleanup]
@@ -29,12 +29,14 @@ flowchart TD
     P --> Q[See Plugins]
     H -- Hypr --> R[Check hyprland.lua and symlinks]
     R --> S[See Hyprland]
+    H -- Scripts --> T[Check ~/.local/bin and bundled script directory]
+    T --> U[See Bundled Scripts]
 ```
 
 | Symptom | Likely cause | Next step |
 |:--|:--|:--|
 | `omarchy-tweaker` not found | Checkout not on `PATH`, or tool bin directory missing | Run through `uv` or install globally. |
-| Snapshot, cleanup, directory setup, package installation, container setup, plugin installation, or Hyprland configuration skipped | No interactive TTY | Run directly in a terminal. |
+| Snapshot, cleanup, directory setup, package installation, container setup, plugin installation, Hyprland configuration, or script linking skipped | No interactive TTY | Run directly in a terminal. |
 | `omarchy` not found | Omarchy CLI not on `PATH` | Verify the Omarchy installation. |
 | `pacman` or `yay` not found | Package manager or AUR helper missing from `PATH` | Install the missing command or fix `PATH`. |
 | Snapshot fails | Snapshot tooling, permissions, or disk space | Run `omarchy snapshot create` directly. |
@@ -266,6 +268,30 @@ the step replaces matching files with symlinks without creating backups. Restore
 need from your own backup before rerunning the command.
 
 See **[Hyprland](hypr.md)** for the bundled file catalog and safety model.
+
+---
+
+## Bundled script linking fails
+
+Inspect the links and the bundled source directory:
+
+```bash
+ls -l ~/.local/bin
+ls -l /usr/share/omarchy-tweaker/script 2>/dev/null || true
+```
+
+Common causes:
+
+- `~/.local/bin` cannot be created or written to.
+- A bundled name is occupied by a directory in `~/.local/bin/`.
+- `OMARCHY_TWEAKER_SCRIPTS_DIR` points at an empty or missing directory.
+- The command was run without an interactive terminal.
+
+Correct links and executable scripts are left alone. Remember that the step replaces matching
+`~/.local/bin/` entries with symlinks without creating backups. Restore any file you need from
+your own backup before rerunning the command.
+
+See **[Bundled Scripts](scripts.md)** for the catalog and safety model.
 
 ---
 

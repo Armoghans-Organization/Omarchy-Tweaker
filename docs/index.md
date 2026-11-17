@@ -49,7 +49,7 @@ mermaid: true
 
 Omarchy Tweaker is a Python command-line application that brings useful Omarchy tweaks, configuration workflows, maintenance tasks, and automation into one consistent interface.
 
-The project is currently in **early implementation**. The implemented surface is deliberately small and safe: it helps you inspect your system, create a restore point, install selected packages and Omarchy shell plugins, remove selected preinstalled Omarchy applications, and create workspace folders.
+The project is currently in **early implementation**. The implemented surface is deliberately small and safe: it helps you inspect your system, create a restore point, install selected packages and Omarchy shell plugins, remove selected preinstalled Omarchy applications, create workspace folders, and link bundled helper scripts into your PATH.
 
 <div class="grid cards" markdown>
 
@@ -83,7 +83,7 @@ The project is currently in **early implementation**. The implemented surface is
 
 | Area | Status | What it does |
 |:--|:--:|:--|
-| Default startup sequence | Implemented | Shows the banner, offers snapshot, cleanup, directory setup, package installation, container setup, plugin installation, and Hyprland configuration. |
+| Default startup sequence | Implemented | Shows the banner, offers snapshot, cleanup, directory setup, package installation, container setup, plugin installation, Hyprland configuration, and bundled script linking. |
 | `welcome` command | Implemented | Displays the welcome screen and a system overview. |
 | `snapshot` command | Implemented | Runs `omarchy snapshot create` with confirmation and live output. |
 | `cleanup` command | Implemented | Removes only selected installed packages, web apps, TUIs, and Mise wrappers. |
@@ -92,6 +92,7 @@ The project is currently in **early implementation**. The implemented surface is
 | `containers` command | Implemented | Prepares selected Docker Compose containers with Caddy routes and starts them. |
 | `plugins` command | Implemented | Installs selected Omarchy shell plugins from a fixed catalog, applies optional patches, and installs the bundled shell configuration. |
 | `hypr` command | Implemented | Links the bundled Hyprland Lua configuration and loads the workspaces module. |
+| `scripts` command | Implemented | Makes bundled helper scripts executable and links them into `~/.local/bin/`. |
 | Session logging | Implemented | Writes structured logs to the XDG state directory. |
 | Rich error handling | Implemented | Renders uncaught exceptions, thread errors, and syntax errors cleanly. |
 | Reusable UI toolkit | Implemented | Provides banners, panels, tables, prompts, progress, and virtual terminals. |
@@ -103,7 +104,7 @@ The project is currently in **early implementation**. The implemented surface is
 ```mermaid
 pie showData
     title Implemented surface
-    "Implemented" : 12
+    "Implemented" : 13
     "Planned" : 2
 ```
 
@@ -114,7 +115,7 @@ pie showData
 
 ```mermaid
 timeline
-    title One invocation, eight steps
+    title One invocation, nine steps
     Launch : Show the banner
     Protect : Offer a snapshot
     Clean : Select and remove
@@ -123,6 +124,7 @@ timeline
     Serve : Prepare containers
     Extend : Install plugins
     Tune : Apply Hyprland configuration
+    Link : Link bundled scripts
 ```
 
 Each step can be skipped. See **[Getting Started](getting-started.md)** for the full first-run flow.
@@ -130,9 +132,9 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
 ## Safety first
 
 !!! warning "System-changing workflow"
-    Snapshot, cleanup, directory setup, package installation, container setup, plugin installation, and Hyprland configuration act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, **[Packages](packages.md)**, **[Containers](containers.md)**, **[Plugins](plugins.md)**, **[Hyprland](hypr.md)**, and the **[Security Policy](security.md)** before making changes.
+    Snapshot, cleanup, directory setup, package installation, container setup, plugin installation, Hyprland configuration, and script linking act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, **[Packages](packages.md)**, **[Containers](containers.md)**, **[Plugins](plugins.md)**, **[Hyprland](hypr.md)**, **[Bundled Scripts](scripts.md)**, and the **[Security Policy](security.md)** before making changes.
 
-    The default sequence offers a snapshot before cleanup, then offers workspace directory setup, package installation, container setup, plugin installation, and Hyprland configuration. Running `omarchy-tweaker cleanup`, `omarchy-tweaker packages`, `omarchy-tweaker plugins`, or `omarchy-tweaker hypr` directly does **not** create a snapshot automatically.
+    The default sequence offers a snapshot before cleanup, then offers workspace directory setup, package installation, container setup, plugin installation, Hyprland configuration, and bundled script linking. Running `omarchy-tweaker cleanup`, `omarchy-tweaker packages`, `omarchy-tweaker plugins`, `omarchy-tweaker hypr`, or `omarchy-tweaker scripts` directly does **not** create a snapshot automatically.
 
 ## Documentation map
 
@@ -195,6 +197,14 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
 
     [Open Hyprland](hypr.md)
 
+-   :material-link-variant: **Bundled Scripts**
+
+    ---
+
+    Make helper scripts executable and link them into `~/.local/bin/`.
+
+    [Open Bundled Scripts](scripts.md)
+
 -   :material-sitemap-outline: **Architecture**
 
     ---
@@ -252,6 +262,7 @@ mindmap
       Containers
       Plugins
       Hyprland
+      Bundled Scripts
       Cleanup
       Directories
     Project
