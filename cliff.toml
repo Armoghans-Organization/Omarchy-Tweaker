@@ -177,6 +177,9 @@ commit_parsers = [
 # REMOTE METADATA
 # ============================================================
 
+[remote]
+offline = true
+
 [remote.github]
 owner = "Armoghans-Organization"
 repo = "Omarchy-Tweaker"
