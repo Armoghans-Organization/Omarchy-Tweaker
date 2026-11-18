@@ -184,7 +184,7 @@ repos:
           - shell
         args:
           - --write-changes
-          - --ignore-words-list=OT
+          - --ignore-words-list=OT,fpr
         verbose: true
 
   # ===========================================================

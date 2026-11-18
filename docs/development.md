@@ -145,6 +145,8 @@ Omarchy-Tweaker/
 │   ├── cleanup.md                  # Cleanup workflow reference
 │   ├── containers.md               # Container setup reference
 │   ├── directories.md              # Workspace directory reference
+│   ├── dotfiles.md                 # Dotfile and signing-key reference
+│   ├── git.md                      # Git dotfile usage guide and cheat sheets
 │   ├── hypr.md                     # Hyprland configuration reference
 │   ├── packages.md                 # Package installation reference
 │   ├── plugins.md                  # Shell plugin installation reference
@@ -168,6 +170,7 @@ Omarchy-Tweaker/
 │   │   ├── startup.py              # Typer-free default sequence
 │   │   ├── config/                 # Bundled plugin catalog and shell config
 │   │   ├── containers/             # Bundled container definitions
+│   │   ├── dotfiles/               # Bundled dotfile catalogs and templates
 │   │   ├── hypr/                   # Bundled Hyprland Lua configuration
 │   │   ├── script/                 # Bundled helper scripts
 │   │   ├── commands/               # Thin CLI command wrappers
@@ -184,6 +187,7 @@ Omarchy-Tweaker/
 │   ├── test_cli.py
 │   ├── test_containers.py
 │   ├── test_directory.py
+│   ├── test_dotfiles.py
 │   ├── test_error_handling.py
 │   ├── test_hypr.py
 │   ├── test_logger.py
@@ -474,6 +478,7 @@ Run a single test or file directly:
 ```bash
 uv run pytest tests/test_main.py -v
 uv run pytest tests/test_directory.py -v
+uv run pytest tests/test_dotfiles.py -v
 uv run pytest tests/test_packages.py -v
 uv run pytest tests/test_plugins.py -v
 uv run pytest tests/test_scripts.py -v
@@ -493,14 +498,14 @@ uv run pytest -k "cleanup or directory or packages or plugins" -v
 
 ### Current Coverage
 
-The suite currently contains **359 tests** covering:
+The suite currently contains **379 tests** covering:
 
 ```mermaid
 pie showData
     title Tests by area
     "UI" : 65
     "Containers" : 90
-    "CLI" : 32
+    "CLI" : 35
     "Hyprland" : 22
     "Logging" : 27
     "Packages" : 19
@@ -510,6 +515,7 @@ pie showData
     "System info" : 15
     "Snapshot" : 10
     "Directories" : 10
+    "Dotfiles" : 17
     "Error handling" : 7
     "Metadata and bootstrap" : 9
     "Entry point" : 2
@@ -521,6 +527,7 @@ pie showData
 - Snapshot success, skip, timeout, missing-command, and OS-error paths.
 - Cleanup discovery, selection, removal, path validation, and failure reporting.
 - Directory targets, creation, parent checks, conflict handling, and non-interactive skips.
+- Dotfile catalog parsing, path validation, symlink backups and restoration, template rendering, SSH and GPG key setup, and failure reporting.
 - Package group selection, confirmation, single-command installation, and failure paths.
 - Container catalog loading, environment generation, Caddy integration, Compose startup, and OmniRoute setup.
 - Plugin catalog loading, selection, non-interactive installation, placement, patch execution, and failure paths.
@@ -578,7 +585,7 @@ Documentation is built with [Zensical](https://zensical.org/docs) and configured
 
 - Home → `index.md`
 - Getting Started → `getting-started.md`
-- Usage → `commands.md`, `containers.md`, `packages.md`, `plugins.md`, `hypr.md`, `scripts.md`, `cleanup.md`, and `directories.md`
+- Usage → `commands.md`, `containers.md`, `packages.md`, `plugins.md`, `hypr.md`, `dotfiles.md`, `git.md`, `scripts.md`, `cleanup.md`, and `directories.md`
 - Project → `architecture.md`, `development.md`, `contributing.md`, and `security.md`
 - Troubleshooting → `troubleshooting.md`
 - Changelog → `changelog.md` (generated)

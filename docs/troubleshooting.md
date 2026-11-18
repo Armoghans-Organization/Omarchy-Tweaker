@@ -1,5 +1,5 @@
 ---
-description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, package installation, plugin installation, Hyprland configuration, bundled script linking, and documentation builds.
+description: Common fixes for terminal prompts, Omarchy commands, snapshots, cleanup, directory setup, dotfile setup, package installation, plugin installation, Hyprland configuration, bundled script linking, and documentation builds.
 icon: material/help-circle
 subtitle: Fixes and diagnosis
 mermaid: true
@@ -23,6 +23,8 @@ flowchart TD
     J --> K[See Cleanup]
     H -- Directories --> L[Check home permissions]
     L --> M[See Directories]
+    H -- Dotfiles --> V[Check config.toml and key commands]
+    V --> W[See Dotfiles]
     H -- Packages --> N[Run sudo pacman -S or yay -S]
     N --> O[See Packages]
     H -- Plugins --> P[Run omarchy plugin add]
@@ -36,7 +38,7 @@ flowchart TD
 | Symptom | Likely cause | Next step |
 |:--|:--|:--|
 | `omarchy-tweaker` not found | Checkout not on `PATH`, or tool bin directory missing | Run through `uv` or install globally. |
-| Snapshot, cleanup, directory setup, package installation, container setup, plugin installation, Hyprland configuration, or script linking skipped | No interactive TTY | Run directly in a terminal. |
+| Snapshot, cleanup, directory setup, dotfile setup, package installation, container setup, plugin installation, Hyprland configuration, or script linking skipped | No interactive TTY | Run directly in a terminal. |
 | `omarchy` not found | Omarchy CLI not on `PATH` | Verify the Omarchy installation. |
 | `pacman` or `yay` not found | Package manager or AUR helper missing from `PATH` | Install the missing command or fix `PATH`. |
 | Snapshot fails | Snapshot tooling, permissions, or disk space | Run `omarchy snapshot create` directly. |
@@ -244,6 +246,34 @@ existing path manually before running `omarchy-tweaker directories` again. Direc
 does not use `sudo` and does not change ownership.
 
 See **[Directories](directories.md)** for the complete target list and safety model.
+
+---
+
+## Dotfile setup fails
+
+Inspect the Git destinations and key files:
+
+```bash
+ls -l ~/.config/git
+ls -l ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub
+gpg --homedir ~/.gnupg --list-secret-keys
+```
+
+Common causes:
+
+- A catalog `config.toml` is missing or contains a path outside the home directory.
+- `ssh-keygen` or `gpg` is missing from `PATH`.
+- The home directory or `~/.config/git` is not writable.
+- A bundled source named in `config.toml` is missing.
+- The command was run without an interactive terminal.
+
+Existing destinations are backed up before replacement, and a failed symlink or template
+write restores the backup. Existing SSH and GPG private keys are reused rather than
+overwritten. If GPG fingerprint discovery fails after generation, run
+`gpg --homedir ~/.gnupg --list-secret-keys` to inspect the keyring.
+
+See **[Dotfiles](dotfiles.md)** for the catalog format and safety model, and
+**[Git Dotfiles](git.md)** for Git-specific checks and setup steps.
 
 ---
 

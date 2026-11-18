@@ -8,6 +8,7 @@ from omarchy_tweaker.commands import (
     cleanup,
     containers,
     directory,
+    dotfiles,
     hypr,
     packages,
     plugins,
@@ -26,6 +27,7 @@ def register_commands(app: typer.Typer) -> None:
     cleanup.register(app)
     containers.register(app)
     directory.register(app)
+    dotfiles.register(app)
     hypr.register(app)
     packages.register(app)
     plugins.register(app)

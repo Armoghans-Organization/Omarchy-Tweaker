@@ -27,14 +27,15 @@ flowchart TD
     H --> I[Snapshot step]
     I --> J[Cleanup step]
     J --> O[Directory step]
-    O --> P[Package step]
+    O --> U[Dotfiles step]
+    U --> P[Package step]
     P --> Q[Container step]
     Q --> R[Plugin step]
     R --> S[Hyprland step]
     S --> T[Script linking step]
     F -- Yes --> K[Typer CLI]
     K --> L[Root callback shows banner]
-    L --> M[welcome / snapshot / cleanup / directories / packages / containers / plugins / hypr / scripts]
+    L --> M[welcome / snapshot / cleanup / directories / dotfiles / packages / containers / plugins / hypr / scripts]
     E --> N[Write shutdown report]
 ```
 
@@ -52,7 +53,7 @@ sequenceDiagram
     App->>Logger: application_session()
     alt No arguments
         App->>Step: run_default()
-        Step->>Step: Banner, snapshot, cleanup, directories, packages, containers, plugins, hypr, scripts
+        Step->>Step: Banner, snapshot, cleanup, directories, dotfiles, packages, containers, plugins, hypr, scripts
     else Subcommand
         App->>CLI: Dispatch command
         CLI->>Step: Run selected command
@@ -88,6 +89,8 @@ src/
 │   │   └── shell.json           # Bundled Omarchy shell configuration
 │   ├── containers/
 │   │   └── <name>/              # Docker Compose container definitions
+│   ├── dotfiles/
+│   │   └── <name>/              # Dotfile catalogs with config.toml and templates
 │   ├── hypr/
 │   │   ├── bindings.lua         # Bundled Hyprland keybindings
 │   │   ├── input.lua            # Bundled Hyprland input and gestures
@@ -104,6 +107,7 @@ src/
 │   │   ├── cleanup.py           # cleanup command wrapper
 │   │   ├── containers.py        # containers command wrapper
 │   │   ├── directory.py         # directories command wrapper
+│   │   ├── dotfiles.py          # dotfiles command wrapper
 │   │   ├── hypr.py              # hypr command wrapper
 │   │   ├── packages.py          # packages command wrapper
 │   │   ├── plugins.py           # plugins command wrapper
@@ -119,6 +123,7 @@ src/
 │       ├── cleanup.py           # Cleanup discovery and removal
 │       ├── containers.py        # Container preparation and startup
 │       ├── directory.py         # Workspace directory setup
+│       ├── dotfiles.py          # Dotfile catalog, symlink, template, and key workflow
 │       ├── hypr.py              # Hyprland configuration links and require line
 │       ├── logger.py            # Session logging
 │       ├── packages.py          # Pacman and AUR package installation
@@ -141,9 +146,9 @@ The layout is flat by design. There is no implemented `cli/`, `core/`, or `model
 ```mermaid
 pie showData
     title Source modules by area
-    "Functions" : 12
+    "Functions" : 13
     "Entry and core" : 6
-    "Commands" : 10
+    "Commands" : 11
     "Screens" : 3
     "Bootstrap" : 2
 ```
@@ -161,6 +166,7 @@ pie showData
 | `functions/cleanup.py` | Discover installed cleanup targets and remove selected items. |
 | `functions/containers.py` | Prepare container directories, environment files, symlinks, Caddy routes, and Compose startup. |
 | `functions/directory.py` | Create the fixed workspace directories after per-path confirmation. |
+| `functions/dotfiles.py` | Load dotfile catalogs, prepare SSH and GPG keys, symlink files, and render templates. |
 | `functions/hypr.py` | Link bundled Hyprland files and add the workspaces require line. |
 | `functions/packages.py` | Present Pacman and AUR package groups, confirm selections, and install each group. |
 | `functions/plugins.py` | Load the fixed plugin catalog, confirm selections, install plugins, apply positions, run optional patches, and replace `~/.config/omarchy/shell.json`. |
@@ -168,6 +174,7 @@ pie showData
 | `config/plugins.ini` | Fixed Omarchy shell plugin catalog, placement, and patch metadata. |
 | `config/shell.json` | Bundled Omarchy shell configuration for bar layout and plugin list. |
 | `containers/*` | Bundled Docker Compose definitions and manifests. |
+| `dotfiles/*` | Bundled dotfile catalogs with `config.toml` files and templates. |
 | `hypr/*.lua` | Bundled Hyprland Lua configuration files. |
 | `script/*` | Bundled helper scripts linked into the user's PATH. |
 | `functions/snapshot.py` | Confirm and run `omarchy snapshot create`. |
@@ -190,6 +197,7 @@ DEFAULT_SEQUENCE = (
     run_snapshot_step,
     run_cleanup_step,
     run_directory_step,
+    run_dotfiles_step,
     run_packages_step,
     run_containers_step,
     run_plugins_step,
@@ -200,9 +208,10 @@ DEFAULT_SEQUENCE = (
 
 `run_default()` logs each step and calls them in order. A step can skip itself without raising an exception.
 
-Package installation, container setup, plugin installation, Hyprland configuration, and
-script linking run after directory setup in the default sequence. They are also available
-as the standalone `packages`, `containers`, `plugins`, `hypr`, and `scripts` commands.
+Dotfile setup, package installation, container setup, plugin installation, Hyprland
+configuration, and script linking run after directory setup in the default sequence. They
+are also available as the standalone `dotfiles`, `packages`, `containers`, `plugins`,
+`hypr`, and `scripts` commands.
 
 The banner is part of the default sequence. For subcommands, the Typer root callback shows the banner instead, so it is not duplicated.
 
@@ -331,6 +340,7 @@ Use `screens/` for screen-level composition that is reused by multiple commands.
 
 - [Commands](commands.md)
 - [Cleanup](cleanup.md)
+- [Dotfiles](dotfiles.md)
 - [Packages](packages.md)
 - [Plugins](plugins.md)
 - [Development](development.md)

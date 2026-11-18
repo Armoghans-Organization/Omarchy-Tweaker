@@ -1,5 +1,5 @@
 ---
-description: Complete reference for the welcome, snapshot, cleanup, directory, package, container, plugin, hypr, and scripts commands in Omarchy Tweaker.
+description: Complete reference for the welcome, snapshot, cleanup, directory, dotfile, package, container, plugin, hypr, and scripts commands in Omarchy Tweaker.
 icon: material/console-line
 subtitle: CLI reference
 mermaid: true
@@ -16,6 +16,7 @@ Complete reference for the currently implemented Omarchy Tweaker commands.
 | `snapshot` | Yes | Unless `--yes` | `--yes`, `-y` |
 | `cleanup` | Yes | Yes | — |
 | `directories` | Yes | Yes | — |
+| `dotfiles` | Yes | Yes | — |
 | `packages` | Yes | Yes | — |
 | `containers` | Yes | Yes | — |
 | `plugins` | Yes | Yes | — |
@@ -38,6 +39,9 @@ flowchart TD
     B -- directories --> M{TTY?}
     M -- Yes --> N[Confirm each missing directory]
     M -- No --> O[Skip with warning]
+    B -- dotfiles --> AE{TTY?}
+    AE -- Yes --> AF[Confirm, prepare keys, link and render dotfiles]
+    AE -- No --> AG[Skip with warning]
     B -- packages --> P{TTY?}
     P -- Yes --> Q[Select, confirm, install]
     P -- No --> R[Skip with warning]
@@ -65,7 +69,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 
 | Behavior | Details |
 |:--|:--|
-| No arguments | Runs the default sequence: banner, snapshot, cleanup, directories, packages, containers, plugins, hypr, and scripts. |
+| No arguments | Runs the default sequence: banner, snapshot, cleanup, directories, dotfiles, packages, containers, plugins, hypr, and scripts. |
 | With a subcommand | Shows the banner, then runs the selected command. |
 | `--help` | Shows global help and the available commands. |
 | Completion | Disabled. |
@@ -82,6 +86,7 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Create a recovery point before making changes | `omarchy-tweaker snapshot` |
 | Review and remove selected packages or launchers | `omarchy-tweaker cleanup` |
 | Create the standard workspace directories | `omarchy-tweaker directories` |
+| Link bundled dotfiles and prepare signing keys | `omarchy-tweaker dotfiles` |
 | Install selected Pacman and AUR packages | `omarchy-tweaker packages` |
 | Prepare and start selected Docker containers | `omarchy-tweaker containers` |
 | Install selected Omarchy shell plugins | `omarchy-tweaker plugins` |
@@ -95,9 +100,9 @@ omarchy-tweaker [OPTIONS] COMMAND [ARGS]...
 | Code | Meaning |
 |:--:|:--|
 | `0` | The command completed, or the step was skipped safely. |
-| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, package installation, container setup, plugin installation, Hyprland configuration, or script linking. |
+| `1` | A selected operation failed, such as snapshot creation, item removal, directory creation, dotfile setup, package installation, container setup, plugin installation, Hyprland configuration, or script linking. |
 
-A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, selecting no packages, selecting no containers, selecting no
+A skipped step is not a failure. For example, declining a snapshot, running cleanup without a TTY, declining every directory, declining dotfile setup, selecting no packages, selecting no containers, selecting no
 plugins, declining the Hyprland configuration, or declining script linking exits successfully.
 
 ---
@@ -475,6 +480,54 @@ See **[Hyprland](hypr.md)** for the bundled file catalog, symlink behavior, and 
 
 ---
 
+## `dotfiles`
+
+Link bundled dotfile catalogs, prepare configured SSH and GPG keys, and render templates.
+
+```bash
+omarchy-tweaker dotfiles
+```
+
+Dotfiles has no command-line options. It runs after directory setup in the default
+sequence and is also available as a standalone command.
+
+### Behavior
+
+1. Discovers directories containing `config.toml` under `src/omarchy_tweaker/dotfiles/`.
+2. Validates every configured destination and asks for confirmation per catalog.
+3. Collects answers from `[ask]`.
+4. Generates SSH and GPG keys when `[keys]` is present.
+5. Symlinks entries from `[symlink]` after backing up existing files.
+6. Renders entries from `[create]` from bundled templates.
+
+The bundled Git catalog links the main Git configuration, Catppuccin Delta theme,
+commit template, global ignore file, secret patterns, and hooks directory. It renders
+`~/.config/git/user` using the collected name, email, and GPG fingerprint. See
+**[Dotfiles](dotfiles.md)** for the workflow and **[Git Dotfiles](git.md)** for usage
+examples and cheat sheets.
+
+### Non-interactive use
+
+`omarchy-tweaker dotfiles` requires an interactive terminal. Without one, it prints a
+warning and skips without changing anything.
+
+### Failure handling
+
+Invalid configuration, missing bundled sources, key-command failures, and write errors
+are reported per catalog. Other catalogs still run. The command exits with code `1` when
+any catalog failed. Declining confirmation is a safe skip and exits with code `0`.
+
+### Requirements
+
+- `ssh-keygen` and `gpg` must be available when keys are configured.
+- The user home directory must be writable.
+- The bundled files in `src/omarchy_tweaker/dotfiles/` must be present.
+
+See **[Dotfiles](dotfiles.md)** for configuration, backups, and safety details, and
+**[Git Dotfiles](git.md)** for the Git-specific usage guide.
+
+---
+
 ## `scripts`
 
 Make the bundled helper scripts executable and link them into `~/.local/bin/`.
@@ -532,6 +585,7 @@ See **[Bundled Scripts](scripts.md)** for the catalog, symlink behavior, and saf
 | `OMARCHY_TWEAKER_CADDY_CONFIG` | Override the host Caddyfile path. |
 | `OMARCHY_TWEAKER_CADDY_DIR` | Override the managed Caddy snippet directory. |
 | `OMARCHY_TWEAKER_HYPR_DIR` | Override the directory containing bundled Hyprland files. |
+| `OMARCHY_TWEAKER_DOTFILES_DIR` | Override the directory containing bundled dotfile catalogs. |
 | `OMARCHY_TWEAKER_SCRIPTS_DIR` | Override the directory containing bundled helper scripts. |
 
 Logs default to `$XDG_STATE_HOME/omarchy_tweaker/logs/` or `~/.local/state/omarchy_tweaker/logs/`.
@@ -584,6 +638,12 @@ omarchy-tweaker plugins
 omarchy-tweaker hypr
 ```
 
+### Apply bundled dotfiles
+
+```bash
+omarchy-tweaker dotfiles
+```
+
 ### Link the bundled helper scripts
 
 ```bash
@@ -606,5 +666,7 @@ omarchy-tweaker --help
 - [Packages](packages.md)
 - [Plugins](plugins.md)
 - [Hyprland](hypr.md)
+- [Dotfiles](dotfiles.md)
+- [Git Dotfiles](git.md)
 - [Bundled Scripts](scripts.md)
 - [Troubleshooting](troubleshooting.md)

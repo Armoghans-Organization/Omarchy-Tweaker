@@ -7,6 +7,7 @@ from collections.abc import Callable
 from omarchy_tweaker.functions.cleanup import run_cleanup_step
 from omarchy_tweaker.functions.containers import run_containers_step
 from omarchy_tweaker.functions.directory import run_directory_step
+from omarchy_tweaker.functions.dotfiles import run_dotfiles_step
 from omarchy_tweaker.functions.hypr import run_hypr_step
 from omarchy_tweaker.functions.logger import get_session
 from omarchy_tweaker.functions.packages import run_packages_step
@@ -20,6 +21,7 @@ DEFAULT_SEQUENCE: tuple[Callable[[], object], ...] = (
     run_snapshot_step,
     run_cleanup_step,
     run_directory_step,
+    run_dotfiles_step,
     run_packages_step,
     run_containers_step,
     run_plugins_step,

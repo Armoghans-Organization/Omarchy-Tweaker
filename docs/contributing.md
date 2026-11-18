@@ -16,10 +16,10 @@ installer.
 
 !!! note "Project status"
     The repository is in early implementation. The CLI, default startup sequence, snapshot
-    workflow, cleanup workflow, directory setup, package installation, session logging, Rich
-    error handling, and terminal UI toolkit are implemented and tested. Planned features such
-    as dotfile management and theme automation are not implemented. Please do not assume a
-    planned feature exists.
+    workflow, cleanup workflow, directory setup, dotfile setup, package installation, session
+    logging, Rich error handling, and terminal UI toolkit are implemented and tested. Planned
+    features such as theme automation are not implemented. Please do not assume a planned
+    feature exists.
 
 ---
 

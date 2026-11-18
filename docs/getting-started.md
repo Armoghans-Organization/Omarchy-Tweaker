@@ -27,7 +27,9 @@ general-purpose Linux administration tool and is not tested on other distributio
 | **`pacman`** | Package installation uses Pacman directly; cleanup checks installed packages. |
 | **`yay`** | Package installation uses `yay` for the AUR group. |
 | **`git`** | Plugin installation clones repositories through `omarchy plugin add`. |
-| **`bash` and `gum`** | Bundled plugin patch scripts use Bash and Gum. |
+| **`ssh-keygen`** | Dotfile setup creates SSH keys when configured. |
+| **`gpg`** | Dotfile setup creates GPG signing keys and exports the public key. |
+| **`bash` and `gum`** | Bundled plugin patch scripts use Bash and Gum; the global Git hook optionally uses Gum. |
 | **`sudo`** | Package installation/removal and shell config installation use elevated privileges. |
 | **Writable home directory** | Directory setup creates fixed workspace folders beneath `$HOME`. |
 | **Interactive terminal** | Snapshot confirmation, cleanup selection, package and plugin selection, and directory creation use TTY prompts. |
@@ -117,21 +119,22 @@ The default sequence is:
    `omarchy snapshot create`.
 3. **Cleanup** — discovers installed Omarchy cleanup targets and asks what to remove.
 4. **Directories** — asks whether to create each missing workspace folder.
-5. **Packages** — offers the fixed Pacman and AUR package groups.
-6. **Containers** — offers the fixed Docker Compose catalog and prepares selected projects.
-7. **Plugins** — offers the fixed Omarchy shell plugin catalog and installs the bundled
+5. **Dotfiles** — links bundled dotfiles, prepares SSH and GPG keys, and renders Git identity.
+6. **Packages** — offers the fixed Pacman and AUR package groups.
+7. **Containers** — offers the fixed Docker Compose catalog and prepares selected projects.
+8. **Plugins** — offers the fixed Omarchy shell plugin catalog and installs the bundled
    shell configuration after successful installation.
-8. **Hyprland** — links the bundled Lua configuration and loads the workspaces module.
-9. **Bundled Scripts** — makes the bundled helper scripts executable and links them into
+9. **Hyprland** — links the bundled Lua configuration and loads the workspaces module.
+10. **Bundled Scripts** — makes the bundled helper scripts executable and links them into
    `~/.local/bin/`.
 
 Every step can be skipped. If the terminal is not interactive, interactive steps skip
 safely instead of guessing. See **[Commands](commands.md)** for per-command rules.
 
-Package, container, plugin, Hyprland, and script setup also run in the default sequence.
-Run `omarchy-tweaker packages`, `omarchy-tweaker containers`, `omarchy-tweaker plugins`,
-`omarchy-tweaker hypr`, or `omarchy-tweaker scripts` directly when you want one feature
-without the earlier steps.
+Dotfile, package, container, plugin, Hyprland, and script setup also run in the default
+sequence. Run `omarchy-tweaker dotfiles`, `omarchy-tweaker packages`,
+`omarchy-tweaker containers`, `omarchy-tweaker plugins`, `omarchy-tweaker hypr`, or
+`omarchy-tweaker scripts` directly when you want one feature without the earlier steps.
 
 ### Explore commands
 
@@ -141,6 +144,7 @@ uv run omarchy-tweaker welcome
 uv run omarchy-tweaker snapshot --help
 uv run omarchy-tweaker cleanup --help
 uv run omarchy-tweaker directories --help
+uv run omarchy-tweaker dotfiles --help
 uv run omarchy-tweaker packages --help
 uv run omarchy-tweaker containers --help
 uv run omarchy-tweaker plugins --help
@@ -153,7 +157,8 @@ desktop, CPU, GPU, memory, disk, uptime, and hostname details.
 
 !!! note "Before removing or replacing anything"
     Cleanup is permanent, and the Hyprland and Bundled Scripts steps replace matching files
-    with symlinks without creating backups. Review **[Cleanup](cleanup.md)**,
+    with symlinks without creating backups. Dotfile setup backs up existing files before
+    replacement. Review **[Cleanup](cleanup.md)**, **[Dotfiles](dotfiles.md)**,
     **[Hyprland](hypr.md)**, **[Bundled Scripts](scripts.md)**, and the
     **[Security Policy](security.md)** before confirming.
 
@@ -190,6 +195,8 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Commands](commands.md) — full CLI reference.
 - [Cleanup](cleanup.md) — discovery and removal details.
 - [Directories](directories.md) — workspace folder targets and safety rules.
+- [Dotfiles](dotfiles.md) — catalog format, keys, and backups.
+- [Git Dotfiles](git.md) — Git usage examples, GitHub setup, and cheat sheets.
 - [Packages](packages.md) — package catalog and installation workflow.
 - [Plugins](plugins.md) — shell plugin catalog, placement, and patch workflow.
 - [Hyprland](hypr.md) — bundled Lua files, symlinks, and workspaces loading.

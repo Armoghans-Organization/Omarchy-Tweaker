@@ -42,6 +42,8 @@ flowchart LR
 | Shell configuration replacement | The existing `shell.json` is backed up before replacement, and the new file is made read-only (`root:root`, mode `444`). |
 | Hyprland configuration replacement | Bundled files are linked only after one explicit confirmation; matching files are replaced **without** backups, and correct links are left alone. |
 | PATH entry replacement | Bundled scripts are linked only after one explicit confirmation; matching `~/.local/bin/` entries are replaced **without** backups, and correct links are left alone. |
+| Dotfile replacement | Bundled dotfiles are linked only after per-catalog confirmation; existing destinations are backed up and restored if linking fails. |
+| Key overwrite | Existing SSH and GPG private keys are reused, never regenerated, and private key contents are never printed or logged. |
 | Accidental removal | Explicit selection, separate category lists, final confirmation. |
 | Non-interactive guessing | Interactive steps skip when no TTY is available. |
 | Shell injection | External commands use argument lists, never `shell=True`. |
@@ -49,18 +51,19 @@ flowchart LR
 | Broad package removal | Candidates are limited to Omarchy preinstalls and installed packages. |
 | Unsafe wrapper deletion | Mise paths must be absolute, name a file, and resolve inside the home directory. |
 | Unintended directory creation | Fixed home-relative targets, per-path confirmation, and no overwrite of existing paths. |
-| Silent partial failure | Package installation, plugin installation, cleanup, directory setup, Hyprland configuration, and script linking report failures and exit non-zero. |
+| Silent partial failure | Dotfile setup, package installation, plugin installation, cleanup, directory setup, Hyprland configuration, and script linking report failures and exit non-zero. |
 | Noisy notifications | `OMARCHY_REMOVE_NOTIFY=false` suppresses per-item notifications. |
 
-Omarchy Tweaker does not log passwords, authentication tokens, private keys, or secret
-configuration values. Review logs before sharing them publicly, since they include command
-arguments and system details.
+Omarchy Tweaker does not log passwords, authentication tokens, private keys, key
+passphrases, or secret configuration values. Review logs before sharing them publicly,
+since they include command arguments and system details.
 
 See [Packages](packages.md) for package installation details, [Plugins](plugins.md) for the
 plugin and patch workflow, [Cleanup](cleanup.md) for the full destructive-operation workflow,
-and [Directories](directories.md) for workspace path rules, [Hyprland](hypr.md) for the
-configuration link workflow and its no-backup policy, and [Bundled Scripts](scripts.md) for
-the PATH link workflow.
+and [Directories](directories.md) for workspace path rules, [Dotfiles](dotfiles.md) for
+dotfile backups and key handling, [Git Dotfiles](git.md) for key and hook handling,
+[Hyprland](hypr.md) for the configuration link workflow
+and its no-backup policy, and [Bundled Scripts](scripts.md) for the PATH link workflow.
 
 ---
 

@@ -1,0 +1,193 @@
+# =============================================================================
+# Git Configuration
+# =============================================================================
+
+# Includes
+[include]
+    path = ~/.config/git/user
+    path = ~/.config/git/catppuccin.gitconfig
+
+# -----------------------------------------------------------------------------
+# Identity & Signing
+# -----------------------------------------------------------------------------
+
+[gpg]
+    program = /usr/bin/gpg
+
+[commit]
+    template = ~/.config/git/gitmessage
+    gpgSign = true
+    verbose = true
+
+[tag]
+    gpgSign = true
+    sort = version:refname
+
+# -----------------------------------------------------------------------------
+# Initialization
+# -----------------------------------------------------------------------------
+
+[init]
+    defaultBranch = main
+
+# -----------------------------------------------------------------------------
+# Editor
+# -----------------------------------------------------------------------------
+
+[core]
+    editor = nvim
+    pager = delta
+    autocrlf = input
+    whitespace = trailing-space,space-before-tab
+    excludesFile = ~/.config/git/ignore
+    hooksPath = ~/.config/git/hooks
+
+[sequence]
+    editor = nvim
+
+# -----------------------------------------------------------------------------
+# Delta - Git Diff & Pager
+# -----------------------------------------------------------------------------
+
+[interactive]
+    diffFilter = delta --color-only
+    singleKey = true
+
+[delta]
+    features = Catppuccin Macchiato
+    syntax-theme = Catppuccin Mocha
+    navigate = true
+    side-by-side = true
+    line-numbers = true
+    dark = true
+    hyperlinks = true
+
+# -----------------------------------------------------------------------------
+# Diff
+# -----------------------------------------------------------------------------
+
+[diff]
+    algorithm = histogram
+    colorMoved = default
+    mnemonicPrefix = true
+    renames = true
+    context = 5
+    wordDiff = color
+
+[difftool]
+    prompt = false
+
+# -----------------------------------------------------------------------------
+# Merge & Conflict Resolution
+# -----------------------------------------------------------------------------
+
+[merge]
+    conflictStyle = zdiff3
+    tool = meld
+
+[mergetool]
+    prompt = false
+    keepBackup = false
+
+[mergetool "meld"]
+    cmd = meld "$LOCAL" "$BASE" "$REMOTE" --output "$MERGED"
+    trustExitCode = true
+
+# -----------------------------------------------------------------------------
+# Pull & Push
+# -----------------------------------------------------------------------------
+
+[pull]
+    rebase = true
+
+[push]
+    default = simple
+    autoSetupRemote = true
+
+# -----------------------------------------------------------------------------
+# Branches & Checkout
+# -----------------------------------------------------------------------------
+
+[branch]
+    sort = -committerdate
+
+[checkout]
+    guess = true
+    defaultRemote = origin
+
+# -----------------------------------------------------------------------------
+# Rebase
+# -----------------------------------------------------------------------------
+
+[rebase]
+    autoStash = true
+    autoSquash = true
+    updateRefs = true
+
+# -----------------------------------------------------------------------------
+# Conflict Resolution Memory
+# -----------------------------------------------------------------------------
+
+[rerere]
+    enabled = true
+    autoupdate = true
+
+# -----------------------------------------------------------------------------
+# Status & Logging
+# -----------------------------------------------------------------------------
+
+[log]
+    date = iso
+    decorate = short
+    follow = true
+
+[format]
+    pretty = format:%C(bold cyan)⎇ %h%C(reset) %C(green)[%ar]%C(reset)%n%C(bold white)  %s%C(reset)%n  %C(dim)┌─ Author:    %C(bold blue)%an%C(reset)%n  %C(cyan)├─ Date:      %ad%C(reset)%n  %C(yellow)├─ Committer: %cn <%ce>%C(reset)%n  %C(magenta)├─ Tree:      %t%C(reset)%n  %C(blue)├─ Parent:    %p%C(reset)%n  %C(yellow)├─ GPG:       %C(bold green)%GS%C(reset)%n  %C(cyan)├─ Key:       %GK%C(reset)%n  %C(magenta)└─ Refs:      %C(auto)%d%C(reset)%n
+
+[status]
+    branch = true
+    showUntrackedFiles = normal
+
+# -----------------------------------------------------------------------------
+# Fetch
+# -----------------------------------------------------------------------------
+
+[fetch]
+    prune = true
+    writeCommitGraph = true
+
+# -----------------------------------------------------------------------------
+# Interactive & Grep
+# -----------------------------------------------------------------------------
+
+[grep]
+    lineNumber = true
+    patternType = extended
+
+# -----------------------------------------------------------------------------
+# HTTP & Security
+# -----------------------------------------------------------------------------
+
+[http]
+    sslVerify = true
+
+# -----------------------------------------------------------------------------
+# Git LFS
+# -----------------------------------------------------------------------------
+
+[filter "lfs"]
+    clean = git-lfs clean -- %f
+    smudge = git-lfs smudge -- %f
+    process = git-lfs filter-process
+    required = true
+
+# -----------------------------------------------------------------------------
+# Shortcuts
+# -----------------------------------------------------------------------------
+
+[url "https://github.com/"]
+    insteadOf = github:
+    insteadOf = gh:
+
+[url "git@github.com:"]
+    insteadOf = ghssh:

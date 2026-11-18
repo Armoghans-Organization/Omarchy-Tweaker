@@ -7,6 +7,7 @@ import omarchy_tweaker.cli as cli_module
 import omarchy_tweaker.commands.cleanup as cleanup_command
 import omarchy_tweaker.commands.containers as containers_command
 import omarchy_tweaker.commands.directory as directory_command
+import omarchy_tweaker.commands.dotfiles as dotfiles_command
 import omarchy_tweaker.commands.hypr as hypr_command
 import omarchy_tweaker.commands.packages as packages_command
 import omarchy_tweaker.commands.plugins as plugins_command
@@ -18,6 +19,7 @@ from omarchy_tweaker.cli import app
 from omarchy_tweaker.functions.cleanup import CleanupResult, run_cleanup_step
 from omarchy_tweaker.functions.containers import ContainerResult, run_containers_step
 from omarchy_tweaker.functions.directory import DirectoryResult, run_directory_step
+from omarchy_tweaker.functions.dotfiles import DotfileResult, run_dotfiles_step
 from omarchy_tweaker.functions.hypr import HyprResult, run_hypr_step
 from omarchy_tweaker.functions.packages import PackageResult
 from omarchy_tweaker.functions.plugins import PluginResult
@@ -43,6 +45,8 @@ def test_cli_without_arguments_shows_banner_and_snapshot_step(
     assert "No installed cleanup items were found." in result.output
     assert "REQUIRED DIRECTORIES" in result.output
     assert "Directory setup skipped" in result.output
+    assert "DOTFILES" in result.output
+    assert "Dotfiles setup skipped" in result.output
 
 
 def test_cli_without_arguments_runs_default_sequence(
@@ -110,6 +114,10 @@ def test_default_sequence_includes_cleanup_step() -> None:
 
 def test_default_sequence_includes_directory_step() -> None:
     assert run_directory_step in startup_module.DEFAULT_SEQUENCE
+
+
+def test_default_sequence_includes_dotfiles_step() -> None:
+    assert run_dotfiles_step in startup_module.DEFAULT_SEQUENCE
 
 
 def test_default_sequence_includes_containers_step() -> None:
@@ -223,6 +231,34 @@ def test_directory_command_exits_zero_when_skipped(
     )
 
     result = runner.invoke(app, ["directories"])
+
+    assert result.exit_code == 0
+
+
+def test_dotfiles_command_exits_nonzero_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        dotfiles_command,
+        "run_dotfiles_step",
+        lambda: DotfileResult.FAILED,
+    )
+
+    result = runner.invoke(app, ["dotfiles"])
+
+    assert result.exit_code == 1
+
+
+def test_dotfiles_command_exits_zero_when_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        dotfiles_command,
+        "run_dotfiles_step",
+        lambda: DotfileResult.SKIPPED,
+    )
+
+    result = runner.invoke(app, ["dotfiles"])
 
     assert result.exit_code == 0
 
@@ -389,6 +425,7 @@ def test_help_lists_commands() -> None:
     assert "cleanup" in result.output
     assert "containers" in result.output
     assert "directories" in result.output
+    assert "dotfiles" in result.output
     assert "hypr" in result.output
     assert "packages" in result.output
     assert "scripts" in result.output

@@ -1,0 +1,25 @@
+[symlink]
+config = "~/.config/git/config"
+catppuccin = "~/.config/git/catppuccin.gitconfig"
+gitmessage = "~/.config/git/gitmessage"
+ignore = "~/.config/git/ignore"
+secret-patterns = "~/.config/git/secret-patterns"
+hooks = "~/.config/git/hooks"
+
+[ask]
+Name = "What is your name?"
+Email = "What is your email?"
+
+[create]
+user = "~/.config/git/user"  # Rendered from the bundled `user` template.
+
+[keys]
+ssh_private = "~/.ssh/id_ed25519"
+ssh_public = "~/.ssh/id_ed25519.pub"
+gpg_home = "~/.gnupg"
+gpg_public = "~/.config/git/gpg-public-key.asc"
+ssh_type = "ed25519"
+ssh_rounds = 100
+gpg_algorithm = "ed25519"
+gpg_usage = "sign"
+gpg_expiration = "never"

@@ -49,7 +49,7 @@ mermaid: true
 
 Omarchy Tweaker is a Python command-line application that brings useful Omarchy tweaks, configuration workflows, maintenance tasks, and automation into one consistent interface.
 
-The project is currently in **early implementation**. The implemented surface is deliberately small and safe: it helps you inspect your system, create a restore point, install selected packages and Omarchy shell plugins, remove selected preinstalled Omarchy applications, create workspace folders, and link bundled helper scripts into your PATH.
+The project is currently in **early implementation**. The implemented surface is deliberately small and safe: it helps you inspect your system, create a restore point, install selected packages and Omarchy shell plugins, remove selected preinstalled Omarchy applications, create workspace folders, apply bundled dotfiles and signing keys, and link bundled helper scripts into your PATH.
 
 <div class="grid cards" markdown>
 
@@ -83,11 +83,12 @@ The project is currently in **early implementation**. The implemented surface is
 
 | Area | Status | What it does |
 |:--|:--:|:--|
-| Default startup sequence | Implemented | Shows the banner, offers snapshot, cleanup, directory setup, package installation, container setup, plugin installation, Hyprland configuration, and bundled script linking. |
+| Default startup sequence | Implemented | Shows the banner, offers snapshot, cleanup, directory setup, dotfile setup, package installation, container setup, plugin installation, Hyprland configuration, and bundled script linking. |
 | `welcome` command | Implemented | Displays the welcome screen and a system overview. |
 | `snapshot` command | Implemented | Runs `omarchy snapshot create` with confirmation and live output. |
 | `cleanup` command | Implemented | Removes only selected installed packages, web apps, TUIs, and Mise wrappers. |
 | `directories` command | Implemented | Creates the standard workspace directories after per-path confirmation. |
+| `dotfiles` command | Implemented | Links bundled dotfiles, renders Git identity, and prepares SSH and GPG keys. |
 | `packages` command | Implemented | Installs selected Pacman and AUR packages from a fixed catalog. |
 | `containers` command | Implemented | Prepares selected Docker Compose containers with Caddy routes and starts them. |
 | `plugins` command | Implemented | Installs selected Omarchy shell plugins from a fixed catalog, applies optional patches, and installs the bundled shell configuration. |
@@ -96,7 +97,6 @@ The project is currently in **early implementation**. The implemented surface is
 | Session logging | Implemented | Writes structured logs to the XDG state directory. |
 | Rich error handling | Implemented | Renders uncaught exceptions, thread errors, and syntax errors cleanly. |
 | Reusable UI toolkit | Implemented | Provides banners, panels, tables, prompts, progress, and virtual terminals. |
-| Dotfile management | Not implemented | Planned for a future iteration. |
 | Theme and desktop automation | Not implemented | Planned for a future iteration. |
 
 ### Current surface
@@ -104,8 +104,8 @@ The project is currently in **early implementation**. The implemented surface is
 ```mermaid
 pie showData
     title Implemented surface
-    "Implemented" : 13
-    "Planned" : 2
+    "Implemented" : 14
+    "Planned" : 1
 ```
 
 !!! warning "Do not assume planned features exist"
@@ -115,11 +115,12 @@ pie showData
 
 ```mermaid
 timeline
-    title One invocation, nine steps
+    title One invocation, ten steps
     Launch : Show the banner
     Protect : Offer a snapshot
     Clean : Select and remove
     Organize : Create workspace folders
+    Configure : Apply dotfiles and prepare keys
     Install : Offer packages
     Serve : Prepare containers
     Extend : Install plugins
@@ -132,9 +133,9 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
 ## Safety first
 
 !!! warning "System-changing workflow"
-    Snapshot, cleanup, directory setup, package installation, container setup, plugin installation, Hyprland configuration, and script linking act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, **[Packages](packages.md)**, **[Containers](containers.md)**, **[Plugins](plugins.md)**, **[Hyprland](hypr.md)**, **[Bundled Scripts](scripts.md)**, and the **[Security Policy](security.md)** before making changes.
+    Snapshot, cleanup, directory setup, dotfile setup, package installation, container setup, plugin installation, Hyprland configuration, and script linking act on the host. Read **[Cleanup](cleanup.md)**, **[Directories](directories.md)**, **[Dotfiles](dotfiles.md)**, **[Packages](packages.md)**, **[Containers](containers.md)**, **[Plugins](plugins.md)**, **[Hyprland](hypr.md)**, **[Bundled Scripts](scripts.md)**, and the **[Security Policy](security.md)** before making changes.
 
-    The default sequence offers a snapshot before cleanup, then offers workspace directory setup, package installation, container setup, plugin installation, Hyprland configuration, and bundled script linking. Running `omarchy-tweaker cleanup`, `omarchy-tweaker packages`, `omarchy-tweaker plugins`, `omarchy-tweaker hypr`, or `omarchy-tweaker scripts` directly does **not** create a snapshot automatically.
+    The default sequence offers a snapshot before cleanup, then offers workspace directory setup, dotfile setup, package installation, container setup, plugin installation, Hyprland configuration, and bundled script linking. Running `omarchy-tweaker cleanup`, `omarchy-tweaker dotfiles`, `omarchy-tweaker packages`, `omarchy-tweaker plugins`, `omarchy-tweaker hypr`, or `omarchy-tweaker scripts` directly does **not** create a snapshot automatically.
 
 ## Documentation map
 
@@ -171,6 +172,14 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
     Create the standard workspace folders safely, one path at a time.
 
     [Open Directories](directories.md)
+
+-   :material-folder-key: **Dotfiles**
+
+    ---
+
+    Link bundled dotfiles, prepare SSH and GPG keys, and render Git identity.
+
+    [Open Dotfiles](dotfiles.md) · [Git Guide](git.md)
 
 -   :material-package-variant-closed: **Packages**
 

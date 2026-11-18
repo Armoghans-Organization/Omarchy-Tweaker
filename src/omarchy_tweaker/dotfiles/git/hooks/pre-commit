@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+
+#################################################################
+# Global Pre-commit Hook (chains to local hooks)
+#################################################################
+# This global pre-commit hook runs security/sanity checks on
+# staged content. If the repository has its own .git/hooks/pre-commit
+# (executable, regular file), this hook will also execute it after
+# passing global checks (or you can swap to "local-first" by
+# changing CHAIN_MODE). Uses gum for a clean UI when available.
+#################################################################
+
+set -uEo pipefail
+export LC_ALL=C
+
+CHAIN_MODE="global-then-local" # or "local-first"
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+MAX_FILE_SIZE_MB="${MAX_FILE_SIZE_MB:-5}"
+BLOCK_LARGE_FILES="${BLOCK_LARGE_FILES:-1}"
+HOOKS_PATH="$(git config --path --get core.hooksPath 2>/dev/null || true)"
+CONFIG_DIR="${HOOKS_PATH%/*}"
+[[ -n "$CONFIG_DIR" && "$CONFIG_DIR" != "$HOOKS_PATH" ]] || CONFIG_DIR="$HOME/.config/git"
+CUSTOM_PATTERNS="${CUSTOM_PATTERNS:-$CONFIG_DIR/secret-patterns}"
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "Not in a git repo" >&2; exit 1; }
+cd "$ROOT" || exit 1
+
+LOCAL_HOOK="$ROOT/.git/hooks/pre-commit"
+
+# local-first if requested and exists
+if [[ "$CHAIN_MODE" == "local-first" && -x "$LOCAL_HOOK" && ! -L "$LOCAL_HOOK" ]]; then
+  "$LOCAL_HOOK" "$@"
+  rc=$?
+  exit $rc
+fi
+
+# UI helpers
+if command -v gum >/dev/null 2>&1 && [[ -t 2 ]]; then USE_GUM=1; else USE_GUM=0; fi
+ui() {
+  local k="$1"; shift
+  if (( USE_GUM )); then
+    case "$k" in
+      title) gum style --bold --foreground 212 "$*" ;;
+      ok) gum style --foreground 42 "  [PASS] $*" ;;
+      warn) gum style --foreground 214 "  [WARN] $*" ;;
+      fail) gum style --bold --foreground 196 "  [FAIL] $*" ;;
+      info) gum style --foreground 39 "  [INFO] $*" ;;
+      *) printf '  %s\n' "$*" >&2 ;;
+    esac
+  else
+    case "$k" in ok) printf '  [PASS] %s\n' "$*" >&2 ;; warn) printf '  [WARN] %s\n' "$*" >&2 ;; fail) printf '  [FAIL] %s\n' "$*" >&2 ;; info) printf '  [INFO] %s\n' "$*" >&2 ;; *) printf '%s\n' "$*" >&2 ;; esac
+  fi
+}
+die() { ui fail "$*"; exit 1; }
+pass() { ui ok "$*"; }
+failf() { ui fail "$*"; FAILED=$((FAILED+1)); }
+warnf() { ui warn "$*"; WARNINGS=$((WARNINGS+1)); }
+
+# staged
+mapfile -d '' -t STAGED_FILES < <(git diff --cached --name-only --diff-filter=ACMR -z --)
+(( ${#STAGED_FILES[@]} > 0 )) || exit 0
+
+ui title "Global pre-commit checks"
+ui info "Repo: ${ROOT##*/} | staged: ${#STAGED_FILES[@]}"
+FAILED=0; WARNINGS=0
+
+# 1. large files
+[[ "$MAX_FILE_SIZE_MB" =~ ^[0-9]+$ ]] || die "MAX_FILE_SIZE_MB must be positive int"
+MAX_BYTES=$((MAX_FILE_SIZE_MB*1024*1024))
+for p in "${STAGED_FILES[@]}"; do
+  sz="$(git cat-file -s ":$p" 2>/dev/null || echo 0)"
+  [[ "$sz" =~ ^[0-9]+$ ]] || continue
+  if (( sz > MAX_BYTES )); then
+    smb=$(( (sz+1048575)/1048576 ))
+    if [[ "$BLOCK_LARGE_FILES" == "1" ]]; then failf "Large file: $p (${smb} MiB)"; else warnf "Large file: $p (${smb} MiB)"; fi
+  fi
+done
+(( FAILED==0 )) && pass "Large file check passed"
+
+# 2. sensitive names
+for p in "${STAGED_FILES[@]}"; do
+  base="${p##*/}"; lower="${base,,}"
+  case "$lower" in .env.example|.env.sample|.env.template|.env.dist) continue ;; esac
+  sens=0
+  [[ "$lower" == ".env" || "$lower" == .env.* ]] && sens=1
+  case "$lower" in id_rsa|id_dsa|id_ecdsa|id_ed25519|*.pem|*.key|*.p12|*.pfx|*.pkcs12|server.key|private.key|privkey.pem) sens=1 ;; esac
+  case "$lower" in credentials|credentials.json|secrets.yml|secrets.yaml|service-account.json|service_account.json) sens=1 ;; esac
+  (( sens==1 )) && failf "Sensitive filename: $p"
+done
+(( FAILED==0 )) && pass "Filename check passed"
+
+# 3. conflict markers
+CONF_RE='^(<<<<<<< |>>>>>>> |\|\|\|\|\|\|\| |=======$)'
+for p in "${STAGED_FILES[@]}"; do
+  git show ":$p" 2>/dev/null | grep -nIE "$CONF_RE" | cut -d: -f1 | while read -r ln; do [[ -n "$ln" ]] && failf "Conflict marker: $p (line $ln)"; done || true
+done
+(( FAILED==0 )) && pass "Conflict marker check passed"
+
+# 4. secrets
+PGP_PRIVATE_KEY_HEADER="-----BEGIN PGP PRIVATE KEY ""BLOCK-----"
+SECRET_PATTERNS=(
+  '-----BEGIN (RSA |DSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----'
+  'AKIA[0-9A-Z]{16}'
+  'gh[pousr]_[A-Za-z0-9_]{20,}'
+  'github_pat_[A-Za-z0-9_]{20,}'
+  'glpat-[A-Za-z0-9_-]{20,}'
+  'xox[baprs]-[A-Za-z0-9-]{10,}'
+  'sk_live_[A-Za-z0-9]{16,}'
+  'rk_live_[A-Za-z0-9]{16,}'
+  "$PGP_PRIVATE_KEY_HEADER"
+  'password[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{4,}["'"'"']'
+  'api[_-]?key[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{8,}["'"'"']'
+  'secret[_-]?key[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{8,}["'"'"']'
+  'client_secret[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{8,}["'"'"']'
+)
+[[ -f "$CUSTOM_PATTERNS" ]] && while IFS= read -r pat || [[ -n "$pat" ]]; do [[ -z "$pat" || "$pat" == \#* ]] && continue; SECRET_PATTERNS+=("$pat"); done < "$CUSTOM_PATTERNS"
+for p in "${STAGED_FILES[@]}"; do
+  for pat in "${SECRET_PATTERNS[@]}"; do
+    git show ":$p" 2>/dev/null | grep -nIE -- "$pat" | cut -d: -f1 | while read -r ln; do [[ -n "$ln" ]] && failf "Possible secret: $p (line $ln)"; done || true
+  done
+done
+(( FAILED==0 )) && pass "Secret pattern check passed"
+
+printf '\n' >&2
+if (( FAILED>0 )); then ui fail "Global checks blocked ($FAILED). Fix before commit."; exit 1; fi
+if (( WARNINGS>0 )); then ui warn "Global checks done with $WARNINGS warnings"; else pass "All global checks passed"; fi
+
+# chain to local hook
+if [[ -x "$LOCAL_HOOK" && ! -L "$LOCAL_HOOK" ]]; then
+  ui info "Running local pre-commit hook..."
+  "$LOCAL_HOOK" "$@"
+  rc=$?
+  (( rc!=0 )) && ui fail "Local pre-commit failed (exit $rc)"
+  exit $rc
+fi
+exit 0

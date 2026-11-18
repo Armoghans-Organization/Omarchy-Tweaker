@@ -1,0 +1,45 @@
+# Conventional Commit Message Template
+# --------------------------------------------------------
+# <type>(<scope>): <short summary>
+#
+# Example:
+# feat(core): add support for new authentication method
+# fix(ui): resolve button alignment issue on mobile
+# docs(readme): update installation instructions
+#
+# Types:
+#   feat     - A new feature
+#   fix      - A bug fix
+#   docs     - Documentation only changes
+#   style    - Changes that do not affect the meaning of the code (white-space, formatting, etc)
+#   refactor - A code change that neither fixes a bug nor adds a feature
+#   perf     - A code change that improves performance
+#   test     - Adding missing tests or correcting existing tests
+#   build    - Changes that affect the build system or external dependencies
+#   ci       - Changes to CI configuration files and scripts
+#   chore    - Other changes that don't modify src or test files
+#   revert   - Reverts a previous commit
+#
+# Scope (optional):
+#   A noun describing a section of the codebase affected (e.g., core, api, cli, docs, tests)
+#
+# Short summary:
+#   - Use the imperative mood ("add" not "added"/"adds")
+#   - Limit to 50 characters or less
+#   - No period at the end
+#
+# Body (optional):
+#   - Explain the motivation and context for the change
+#   - Wrap at 72 characters
+#   - Use bullet points if needed
+#
+# Footer (optional):
+#   - Reference issues, breaking changes, or other important notes
+#   - Example: BREAKING CHANGE: api method `foo` removed
+#   - Example: Closes #123
+
+<type>(<scope>): <short summary>
+
+# Body (optional)
+
+# Footer (optional)
