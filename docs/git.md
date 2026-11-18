@@ -619,6 +619,7 @@ understand exactly what is being committed.
 ## Related pages
 
 - [Dotfiles](dotfiles.md)
+- [Starship Dotfiles](starship.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

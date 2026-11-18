@@ -502,9 +502,11 @@ sequence and is also available as a standalone command.
 
 The bundled Git catalog links the main Git configuration, Catppuccin Delta theme,
 commit template, global ignore file, secret patterns, and hooks directory. It renders
-`~/.config/git/user` using the collected name, email, and GPG fingerprint. See
-**[Dotfiles](dotfiles.md)** for the workflow and **[Git Dotfiles](git.md)** for usage
-examples and cheat sheets.
+`~/.config/git/user` using the collected name, email, and GPG fingerprint. The bundled
+Starship catalog links the Catppuccin Mocha prompt configuration to
+`~/.config/starship.toml`. See **[Dotfiles](dotfiles.md)** for the workflow,
+**[Git Dotfiles](git.md)** for Git usage and cheat sheets, and
+**[Starship Dotfiles](starship.md)** for prompt usage and cheat sheets.
 
 ### Non-interactive use
 
@@ -523,8 +525,9 @@ any catalog failed. Declining confirmation is a safe skip and exits with code `0
 - The user home directory must be writable.
 - The bundled files in `src/omarchy_tweaker/dotfiles/` must be present.
 
-See **[Dotfiles](dotfiles.md)** for configuration, backups, and safety details, and
-**[Git Dotfiles](git.md)** for the Git-specific usage guide.
+See **[Dotfiles](dotfiles.md)** for configuration, backups, and safety details,
+**[Git Dotfiles](git.md)** for the Git-specific usage guide, and
+**[Starship Dotfiles](starship.md)** for the Starship prompt guide.
 
 ---
 
@@ -668,5 +671,6 @@ omarchy-tweaker --help
 - [Hyprland](hypr.md)
 - [Dotfiles](dotfiles.md)
 - [Git Dotfiles](git.md)
+- [Starship Dotfiles](starship.md)
 - [Bundled Scripts](scripts.md)
 - [Troubleshooting](troubleshooting.md)

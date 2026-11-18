@@ -1,0 +1,326 @@
+"$schema" = "https://starship.rs/config-schema.json"
+
+# ╭──────────────────────────────────────────────╮
+# │              STARSHIP · MOCHA                │
+# ╰──────────────────────────────────────────────╯
+
+command_timeout = 1000
+scan_timeout = 100
+add_newline = true
+continuation_prompt = "[▸▹ ](dimmed white)"
+palette = "catppuccin_mocha"
+
+# ── LEFT PROMPT ─────────────────────────────────
+format = """
+[](fg:surface0)\
+$os\
+$username\
+[](fg:surface0 bg:teal)\
+[](fg:teal bg:blue)\
+[](fg:blue bg:teal)\
+[](fg:teal bg:peach)\
+$directory\
+$git_branch\
+$git_state\
+$git_metrics\
+$git_status\
+[](fg:peach)\
+$line_break\
+$character"""
+
+# ── RIGHT PROMPT · one rounded pill ─────────────
+right_format = """
+[](fg:surface0)\
+$status\
+${custom.vms}\
+$container\
+$hostname\
+$jobs\
+$cpp\
+$cmake\
+$c\
+$python\
+$nodejs\
+$rust\
+$golang\
+$docker_context\
+${custom.hugo}\
+$localip\
+$cmd_duration\
+$package\
+${custom.mux}\
+$time\
+$battery\
+[](fg:surface0)"""
+
+# ── IDENTITY ────────────────────────────────────
+[os]
+disabled = false
+style = "bg:surface0 fg:lavender bold"
+format = "[ $symbol ]($style)"
+
+[os.symbols]
+Windows = ""
+Ubuntu = "󰕈"
+SUSE = ""
+Raspbian = "󰐿"
+Mint = "󰣭"
+Macos = "󰀵"
+Manjaro = ""
+Linux = "󰌽"
+Gentoo = "󰣨"
+Fedora = "󰣛"
+Alpine = ""
+Amazon = ""
+Android = ""
+AOSC = ""
+Arch = "󰣇"
+Artix = "󰣇"
+CentOS = ""
+Debian = "󰣚"
+Redhat = "󱄛"
+RedHatEnterprise = "󱄛"
+
+[username]
+show_always = true
+style_user = "bg:surface0 fg:text bold"
+style_root = "bg:surface0 fg:red bold"
+format = "[$user ]($style)"
+
+# ── DIRECTORY ───────────────────────────────────
+[directory]
+style = "fg:mantle bg:peach bold"
+format = "[ $path ]($style)"
+truncation_length = 1
+truncation_symbol = ""
+
+[directory.substitutions]
+"Desktop" = "  Desktop"
+"Documents" = "󰈙 Documents"
+"Downloads" = " Downloads"
+"Music" = "󰝚 Music"
+"Pictures" = " Pictures"
+"Videos" = "󰕧 Videos"
+"~" = "󰋜 Home"
+"Config" = " Config"
+".config" = " Config"
+"Fonts" = " Fonts"
+"lib" = "󰏗 lib"
+"bin" = "󰆍 bin"
+"assets" = "󰄦 assets"
+"node_modules" = " node_modules"
+"github" = "󰊤 Github"
+"Github" = "󰊤 Github"
+"gitlab" = "󰮠 Gitlab"
+"Gitlab" = "󰮠 Gitlab"
+".local" = "󰉋 Local"
+".ssh" = "󰒋 SSH"
+
+# ── GIT ─────────────────────────────────────────
+[git_branch]
+symbol = ""
+style = "bg:green fg:base bold"
+format = "[](fg:peach bg:green)[ $symbol $branch ]($style)"
+truncation_symbol = "…"
+truncation_length = 20
+only_attached = true
+
+[git_metrics]
+disabled = false
+ignore_submodules = true
+only_nonzero_diffs = true
+format = "([](fg:green bg:mauve)[ +$added ]($added_style))([](fg:mauve bg:blue)[ −$deleted ]($deleted_style)[](fg:blue bg:peach))"
+added_style = "fg:base bg:mauve bold"
+deleted_style = "fg:base bg:blue bold"
+
+[git_state]
+rebase = " REBASING"
+merge = " MERGING"
+revert = " REVERTING"
+cherry_pick = " CHERRY-PICK"
+bisect = " BISECT"
+style = "bold fg:red bg:surface0"
+format = "[ $state ]($style)"
+
+[git_status]
+disabled = false
+style = "bg:peach fg:base bold"
+format = "([$all_status$ahead_behind ]($style))"
+conflicted = "[ ](fg:surface1 bg:peach bold)"
+ahead = "[  ${count}](fg:surface1 bg:peach bold)"
+behind = "[  ${count}](fg:surface1 bg:peach bold)"
+diverged = "[  ⇡${ahead_count} ⇣${behind_count}](fg:surface1 bg:peach bold)"
+up_to_date = "[ ](fg:surface1 bg:peach bold)"
+untracked = "[ ](fg:surface1 bg:peach bold)"
+stashed = "[ ](fg:surface1 bg:peach bold)"
+modified = "[ ](fg:surface1 bg:peach bold)"
+staged = "[ ](fg:surface1 bg:peach bold)"
+renamed = "[ ](fg:surface1 bg:peach bold)"
+deleted = "[ ](fg:surface1 bg:peach bold)"
+
+# ── PROMPT CHARACTER ────────────────────────────
+[character]
+success_symbol = "[❯](bold fg:green)"
+error_symbol = "[❯](bold fg:red)"
+vimcmd_symbol = "[❮](bold fg:teal)"
+vimcmd_replace_one_symbol = "[❮](bold fg:lavender)"
+vimcmd_replace_symbol = "[❮](bold fg:mauve)"
+vimcmd_visual_symbol = "[❮](bold fg:yellow)"
+
+# ── RIGHT SIDE MODULES ──────────────────────────
+
+[status]
+disabled = false
+symbol = "✘"
+pipestatus = false
+format = "[ $symbol $status ](fg:red bg:surface0 bold)"
+
+[custom.vms]
+description = "Running QEMU/KVM virtual machines"
+command = "pgrep -fc '[q]emu-system'"
+when = "pgrep -f '[q]emu-system' >/dev/null"
+format = "[  $output VM ](fg:sky bg:surface0)"
+shell = ["bash", "--noprofile", "--norc"]
+
+[container]
+symbol = ""
+format = "[ $symbol $name ](fg:peach bg:surface0)"
+
+[hostname]
+ssh_only = true
+ssh_symbol = ""
+trim_at = "."
+format = "[  $hostname ](fg:lavender bg:surface0 bold)"
+
+[jobs]
+symbol = "󰜎"
+number_threshold = 1
+style = "bg:surface0"
+format = "[ $symbol $number ](fg:yellow bg:surface0)"
+
+[cpp]
+symbol = ""
+style = "bg:surface0"
+format = "[ $symbol](fg:blue bg:surface0)[ $version ](fg:text bg:surface0)"
+
+[cmake]
+symbol = ""
+style = "bg:surface0"
+format = "[ $symbol](fg:green bg:surface0)[ $version ](fg:subtext1 bg:surface0)"
+
+[c]
+symbol = ""
+style = "bg:surface0"
+format = "[ $symbol](fg:blue bg:surface0)[ $version ](fg:text bg:surface0)"
+
+[python]
+symbol = ""
+style = "bg:surface0"
+python_binary = ["python", "python3"]
+format = "[ $symbol](fg:green bg:surface0)[ $version( $virtualenv) ](fg:subtext1 bg:surface0)"
+
+[nodejs]
+symbol = ""
+style = "bg:surface0"
+format = "[ $symbol](fg:green bg:surface0)[ $version ](fg:subtext1 bg:surface0)"
+
+[rust]
+symbol = ""
+style = "bg:surface0"
+format = "[ $symbol](fg:peach bg:surface0)[ $version ](fg:subtext1 bg:surface0)"
+
+[golang]
+symbol = ""
+style = "bg:surface0"
+format = "[ $symbol](fg:sky bg:surface0)[ $version ](fg:subtext1 bg:surface0)"
+
+[docker_context]
+symbol = ""
+style = "bg:surface0"
+only_with_files = true
+format = "[ $symbol](fg:sky bg:surface0)[ $context ](fg:subtext1 bg:surface0)"
+
+[custom.hugo]
+description = "Hugo static site generator"
+command = 'hugo version | sed -E "s/^hugo v([^ +]+).*/v\1/"'
+when = 'command -v hugo >/dev/null 2>&1 && { test -f hugo.toml || test -f hugo.yaml || test -f hugo.json || test -f config.toml || test -d config/_default; }'
+format = "[ 󰗀](fg:peach bg:surface0)[ $output ](fg:subtext1 bg:surface0)"
+shell = ["bash", "--noprofile", "--norc"]
+
+[localip]
+ssh_only = true
+format = "[ 󰒋 $localipv4 ](fg:lavender bg:surface0)"
+disabled = false
+
+[cmd_duration]
+min_time = 1000
+show_milliseconds = false
+style = "bg:surface0"
+format = "[ 󱎫](fg:mauve bg:surface0)[ $duration ](fg:subtext1 bg:surface0)"
+
+[package]
+symbol = "󰏗"
+style = "fg:pink bg:surface0 bold"
+format = "[ $symbol $version ]($style)"
+
+[custom.mux]
+description = "Active terminal multiplexer"
+command = '''
+if [ -n "${ZELLIJ:-}" ]; then
+    printf "󰆍 Zellij"
+elif [ -n "${TMUX:-}" ]; then
+    printf " tmux"
+fi
+'''
+when = 'test -n "${ZELLIJ:-}" || test -n "${TMUX:-}"'
+format = "[ $output ](fg:teal bg:surface0)"
+shell = ["bash", "--noprofile", "--norc"]
+
+[time]
+disabled = false
+time_format = "%I:%M %p"
+style = "bg:surface0"
+format = "[ ](fg:lavender bg:surface0)[ $time ](fg:text bg:surface0 bold)"
+
+[battery]
+disabled = false
+full_symbol = ""
+charging_symbol = ""
+discharging_symbol = ""
+empty_symbol = ""
+unknown_symbol = ""
+format = "[ $symbol $percentage ]($style)"
+
+[[battery.display]]
+threshold = 10
+style = "fg:red bg:surface0 bold"
+
+[[battery.display]]
+threshold = 30
+style = "fg:yellow bg:surface0"
+
+# ── CATPPUCCIN MOCHA ────────────────────────────
+[palettes.catppuccin_mocha]
+rosewater = "#f5e0dc"
+flamingo = "#f2cdcd"
+pink = "#f5c2e7"
+mauve = "#cba6f7"
+red = "#f38ba8"
+maroon = "#eba0ac"
+peach = "#fab387"
+yellow = "#f9e2af"
+green = "#a6e3a1"
+teal = "#94e2d5"
+sky = "#89dceb"
+sapphire = "#74c7ec"
+blue = "#89b4fa"
+lavender = "#b4befe"
+text = "#cdd6f4"
+subtext1 = "#bac2de"
+subtext0 = "#a6adc8"
+overlay0 = "#6c7086"
+surface1 = "#45475a"
+surface0 = "#313244"
+base = "#1e1e2e"
+mantle = "#181825"
+crust = "#11111b"

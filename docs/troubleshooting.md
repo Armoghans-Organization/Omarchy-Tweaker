@@ -275,6 +275,27 @@ overwritten. If GPG fingerprint discovery fails after generation, run
 See **[Dotfiles](dotfiles.md)** for the catalog format and safety model, and
 **[Git Dotfiles](git.md)** for Git-specific checks and setup steps.
 
+### Starship prompt issues
+
+Check the linked prompt config:
+
+```bash
+ls -l ~/.config/starship.toml
+starship --version
+starship explain
+```
+
+Common causes:
+
+- Starship is installed but not initialized in `~/.zshrc`.
+- The terminal is not using a Nerd Font, so prompt icons render as boxes.
+- The config file was removed or replaced with a regular file instead of the managed symlink.
+- A custom module depends on a missing tool such as `hugo`, `pgrep`, or `docker`.
+- `command_timeout` or `scan_timeout` is too low for slower machines or large repositories.
+
+See **[Starship Dotfiles](starship.md)** for module requirements, cheat sheets, and
+customization notes.
+
 ---
 
 ## Hyprland configuration fails

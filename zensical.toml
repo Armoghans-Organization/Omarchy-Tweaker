@@ -28,7 +28,8 @@ nav = [
         {"Directories" = "directories.md"},
     ]},
     {"Dotfiles" = [
-        {"Git" = "git.md"}
+        {"Git" = "git.md"},
+        {"Starship" = "starship.md"}
     ]},
     {"Project" = [
         {"Architecture" = "architecture.md"},

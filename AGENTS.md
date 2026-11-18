@@ -56,7 +56,7 @@ The repository is in the **early implementation stage**.
 - The `snapshot` command creates a system snapshot through `omarchy snapshot create`.
 - The `cleanup` command discovers installed Omarchy packages, web app launchers, TUI launchers, and Mise wrappers, presents separate selectable lists per type, and removes only the items the user explicitly selects and confirms.
 - The `directories` command creates the fixed workspace directories (`~/Github`, `~/Github/Clone`, `~/Projects`, `~/Projects/Containers`, `~/.ISO`, `~/.VM`, `~/.Cloud`) after per-path confirmation and never overwrites existing paths.
-- The `dotfiles` command discovers catalogs in `src/omarchy_tweaker/dotfiles/`, reads each `config.toml`, validates home-relative destinations, asks per-catalog confirmation, collects configured answers, prepares configured SSH and GPG keys without overwriting existing private keys, symlinks configured files after backing up existing destinations, restores backups on symlink failure, and renders configured templates from bundled files. The Git catalog links the main Git config, Catppuccin Delta theme, commit template, global ignore file, secret patterns, and hooks directory; renders `~/.config/git/user` from name, email, and GPG fingerprint; and uses `~/.config/git/config` as the Git configuration path.
+- The `dotfiles` command discovers catalogs in `src/omarchy_tweaker/dotfiles/`, reads each `config.toml`, validates home-relative destinations, asks per-catalog confirmation, collects configured answers, prepares configured SSH and GPG keys without overwriting existing private keys, symlinks configured files after backing up existing destinations, restores backups on symlink failure, and renders configured templates from bundled files. The Git catalog links the main Git config, Catppuccin Delta theme, commit template, global ignore file, secret patterns, and hooks directory; renders `~/.config/git/user` from name, email, and GPG fingerprint; and uses `~/.config/git/config` as the Git configuration path. The Starship catalog links the bundled Catppuccin Mocha prompt configuration to `~/.config/starship.toml`.
 - The `packages` command presents fixed Pacman and AUR package groups and installs selected packages with `sudo pacman -S --noconfirm --needed --noprogressbar` and `yay -S --noconfirm --needed --noprogressbar`.
 - The `containers` command loads container definitions from `src/omarchy_tweaker/containers/`, prepares selected containers below `~/Projects/Containers/<container>`, creates `.env` files from `.env.example` with optional secret generation, backs up and links configured host symlinks, resolves Compose container-name conflicts by stopping and renaming existing containers, links container Caddyfiles into a managed directory with an import block in the host Caddyfile, starts and enables Caddy when needed, and starts containers with `docker compose up -d`. When OmniRoute is selected it also installs the host `omniroute` CLI with npm when missing or outdated, runs `discover.sh` to generate `compose.agents.yaml` (explicit `CLI_*_BIN` paths, `CLI_EXTRA_PATHS`, and AI agent configuration mounts, merged into the Compose start), pre-creates the writable runtime data directory, prints the one-time onboarding bootstrap token from the container logs, and offers to persist the `OMNIROUTE_BASE_URL`/`OMNIROUTE_API_KEY` exports in `~/.zshrc` or print them for manual entry. The bundled catalog currently contains Atuin AI Server, Open WebUI, Dockhand, OmniRoute, and SnapOtter.
 - The `plugins` command loads a fixed plugin catalog from `src/omarchy_tweaker/config/plugins.ini`, installs selected Omarchy shell plugins with `omarchy plugin add <url> --yes --enable`, skips already-installed plugins by repository URL, applies configured bar positions, runs optional patch scripts from `patches/`, and replaces `~/.config/omarchy/shell.json` with the bundled configuration after successful installation.
@@ -215,16 +215,19 @@ Before adding a dependency:
 │   │   │       ├── container.toml
 │   │   │       └── docker-compose.yml
 │   │   ├── dotfiles/            [IMPLEMENTED] Bundled dotfile catalogs and templates.
-│   │   │   └── git/             [IMPLEMENTED] Git dotfile catalog.
-│   │   │       ├── catppuccin   [IMPLEMENTED] Catppuccin Delta theme.
-│   │   │       ├── config       [IMPLEMENTED] Main Git configuration.
-│   │   │       ├── config.toml  [IMPLEMENTED] Centralized destinations and key settings.
-│   │   │       ├── gitmessage   [IMPLEMENTED] Conventional Commit template.
-│   │   │       ├── hooks/       [IMPLEMENTED] Global Git hooks directory.
-│   │   │       │   └── pre-commit [IMPLEMENTED] Staged-file safety checks.
-│   │   │       ├── ignore       [IMPLEMENTED] Global Git ignore file.
-│   │   │       ├── secret-patterns [IMPLEMENTED] Extra secret-detection patterns.
-│   │   │       └── user         [IMPLEMENTED] Rendered Git identity template.
+│   │   │   ├── git/             [IMPLEMENTED] Git dotfile catalog.
+│   │   │   │   ├── catppuccin   [IMPLEMENTED] Catppuccin Delta theme.
+│   │   │   │   ├── config       [IMPLEMENTED] Main Git configuration.
+│   │   │   │   ├── config.toml  [IMPLEMENTED] Centralized destinations and key settings.
+│   │   │   │   ├── gitmessage   [IMPLEMENTED] Conventional Commit template.
+│   │   │   │   ├── hooks/       [IMPLEMENTED] Global Git hooks directory.
+│   │   │   │   │   └── pre-commit [IMPLEMENTED] Staged-file safety checks.
+│   │   │   │   ├── ignore       [IMPLEMENTED] Global Git ignore file.
+│   │   │   │   ├── secret-patterns [IMPLEMENTED] Extra secret-detection patterns.
+│   │   │   │   └── user         [IMPLEMENTED] Rendered Git identity template.
+│   │   │   └── starship/        [IMPLEMENTED] Starship dotfile catalog.
+│   │   │       ├── config.toml  [IMPLEMENTED] Centralized destination.
+│   │   │       └── starship     [IMPLEMENTED] Catppuccin Mocha prompt configuration.
 │   │   ├── hypr/                [IMPLEMENTED] Bundled Hyprland Lua configuration.
 │   │   │   ├── bindings.lua     [IMPLEMENTED] Keybindings and launchers.
 │   │   │   ├── input.lua        [IMPLEMENTED] Input and gesture settings.

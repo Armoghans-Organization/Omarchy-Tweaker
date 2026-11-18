@@ -62,6 +62,7 @@ See [Packages](packages.md) for package installation details, [Plugins](plugins.
 plugin and patch workflow, [Cleanup](cleanup.md) for the full destructive-operation workflow,
 and [Directories](directories.md) for workspace path rules, [Dotfiles](dotfiles.md) for
 dotfile backups and key handling, [Git Dotfiles](git.md) for key and hook handling,
+[Starship Dotfiles](starship.md) for prompt config linking and module scope,
 [Hyprland](hypr.md) for the configuration link workflow
 and its no-backup policy, and [Bundled Scripts](scripts.md) for the PATH link workflow.
 
