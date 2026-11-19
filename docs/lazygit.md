@@ -96,7 +96,7 @@ The config works best with these tools available:
 | `lazygit` | The terminal UI itself. |
 | `delta` | Styled diffs and log paging. |
 | `nvim` | Opening files and jumping to a line from lazygit. |
-| `tig` | The custom file-history command on `t`. |
+| `tig` | The custom file-history command on `t`; see [Tig Dotfiles](tig.md) for its bundled config. |
 | `xdg-open` | Opening files and links from lazygit. |
 | A Nerd Font | Rendering file icons and spinner glyphs. |
 | `git` | All repository operations. |
@@ -393,6 +393,7 @@ belong under `customCommands:` and should use a specific context such as `files`
 
 - [Dotfiles](dotfiles.md)
 - [Git Dotfiles](git.md)
+- [Tig Dotfiles](tig.md)
 - [Starship Dotfiles](starship.md)
 - [Commands](commands.md)
 - [Security](security.md)

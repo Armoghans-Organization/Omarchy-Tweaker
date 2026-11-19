@@ -146,7 +146,7 @@
 
 [status]
     branch = true
-    showUntrackedFiles = normal
+    showUntrackedFiles = all
 
 # -----------------------------------------------------------------------------
 # Fetch

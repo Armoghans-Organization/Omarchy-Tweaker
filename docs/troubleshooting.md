@@ -322,6 +322,32 @@ Common causes:
 See **[Lazygit Dotfiles](lazygit.md)** for keybindings, external command requirements, and
 customization notes.
 
+### Tig config issues
+
+Check the linked config and the tools it calls:
+
+```bash
+ls -l ~/.config/tig/config
+tig --version
+command -v delta
+command -v meld
+command -v wl-copy
+git config --get diff.tool
+```
+
+Common causes:
+
+- Colors do not look Catppuccin-like when the terminal palette is not configured.
+- The commit graph renders poorly without UTF-8 locale and terminal support.
+- The `D` diff binding needs `delta`.
+- The `M` diff binding needs `meld` and `git config --get diff.tool` set to `meld`.
+- The `y` binding needs `wl-copy` and a Wayland session.
+- `XDG_CONFIG_HOME` may point Tig to a different config location.
+- The config file may have been replaced with a regular file instead of the managed symlink.
+
+See **[Tig Dotfiles](tig.md)** for keybindings, external command requirements, and
+customization notes.
+
 ---
 
 ## Hyprland configuration fails

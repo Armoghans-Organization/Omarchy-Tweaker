@@ -125,6 +125,22 @@ def test_discover_dotfile_bundles_returns_only_directories_with_config(
     assert [path.name for path in discover_dotfile_bundles(root)] == ["git"]
 
 
+def test_discover_bundled_dotfile_catalogs_includes_expected_catalogs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OMARCHY_TWEAKER_DOTFILES_DIR", raising=False)
+    source = get_dotfiles_source_directory()
+    bundles = discover_dotfile_bundles(source)
+
+    names = {path.name for path in bundles}
+    assert {"Tig", "git", "lazygit", "starship"} <= names
+
+    for path in bundles:
+        bundle = load_dotfile_bundle(path, Path("/home/test"))
+        assert bundle.symlinks
+        assert all((path / name).exists() for name, _ in bundle.symlinks)
+
+
 def test_load_dotfile_bundle_reads_config_sections(tmp_path: Path) -> None:
     root = make_bundle(tmp_path)
     home = tmp_path / "home"

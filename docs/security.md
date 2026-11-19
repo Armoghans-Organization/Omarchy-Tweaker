@@ -63,6 +63,7 @@ plugin and patch workflow, [Cleanup](cleanup.md) for the full destructive-operat
 and [Directories](directories.md) for workspace path rules, [Dotfiles](dotfiles.md) for
 dotfile backups and key handling, [Git Dotfiles](git.md) for key and hook handling,
 [Lazygit Dotfiles](lazygit.md) for TUI config linking and external command scope,
+[Tig Dotfiles](tig.md) for text-mode Git config linking and shell command bindings,
 [Starship Dotfiles](starship.md) for prompt config linking and module scope,
 [Hyprland](hypr.md) for the configuration link workflow
 and its no-backup policy, and [Bundled Scripts](scripts.md) for the PATH link workflow.

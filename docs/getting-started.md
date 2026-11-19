@@ -198,6 +198,7 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Dotfiles](dotfiles.md) — catalog format, keys, and backups.
 - [Git Dotfiles](git.md) — Git usage examples, GitHub setup, and cheat sheets.
 - [Lazygit Dotfiles](lazygit.md) — TUI config, keybindings, and custom commands.
+- [Tig Dotfiles](tig.md) — text-mode Git interface, Delta/Meld actions, and keybindings.
 - [Starship Dotfiles](starship.md) — prompt usage, module cheat sheets, and customization.
 - [Packages](packages.md) — package catalog and installation workflow.
 - [Plugins](plugins.md) — shell plugin catalog, placement, and patch workflow.

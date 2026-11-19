@@ -1,6 +1,6 @@
 ---
 description: Usage examples, instructions, and cheat sheets for the bundled Git dotfile catalog.
-icon: material/source-branch
+icon: material/git
 subtitle: Git dotfile guide
 mermaid: true
 ---
@@ -22,7 +22,7 @@ The `git` catalog installs a complete Git environment that is:
 - Signed by default with your GPG key.
 - Based on Conventional Commits.
 - Integrated with Neovim, Delta, and Meld.
-- Complemented by the bundled lazygit catalog for terminal UI work.
+- Complemented by the bundled lazygit and Tig catalogs for terminal UI workflows.
 - Configured for clean rebases, remote-tracking branches, and conflict reuse.
 - Protected by a global pre-commit safety hook.
 - Ready for GitHub over SSH with URL shortcuts.
@@ -187,7 +187,7 @@ src/omarchy_tweaker/dotfiles/git/config.toml
 | Setting | Value | Effect |
 |:--|:--|:--|
 | `[status] branch` | `true` | Shows branch information in `git status`. |
-| `[status] showUntrackedFiles` | `normal` | Shows untracked files and directories normally. |
+| `[status] showUntrackedFiles` | `all` | Shows every untracked file instead of collapsing untracked directories. |
 | `[log] date` | `iso` | Uses ISO-style dates in logs. |
 | `[log] decorate` | `short` | Shows short branch and tag decorations. |
 | `[log] follow` | `true` | Follows file history through renames. |
@@ -621,6 +621,7 @@ understand exactly what is being committed.
 
 - [Dotfiles](dotfiles.md)
 - [Lazygit Dotfiles](lazygit.md)
+- [Tig Dotfiles](tig.md)
 - [Starship Dotfiles](starship.md)
 - [Commands](commands.md)
 - [Security](security.md)

@@ -1,0 +1,119 @@
+# ╭──────────────────────────────────────────────────────────╮
+# │  TIG · Catppuccin Mocha · delta + meld                   │
+# │  Put this at: ~/.config/tig/config                       │
+# ╰──────────────────────────────────────────────────────────╯
+
+# ── BEHAVIOUR ────────────────────────────────────────────────
+set mouse = yes
+set mouse-scroll = 3
+set refresh-mode = auto
+set refresh-interval = 10
+set ignore-case = smart-case
+set wrap-lines = no
+set horizontal-scroll = 33%
+set tab-size = 4
+set editor-line-number = yes
+set show-changes = yes
+set show-untracked = yes
+set diff-context = 5
+
+# ── LAYOUT ───────────────────────────────────────────────────
+# Smooth unicode box-drawing for the commit graph (Nerd Font terminal is fine)
+set line-graphics = utf-8
+set vertical-split = auto
+set split-view-height = 65%
+
+# Commit list: short relative dates, abbreviated author, v2 graph, ref labels
+set main-view = id:no date:relative author:abbreviated commit-title:graph=v2,refs=yes,overflow=no
+set blame-view = id:yes,color file-name:auto author:abbreviated date:relative line-number:yes,interval=1 text
+
+# Branch / tag labels. Icons are experimental, see the notes in the reply.
+# set reference-format = [branch] <tag> {remote} ~replace~
+
+# ── COLORS ───────────────────────────────────────────────────
+# Uses your terminal's 16 ANSI colors and the default background, so tig
+# follows the Catppuccin palette of your Omarchy theme (and changes with it).
+# Mapping in Catppuccin terminals: magenta=pink, cyan=teal, "8"=surface.
+
+# Base
+color default           default   default
+color cursor            default   8         bold
+color status            green     default
+color title-focus       black     magenta   bold
+color title-blur        default   8
+color delimiter         magenta   default
+color header            blue      default   bold
+color line-number       8         default
+color id                yellow    default
+color date              cyan      default
+color author            blue      default
+color mode              magenta   default
+color overflow          red       default
+color directory         blue      default   bold
+color file              default   default
+color graph-commit      magenta   default
+color search-result     black     yellow
+
+# Refs in the commit list
+color main-head         green     default   bold
+color main-remote       yellow    default
+color main-tracked      red       default
+color main-tag          magenta   default   bold
+color main-local-tag    magenta   default
+color main-ref          cyan      default
+
+# Status view
+color stat-staged       green     default
+color stat-unstaged     red       default
+color stat-untracked    magenta   default
+
+# Diff
+color diff-header       blue      default
+color diff-chunk        magenta   default
+color diff-add          green     default
+color diff-del          red       default
+color diff-stat         cyan      default
+
+# Help
+color help-group        blue      default   bold
+color help-action       magenta   default
+
+# Commit graph branch colors
+color palette-0         magenta   default
+color palette-1         yellow    default
+color palette-2         cyan      default
+color palette-3         green     default
+color palette-4         red       default
+color palette-5         blue      default
+color palette-6         magenta   default
+color palette-7         yellow    default
+color palette-8         cyan      default
+color palette-9         green     default
+color palette-10        red       default
+color palette-11        blue      default
+color palette-12        magenta   default
+color palette-13        yellow    default
+
+# ── KEYS ─────────────────────────────────────────────────────
+# Vim-style jumps (g / G work in the commit list too)
+bind generic g move-first-line
+bind generic G move-last-line
+bind main    G move-last-line
+
+# D = open the diff in delta (full-screen, with its pager; press q to return)
+bind main    D !sh -c "git show %(commit) | delta --paging=always"
+bind diff    D !sh -c "git show %(commit) | delta --paging=always"
+bind log     D !sh -c "git show %(commit) | delta --paging=always"
+bind blame   D !sh -c "git show %(commit) | delta --paging=always"
+bind refs    D !sh -c "git show %(commit) | delta --paging=always"
+bind stash   D !sh -c "git stash show -p %(stash) | delta --paging=always"
+bind status  D !sh -c "git diff HEAD -- %(file) | delta --paging=always"
+bind stage   D !sh -c "git diff HEAD -- %(file) | delta --paging=always"
+
+# M = open the change in meld (needs diff.tool = meld in ~/.gitconfig)
+bind main    M @git difftool --dir-diff %(commit)^ %(commit)
+bind diff    M @git difftool --dir-diff %(commit)^ %(commit)
+bind status  M @git difftool --no-prompt -- %(file)
+
+# y = copy the commit hash to the Wayland clipboard
+bind generic y @sh -c "printf %s %(commit) | wl-copy"
