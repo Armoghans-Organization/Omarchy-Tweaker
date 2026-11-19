@@ -200,6 +200,7 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Lazygit Dotfiles](lazygit.md) — TUI config, keybindings, and custom commands.
 - [Tig Dotfiles](tig.md) — text-mode Git interface, Delta/Meld actions, and keybindings.
 - [Starship Dotfiles](starship.md) — prompt usage, module cheat sheets, and customization.
+- [Superfile Dotfiles](superfile.md) — file manager config, hotkeys, theme, and integrations.
 - [Packages](packages.md) — package catalog and installation workflow.
 - [Plugins](plugins.md) — shell plugin catalog, placement, and patch workflow.
 - [Hyprland](hypr.md) — bundled Lua files, symlinks, and workspaces loading.

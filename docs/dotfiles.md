@@ -10,9 +10,9 @@ mermaid: true
 This page explains what the `dotfiles` feature currently is, how it discovers catalogs,
 how it applies them, and what safety behavior it provides.
 
-For day-to-day usage of the bundled Git, Lazygit, Tig, and Starship setups, see
-**[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**,
-**[Tig Dotfiles](tig.md)**, and **[Starship Dotfiles](starship.md)**.
+For day-to-day usage of the bundled Git, Lazygit, Tig, Starship, and Superfile setups, see
+**[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**, **[Tig Dotfiles](tig.md)**,
+**[Starship Dotfiles](starship.md)**, and **[Superfile Dotfiles](superfile.md)**.
 
 !!! note "Current scope"
     The dotfile system is a bundled-catalog installer, not a general-purpose dotfile
@@ -128,7 +128,7 @@ template-file = "~/.config/example/rendered-file"
 | `[keys]` | Defines SSH/GPG paths and generation options. | No |
 
 A catalog can use any combination of these sections. The Git catalog currently uses all
-four. The Lazygit, Tig, and Starship catalogs use only `[symlink]`.
+four. The Lazygit, Tig, Starship, and Superfile catalogs use only `[symlink]`.
 
 ### Path rules
 
@@ -174,6 +174,7 @@ Templates can use:
 | Lazygit | `src/omarchy_tweaker/dotfiles/lazygit/` | Catppuccin Mocha lazygit configuration with Delta, Neovim, tig, and Conventional Commit commands. |
 | Tig | `src/omarchy_tweaker/dotfiles/Tig/` | Catppuccin Mocha-oriented Tig configuration with Delta, Meld, and Wayland clipboard bindings. |
 | Starship | `src/omarchy_tweaker/dotfiles/starship/` | Catppuccin Mocha prompt configuration for Starship. |
+| Superfile | `src/omarchy_tweaker/dotfiles/Superfile/` | Catppuccin Frappe terminal file manager configuration with custom hotkeys, previews, plugins, and theme colors. |
 
 Each catalog defines its destinations and options in its own `config.toml`:
 
@@ -182,11 +183,12 @@ src/omarchy_tweaker/dotfiles/git/config.toml
 src/omarchy_tweaker/dotfiles/lazygit/config.toml
 src/omarchy_tweaker/dotfiles/Tig/config.toml
 src/omarchy_tweaker/dotfiles/starship/config.toml
+src/omarchy_tweaker/dotfiles/Superfile/config.toml
 ```
 
-See **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**,
-**[Tig Dotfiles](tig.md)**, and **[Starship Dotfiles](starship.md)** for what these custom
-configurations do and how to use them.
+See **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**, **[Tig Dotfiles](tig.md)**,
+**[Starship Dotfiles](starship.md)**, and **[Superfile Dotfiles](superfile.md)** for what these
+custom configurations do and how to use them.
 
 ---
 
@@ -299,7 +301,8 @@ The CLI itself always uses `Path.home()` and the packaged catalog directory.
 - Starship, when you want to use the linked prompt configuration.
 - `lazygit`, plus `delta`, `nvim`, `tig`, and `xdg-open`, for the features used by its linked config.
 - `tig`, plus `delta`, `meld`, and `wl-copy`, for the features used by its linked config.
-- A Nerd Font, when you want Starship or lazygit icons to render correctly.
+- `superfile`, plus `bat`, `nvim`, `exiftool`, `md5sum`, and `zoxide`, for the features used by its linked config.
+- A Nerd Font, when you want Starship, lazygit, or Superfile icons to render correctly.
 
 ---
 
@@ -309,6 +312,7 @@ The CLI itself always uses `Path.home()` and the packaged catalog directory.
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
 - [Starship Dotfiles](starship.md)
+- [Superfile Dotfiles](superfile.md)
 - [Commands](commands.md)
 - [Getting Started](getting-started.md)
 - [Security](security.md)

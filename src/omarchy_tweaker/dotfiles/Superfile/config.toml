@@ -1,0 +1,4 @@
+[symlink]
+config = "~/.config/superfile/config.toml"
+hotkeys = "~/.config/superfile/hotkeys.toml"
+catppuccin = "~/.config/superfile/theme/catppuccin-frappe.toml"

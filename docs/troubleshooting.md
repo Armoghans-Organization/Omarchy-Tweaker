@@ -348,6 +348,38 @@ Common causes:
 See **[Tig Dotfiles](tig.md)** for keybindings, external command requirements, and
 customization notes.
 
+### Superfile config issues
+
+Check the linked files and the tools the config calls:
+
+```bash
+ls -l ~/.config/superfile/config.toml
+ls -l ~/.config/superfile/hotkeys.toml
+ls -l ~/.config/superfile/theme/catppuccin-frappe.toml
+command -v spf
+command -v bat
+command -v nvim
+command -v exiftool
+command -v md5sum
+command -v zoxide
+```
+
+Common causes:
+
+- The theme does not load when a theme symlink is missing or `XDG_CONFIG_HOME` redirects Superfile.
+- Extra spaces around a theme name can prevent the theme from being found.
+- Icons appear as boxes without a Nerd Font.
+- Code previews stay plain without `bat` or when `code_previewer` is misconfigured.
+- Image previews need terminal image-protocol support.
+- Transparency needs terminal transparency support.
+- Metadata and MD5 actions need `exiftool` and `md5sum`.
+- `z` needs `zoxide` and its shell integration.
+- `cd_on_quit` needs Superfile's shell integration or wrapper.
+- The config files may have been replaced with regular files instead of managed symlinks.
+
+See **[Superfile Dotfiles](superfile.md)** for settings, keybindings, theme details, and
+customization notes.
+
 ---
 
 ## Hyprland configuration fails

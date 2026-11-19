@@ -309,6 +309,7 @@ as `generic`, `main`, `diff`, `status`, or `stash`.
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Starship Dotfiles](starship.md)
+- [Superfile Dotfiles](superfile.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

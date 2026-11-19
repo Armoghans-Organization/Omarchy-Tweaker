@@ -395,6 +395,7 @@ belong under `customCommands:` and should use a specific context such as `files`
 - [Git Dotfiles](git.md)
 - [Tig Dotfiles](tig.md)
 - [Starship Dotfiles](starship.md)
+- [Superfile Dotfiles](superfile.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

@@ -623,6 +623,7 @@ understand exactly what is being committed.
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
 - [Starship Dotfiles](starship.md)
+- [Superfile Dotfiles](superfile.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

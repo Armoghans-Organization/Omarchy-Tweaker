@@ -133,12 +133,31 @@ def test_discover_bundled_dotfile_catalogs_includes_expected_catalogs(
     bundles = discover_dotfile_bundles(source)
 
     names = {path.name for path in bundles}
-    assert {"Tig", "git", "lazygit", "starship"} <= names
+    assert {"Superfile", "Tig", "git", "lazygit", "starship"} <= names
 
     for path in bundles:
         bundle = load_dotfile_bundle(path, Path("/home/test"))
         assert bundle.symlinks
         assert all((path / name).exists() for name, _ in bundle.symlinks)
+
+
+def test_bundled_superfile_catalog_exposes_expected_symlinks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OMARCHY_TWEAKER_DOTFILES_DIR", raising=False)
+    source = get_dotfiles_source_directory()
+    home = Path("/home/test")
+
+    bundle = load_dotfile_bundle(source / "Superfile", home)
+
+    assert bundle.symlinks == (
+        ("config", home / ".config" / "superfile" / "config.toml"),
+        ("hotkeys", home / ".config" / "superfile" / "hotkeys.toml"),
+        (
+            "catppuccin",
+            home / ".config" / "superfile" / "theme" / "catppuccin-frappe.toml",
+        ),
+    )
 
 
 def test_load_dotfile_bundle_reads_config_sections(tmp_path: Path) -> None:
