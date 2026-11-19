@@ -22,6 +22,7 @@ The `git` catalog installs a complete Git environment that is:
 - Signed by default with your GPG key.
 - Based on Conventional Commits.
 - Integrated with Neovim, Delta, and Meld.
+- Complemented by the bundled lazygit catalog for terminal UI work.
 - Configured for clean rebases, remote-tracking branches, and conflict reuse.
 - Protected by a global pre-commit safety hook.
 - Ready for GitHub over SSH with URL shortcuts.
@@ -619,6 +620,7 @@ understand exactly what is being committed.
 ## Related pages
 
 - [Dotfiles](dotfiles.md)
+- [Lazygit Dotfiles](lazygit.md)
 - [Starship Dotfiles](starship.md)
 - [Commands](commands.md)
 - [Security](security.md)

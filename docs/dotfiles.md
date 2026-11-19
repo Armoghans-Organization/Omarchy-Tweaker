@@ -10,8 +10,9 @@ mermaid: true
 This page explains what the `dotfiles` feature currently is, how it discovers catalogs,
 how it applies them, and what safety behavior it provides.
 
-For day-to-day usage of the bundled Git and Starship setups, see
-**[Git Dotfiles](git.md)** and **[Starship Dotfiles](starship.md)**.
+For day-to-day usage of the bundled Git, Lazygit, and Starship setups, see
+**[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**, and
+**[Starship Dotfiles](starship.md)**.
 
 !!! note "Current scope"
     The dotfile system is a bundled-catalog installer, not a general-purpose dotfile
@@ -127,7 +128,7 @@ template-file = "~/.config/example/rendered-file"
 | `[keys]` | Defines SSH/GPG paths and generation options. | No |
 
 A catalog can use any combination of these sections. The Git catalog currently uses all
-four. The Starship catalog uses only `[symlink]`.
+four. The Lazygit and Starship catalogs use only `[symlink]`.
 
 ### Path rules
 
@@ -170,17 +171,20 @@ Templates can use:
 | Catalog | Source | Purpose |
 |:--|:--|:--|
 | Git | `src/omarchy_tweaker/dotfiles/git/` | Git configuration, identity file, commit template, ignore rules, secret patterns, hooks, SSH key, and GPG signing key. |
+| Lazygit | `src/omarchy_tweaker/dotfiles/lazygit/` | Catppuccin Mocha lazygit configuration with Delta, Neovim, tig, and Conventional Commit commands. |
 | Starship | `src/omarchy_tweaker/dotfiles/starship/` | Catppuccin Mocha prompt configuration for Starship. |
 
 Each catalog defines its destinations and options in its own `config.toml`:
 
 ```text
 src/omarchy_tweaker/dotfiles/git/config.toml
+src/omarchy_tweaker/dotfiles/lazygit/config.toml
 src/omarchy_tweaker/dotfiles/starship/config.toml
 ```
 
-See **[Git Dotfiles](git.md)** and **[Starship Dotfiles](starship.md)** for what these
-custom configurations do and how to use them.
+See **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**, and
+**[Starship Dotfiles](starship.md)** for what these custom configurations do and how to use
+them.
 
 ---
 
@@ -291,13 +295,15 @@ The CLI itself always uses `Path.home()` and the packaged catalog directory.
 - An interactive terminal.
 - `bash`, and optionally `gum`, for the bundled Git pre-commit hook.
 - Starship, when you want to use the linked prompt configuration.
-- A Nerd Font, when you want Nerd Font prompt glyphs to render correctly.
+- `lazygit`, plus `delta`, `nvim`, `tig`, and `xdg-open`, for the features used by its linked config.
+- A Nerd Font, when you want Starship or lazygit icons to render correctly.
 
 ---
 
 ## Related pages
 
 - [Git Dotfiles](git.md)
+- [Lazygit Dotfiles](lazygit.md)
 - [Starship Dotfiles](starship.md)
 - [Commands](commands.md)
 - [Getting Started](getting-started.md)

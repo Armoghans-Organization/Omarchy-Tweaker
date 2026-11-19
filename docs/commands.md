@@ -503,9 +503,11 @@ sequence and is also available as a standalone command.
 The bundled Git catalog links the main Git configuration, Catppuccin Delta theme,
 commit template, global ignore file, secret patterns, and hooks directory. It renders
 `~/.config/git/user` using the collected name, email, and GPG fingerprint. The bundled
-Starship catalog links the Catppuccin Mocha prompt configuration to
-`~/.config/starship.toml`. See **[Dotfiles](dotfiles.md)** for the workflow,
-**[Git Dotfiles](git.md)** for Git usage and cheat sheets, and
+Lazygit catalog links a Catppuccin Mocha TUI configuration to
+`~/.config/lazygit/config.yml`. The bundled Starship catalog links the Catppuccin Mocha
+prompt configuration to `~/.config/starship.toml`. See **[Dotfiles](dotfiles.md)** for the
+workflow, **[Git Dotfiles](git.md)** for Git usage and cheat sheets,
+**[Lazygit Dotfiles](lazygit.md)** for TUI usage and keybindings, and
 **[Starship Dotfiles](starship.md)** for prompt usage and cheat sheets.
 
 ### Non-interactive use
@@ -522,11 +524,13 @@ any catalog failed. Declining confirmation is a safe skip and exits with code `0
 ### Requirements
 
 - `ssh-keygen` and `gpg` must be available when keys are configured.
+- `lazygit`, `delta`, `nvim`, `tig`, and `xdg-open` are needed for the features used by the bundled lazygit config.
 - The user home directory must be writable.
 - The bundled files in `src/omarchy_tweaker/dotfiles/` must be present.
 
 See **[Dotfiles](dotfiles.md)** for configuration, backups, and safety details,
-**[Git Dotfiles](git.md)** for the Git-specific usage guide, and
+**[Git Dotfiles](git.md)** for the Git-specific usage guide,
+**[Lazygit Dotfiles](lazygit.md)** for the lazygit TUI guide, and
 **[Starship Dotfiles](starship.md)** for the Starship prompt guide.
 
 ---
@@ -671,6 +675,7 @@ omarchy-tweaker --help
 - [Hyprland](hypr.md)
 - [Dotfiles](dotfiles.md)
 - [Git Dotfiles](git.md)
+- [Lazygit Dotfiles](lazygit.md)
 - [Starship Dotfiles](starship.md)
 - [Bundled Scripts](scripts.md)
 - [Troubleshooting](troubleshooting.md)

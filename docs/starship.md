@@ -379,6 +379,7 @@ another `[symlink]` entry.
 
 - [Dotfiles](dotfiles.md)
 - [Git Dotfiles](git.md)
+- [Lazygit Dotfiles](lazygit.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

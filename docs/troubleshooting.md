@@ -296,6 +296,32 @@ Common causes:
 See **[Starship Dotfiles](starship.md)** for module requirements, cheat sheets, and
 customization notes.
 
+### Lazygit config issues
+
+Check the linked config and the tools it calls:
+
+```bash
+ls -l ~/.config/lazygit/config.yml
+lazygit --version
+command -v delta
+command -v nvim
+command -v tig
+command -v xdg-open
+```
+
+Common causes:
+
+- Icons render as boxes when no Nerd Font is configured.
+- Delta diffs are plain or missing when `delta` is absent or lacks the `mantis-shrimp` feature.
+- Editor and open actions fail when `nvim` or `xdg-open` is missing from `PATH`.
+- The `t` file-history command needs `tig`.
+- The `c` Conventional Commit command only runs from the Files panel.
+- `XDG_CONFIG_HOME` may point lazygit to a different config location.
+- The config file may have been replaced with a regular file instead of the managed symlink.
+
+See **[Lazygit Dotfiles](lazygit.md)** for keybindings, external command requirements, and
+customization notes.
+
 ---
 
 ## Hyprland configuration fails

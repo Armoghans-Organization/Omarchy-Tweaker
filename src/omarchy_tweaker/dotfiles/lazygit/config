@@ -1,0 +1,278 @@
+# ╭──────────────────────────────────────────────────────────╮
+# │  LAZYGIT · Catppuccin Mocha · delta + meld               │
+# │  Put this at: ~/.config/lazygit/config.yml               │
+# ╰──────────────────────────────────────────────────────────╯
+
+
+# Don't pause with "press enter to return" after tig / meld / nvim exit
+promptToReturnFromSubprocess: false
+
+
+# ── GUI ──────────────────────────────────────────────────────
+gui:
+  nerdFontsVersion: "3"
+  showFileIcons: true
+  border: rounded
+  mouseEvents: true
+
+  # Layout
+  sidePanelWidth: 0.30
+  expandFocusedSidePanel: true
+  expandedSidePanelWeight: 2
+  mainPanelSplitMode: vertical
+  statusPanelView: dashboard
+
+  # Information density
+  showFileTree: true
+  showFileChangeTabs: true
+  showListFooter: true
+  showPanelJumps: true
+  showCommandLog: true
+  commandLogSize: 8
+  showBottomLine: false
+  showRandomTip: true
+  showBranchCommitHash: true
+  showDivergenceFromBaseBranch: arrowAndNumber
+
+  # Behaviour
+  scrollHeight: 2
+  scrollOffMargin: 4
+  filterMode: fuzzy
+  switchTabsWithPanelJumpKeys: false
+  useHunkModeInStagingView: true
+  wrapLinesInStagingView: true
+  skipDiscardChangeWarning: false
+  skipStashWarning: false
+  skipNoStagedFilesWarning: false
+
+  timeFormat: "02 Jan 06"
+  shortTimeFormat: "3:04PM"
+
+  # Colors a branch by its name prefix
+  branchColorPatterns:
+    '^(main|master)$': '#cba6f7'
+    '^feat': '#a6e3a1'
+    '^fix': '#f38ba8'
+    '^hotfix': '#fab387'
+    '^(chore|docs|refactor)': '#f9e2af'
+
+  authorColors:
+    '*': '#b4befe'
+
+  spinner:
+    frames:
+      - ●∙∙
+      - ∙●∙
+      - ∙∙●
+      - ∙●∙
+    rate: 100
+
+  sidePanels:
+    - [status]
+    - [files, worktrees, submodules]
+    - [branches, remotes, tags]
+    - [commits, reflog]
+    - [stash]
+
+  # Catppuccin Mocha (matches your Starship prompt)
+  theme:
+    activeBorderColor:
+      - '#8bd5ca'
+      - bold
+    inactiveBorderColor:
+      - '#a5adcb'
+    searchingActiveBorderColor:
+      - '#eed49f'
+    optionsTextColor:
+      - '#8aadf4'
+    selectedLineBgColor:
+      - '#363a4f'
+    inactiveViewSelectedLineBgColor:
+      - '#6e738d'
+    cherryPickedCommitFgColor:
+      - '#8bd5ca'
+    cherryPickedCommitBgColor:
+      - '#494d64'
+    markedBaseCommitFgColor:
+      - '#8aadf4'
+    markedBaseCommitBgColor:
+      - '#eed49f'
+    unstagedChangesColor:
+      - '#ed8796'
+    defaultFgColor:
+      - '#cad3f5'
+    authorColors:
+      '*': '#b7bdf8'
+
+# ── OS ───────────────────────────────────────────────────────
+os:
+  edit: nvim {{filename}}
+  editAtLine: nvim +{{line}} {{filename}}
+  editAtLineAndWait: nvim +{{line}} {{filename}}
+  openDirInEditor: nvim {{dir}}
+  editInTerminal: true
+  open: xdg-open {{filename}}
+  openLink: xdg-open {{link}}
+
+# ── GIT ──────────────────────────────────────────────────────
+git:
+  branchLogCmd: git log --graph --color=always --abbrev-commit --decorate --date=relative {{branchName}} --
+  allBranchesLogCmds:
+    - git log --graph --all --color=always --abbrev-commit --decorate --date=relative
+  localBranchSortOrder: date
+  remoteBranchSortOrder: date
+
+  diffRenderers:
+    - colorArg: always
+      useConfig: false
+      command: >-
+        delta
+        --features=mantis-shrimp
+        --paging=never
+        --side-by-side
+        --line-numbers
+        --hyperlinks
+        --hyperlinks-file-link-format="lazygit-edit://{path}:{line}"
+  log:
+    order: "topo-order"
+    showGraph: "always"
+    showWholeGraph: true
+
+  paging:
+    colorArg: always
+    pager: delta --features=mantis-shrimp --paging=never --side-by-side --line-numbers --hyperlinks --hyperlinks-file-link-format="lazygit-edit://{path}:{line}"
+
+  commit:
+    autoWrapCommitMessage: true
+    autoWrapWidth: 72
+
+  mainBranches:
+    - master
+    - main
+
+update:
+  method: prompt
+  days: 7
+
+# ── KEYBINDINGS ──────────────────────────────────────────────
+# Only things that differ from the defaults live here.
+# Removed on purpose: the swapped push/pull (p/P), the swapped Tab
+# keys and the h/l lists. All of those are already the defaults.
+#
+# To unbind a built-in key, set it to <disabled>, for example:
+#   keybinding:
+#     universal:
+#       edit: <disabled>
+keybinding:
+  universal:
+    quit: q
+    quitWithoutChangingDirectory: Q
+    prevBlock: [<left>, h]
+    nextBlock: [<right>, l]
+    togglePanel: ["1", "2", "3", "4", "5", "6", "7"]
+    nextTab: [<tab>, '[']
+    prevTab: [<backtab>, ']']
+
+    pushFiles: p
+    pullFiles: P
+
+    # Number keys jump between panels
+    jumpToBlock:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+
+  files:
+    commitChanges: C
+
+# ── CUSTOM COMMANDS ──────────────────────────────────────────
+# Rule: a custom key beats a built-in key in the SAME context, but a
+# "global" custom key LOSES to any built-in key in a specific context.
+# So every command below uses a specific context, never "global".
+
+customCommands:
+# c (files): guided conventional commit
+  - key: c
+    context: files
+    description: Conventional commit (type, scope, message)
+    loadingText: Committing...
+    prompts:
+      - type: menu
+        key: Type
+        title: Type of change
+        options:
+          - name: feat
+            description: A new feature
+            value: feat
+          - name: fix
+            description: A bug fix
+            value: fix
+          - name: docs
+            description: Documentation only
+            value: docs
+          - name: refactor
+            description: Neither a fix nor a feature
+            value: refactor
+          - name: style
+            description: Formatting, no code meaning change
+            value: style
+          - name: perf
+            description: Performance improvement
+            value: perf
+          - name: test
+            description: Adding or fixing tests
+            value: test
+          - name: build
+            description: Build system or dependencies
+            value: build
+          - name: ci
+            description: CI configuration
+            value: ci
+          - name: chore
+            description: Other changes
+            value: chore
+          - name: revert
+            description: Reverts a previous commit
+            value: revert
+      - type: input
+        key: Scope
+        title: Scope (optional)
+        initialValue: ""
+      - type: menu
+        key: Breaking
+        title: Breaking change?
+        options:
+          - name: "no"
+            value: ""
+          - name: "yes"
+            value: "!"
+      - type: input
+        key: Message
+        title: Message
+        initialValue: ""
+      - type: input
+        key: Description
+        title: Body (optional, Enter to skip)
+        initialValue: ""
+      - type: confirm
+        key: Confirm
+        title: Confirm conventional commit
+        body: |
+          Commit message:
+
+          {{.Form.Type}}{{if .Form.Scope}}({{.Form.Scope}}){{end}}{{.Form.Breaking}}: {{.Form.Message}}{{if .Form.Description}}
+
+          {{.Form.Description}}{{end}}
+
+          Create this commit?
+    command: '{{ $scope := "" }}{{ if .Form.Scope }}{{ $scope = printf "(%s)" .Form.Scope }}{{ end }}git commit --message {{ printf "%s%s%s: %s" .Form.Type $scope .Form.Breaking .Form.Message | quote }}{{ if .Form.Description }} --message {{ .Form.Description | quote }}{{ end }}'
+
+  - key: t
+    context: commitFiles
+    description: History of this file (tig)
+    command: tig {{.SelectedCommit.Hash}} -- {{.SelectedCommitFile.Name | quote}}
+    output: terminal
