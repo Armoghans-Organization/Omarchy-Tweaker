@@ -266,20 +266,22 @@ The linked theme uses the muted Catppuccin Frappe palette rather than Mocha:
 
 Syntax highlighting in previews uses the `catppuccin-frappe` Chroma style. The theme follows
 the Frappe palette closely, so it is intentionally softer than the Mocha-oriented
-[Starship](starship.md), [Lazygit](lazygit.md), and [Tig](tig.md) configurations.
+[Starship](starship.md), [Lazygit](lazygit.md), [Tig](tig.md), and [Zellij](zellij.md)
+configurations.
 
 ---
 
 ## Integration with the other dotfiles
 
-- Superfile is a terminal file manager and does not replace Git, Lazygit, Tig, or Starship.
-- The shared Nerd Font requirement also improves icons in Starship and lazygit.
+- Superfile is a terminal file manager and does not replace Git, Lazygit, Tig, Starship, or Zellij.
+- The shared Nerd Font requirement also improves icons in Starship, lazygit, and Zellij.
 - `zoxide_support` complements shell zoxide setup; the dotfile catalog links the Superfile side only.
 - `cd_on_quit` depends on Superfile's shell integration being active.
 - `bat`, `nvim`, `delta`, and other external commands are referenced by configuration only.
 
 See **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**,
-**[Tig Dotfiles](tig.md)**, and **[Starship Dotfiles](starship.md)** for the related setups.
+**[Tig Dotfiles](tig.md)**, **[Starship Dotfiles](starship.md)**, and
+**[Zellij Dotfiles](zellij.md)** for the related setups.
 
 ---
 
@@ -318,6 +320,7 @@ the catalog at new sources or maintain a separate Superfile config directory. Ke
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
 - [Starship Dotfiles](starship.md)
+- [Zellij Dotfiles](zellij.md)
 - [Commands](commands.md)
 - [Getting Started](getting-started.md)
 - [Security](security.md)

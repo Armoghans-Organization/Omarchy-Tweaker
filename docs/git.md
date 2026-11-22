@@ -624,6 +624,7 @@ understand exactly what is being committed.
 - [Tig Dotfiles](tig.md)
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
+- [Zellij Dotfiles](zellij.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

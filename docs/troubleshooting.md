@@ -380,6 +380,34 @@ Common causes:
 See **[Superfile Dotfiles](superfile.md)** for settings, keybindings, theme details, and
 customization notes.
 
+### Zellij config issues
+
+Check the linked files, config status, and external tools:
+
+```bash
+ls -l ~/.config/zellij/config.kdl
+ls -l ~/.config/zellij/zextract.kdl
+ls -l ~/.config/zellij/layouts
+zellij setup --check
+zellij list-aliases
+zellij --version
+```
+
+Common causes:
+
+- `The layout was not found, File: custom` means the layout file is missing or was not linked into `~/.config/zellij/layouts/`.
+- A `layout_dir "~/..."` setting does not expand `~`; leave it unset and rely on the default `~/.config/zellij/layouts` directory.
+- The in-app configuration UI rewrites `config.kdl`, drops comments, and creates `config.kdl.bak.N` backups.
+- Because `clear-defaults=true`, unlisted keys appear to do nothing until they are added to the bundled config.
+- Plugins need network access on first download and a Nerd Font for glyphs.
+- Raw `#[...]` text in key hints can be fixed by switching the layout's `pipe_zjstatus_hints_rendermode` to `"raw"`.
+- zextract shows a parse-error banner when `zextract.kdl` is invalid; it rereads the file on every open.
+- Copying needs `wl-copy` and a Wayland session; scrollback editing needs `/usr/bin/nvim`.
+- The config files may have been replaced with regular files instead of managed symlinks.
+
+See **[Zellij Dotfiles](zellij.md)** for keybindings, layout details, plugin scope, and
+customization notes.
+
 ---
 
 ## Hyprland configuration fails

@@ -26,10 +26,18 @@ command -v zellij >/dev/null 2>&1 || error "Zellij is not installed."
 [[ -f "$LAYOUT" ]] || error "session.kdl not found."
 
 # Detect existing session by exact name
-SESSION_INFO="$(
-    zellij list-sessions --no-formatting 2>/dev/null |
-    awk -v name="$SESSION" 'index($0, name " [") == 1 { print; exit }'
-)" || error "Unable to retrieve Zellij sessions."
+SESSION_LIST=$(zellij list-sessions --no-formatting 2>&1) || {
+    if [[ "$SESSION_LIST" == *"No active zellij sessions found."* ]]; then
+        SESSION_LIST=""
+    else
+        error "Unable to retrieve Zellij sessions: $SESSION_LIST"
+    fi
+}
+
+SESSION_INFO=$(
+    printf '%s\n' "$SESSION_LIST" |
+    awk -v name="$SESSION" '$1 == name { print; exit }'
+)
 
 # Remove existing session
 if [[ -n "$SESSION_INFO" ]]; then

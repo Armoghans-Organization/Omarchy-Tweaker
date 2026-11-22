@@ -128,7 +128,12 @@ This runs linting, formatting checks, type checking, and the test suite.
 ./session.sh
 ```
 
-This creates a dedicated Zellij session using `session.kdl`.
+This creates a dedicated Zellij session using `session.kdl`. The launcher matches the
+existing session name exactly, removes exited sessions, terminates active ones, and then
+starts a fresh session from the layout.
+
+For an optional shell wrapper that attaches or creates a Zellij session named after the
+current directory, see **[Directory-based session names](zellij.md#directory-based-session-names)**.
 
 ---
 

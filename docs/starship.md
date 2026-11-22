@@ -382,6 +382,7 @@ another `[symlink]` entry.
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
 - [Superfile Dotfiles](superfile.md)
+- [Zellij Dotfiles](zellij.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

@@ -1,0 +1,610 @@
+// ╭────────────────────────────────────────────────────────────────────────╮
+// │  ZELLIJ · config.kdl · Catppuccin Macchiato                            │
+// ╰────────────────────────────────────────────────────────────────────────╯
+//
+//  WARNING: Zellij rewrites this file whenever you save settings from its
+//  in-app Configuration UI (Ctrl o, then c). When it does, it copies the old
+//  file to config.kdl.bak.N and writes a fresh one WITHOUT these comments.
+//  Edit this file by hand and keep it in your dotfiles repo.
+//
+//  Contents
+//    1. Keybinding cheat sheet
+//    2. keybinds         (every key, grouped by mode)
+//    3. plugins          (plugin aliases)
+//    4. load_plugins     (plugins started in the background)
+//    5. Appearance       (theme, frames, layout)
+//    6. Shell & editor
+//    7. Sessions         (saving / restoring)
+//    8. Mouse
+//    9. Clipboard
+//   10. Misc & web client
+//
+//
+//  ── 1. KEYBINDING CHEAT SHEET ─────────────────────────────────────────────
+//
+//  This config uses `clear-defaults=true`: ONLY the keys below exist.
+//
+//  Switch mode (from any mode except locked)
+//    Ctrl p  pane      Ctrl t  tab       Ctrl n  resize     Ctrl h  move
+//    Ctrl s  scroll    Ctrl o  session   Ctrl b  tmux       Ctrl g  lock
+//    Esc / Enter go back to normal.  Pressing a mode's own key also exits it.
+//    Locked mode ignores everything except Ctrl g (which unlocks).
+//
+//  Always available (every mode except locked)
+//    Alt n          new pane                Alt f        toggle floating panes
+//    Alt h/j/k/l    move focus              Alt arrows   move focus (or tab)
+//    Alt i / Alt o  move tab left / right   Alt [ / ]    previous / next layout
+//    Alt + - =      resize                  Alt Shift p  toggle pane grouping
+//    Ctrl Space     zbuffers plugin          Alt x       zextract plugin
+//
+//  Normal mode only
+//    Alt 1..9       go to tab 1..9          Alt 0        go to tab 10
+//    Alt u          close focused pane
+//
+
+keybinds clear-defaults=true {
+
+    // ── NORMAL: your everyday mode ────────────────────────────────────────
+    normal {
+        // Jump straight to a tab by number (Alt 0 = tab 10)
+        bind "Alt 0" { GoToTab 10; }
+        bind "Alt 1" { GoToTab 1; }
+        bind "Alt 2" { GoToTab 2; }
+        bind "Alt 3" { GoToTab 3; }
+        bind "Alt 4" { GoToTab 4; }
+        bind "Alt 5" { GoToTab 5; }
+        bind "Alt 6" { GoToTab 6; }
+        bind "Alt 7" { GoToTab 7; }
+        bind "Alt 8" { GoToTab 8; }
+        bind "Alt 9" { GoToTab 9; }
+
+        // Move between panes. In normal mode this stops at the edge;
+        // in other modes Alt h/l hops to the next tab (see the end of this block).
+        bind "Alt h" { MoveFocus "left"; }
+        bind "Alt l" { MoveFocus "right"; }
+
+        // Close the focused pane in one keystroke
+        bind "Alt u" { CloseFocus; }
+    }
+
+    // ── LOCKED: all keys pass through to the program (vim, ssh, ...) ──────
+    locked {
+        bind "Ctrl g" { SwitchToMode "normal"; }
+    }
+
+    // ── PANE (Ctrl p): create, close, focus and arrange panes ─────────────
+    pane {
+        // Focus
+        bind "left"  { MoveFocus "left"; }
+        bind "down"  { MoveFocus "down"; }
+        bind "up"    { MoveFocus "up"; }
+        bind "right" { MoveFocus "right"; }
+        bind "h" { MoveFocus "left"; }
+        bind "j" { MoveFocus "down"; }
+        bind "k" { MoveFocus "up"; }
+        bind "l" { MoveFocus "right"; }
+        bind ";" { FocusLastPane; }      // jump back to the previously focused pane
+        bind "p" { SwitchFocus; }        // cycle focus
+
+        // Create (each one returns to normal mode)
+        bind "n" { NewPane; SwitchToMode "normal"; }
+        bind "d" { NewPane "down"; SwitchToMode "normal"; }
+        bind "r" { NewPane "right"; SwitchToMode "normal"; }
+        bind "s" { NewPane "stacked"; SwitchToMode "normal"; }
+
+        // Window management
+        bind "f" { ToggleFocusFullscreen; SwitchToMode "normal"; }
+        bind "Shift f" { ToggleFocusNoUiFullscreen; SwitchToMode "normal"; }  // fullscreen with no bars
+        bind "w" { ToggleFloatingPanes; SwitchToMode "normal"; }
+        bind "e" { TogglePaneEmbedOrFloating; SwitchToMode "normal"; }        // float <-> tiled
+        bind "i" { TogglePanePinned; SwitchToMode "normal"; }                 // pin a floating pane on top
+        bind "z" { TogglePaneFrames; SwitchToMode "normal"; }
+
+        // Rename the focused pane
+        bind "c" { SwitchToMode "renamepane"; PaneNameInput 0; }
+
+        // Leave the mode
+        bind "Ctrl p" { SwitchToMode "normal"; }
+    }
+
+    // ── TAB (Ctrl t): create, close, rename and reorder tabs ──────────────
+    tab {
+        // Navigate
+        bind "left"  { GoToPreviousTab; }
+        bind "down"  { GoToNextTab; }
+        bind "up"    { GoToPreviousTab; }
+        bind "right" { GoToNextTab; }
+        bind "h" { GoToPreviousTab; }
+        bind "j" { GoToNextTab; }
+        bind "k" { GoToPreviousTab; }
+        bind "l" { GoToNextTab; }
+        bind "tab" { ToggleTab; }        // flip between the last two tabs
+
+        // Jump by number
+        bind "1" { GoToTab 1; SwitchToMode "normal"; }
+        bind "2" { GoToTab 2; SwitchToMode "normal"; }
+        bind "3" { GoToTab 3; SwitchToMode "normal"; }
+        bind "4" { GoToTab 4; SwitchToMode "normal"; }
+        bind "5" { GoToTab 5; SwitchToMode "normal"; }
+        bind "6" { GoToTab 6; SwitchToMode "normal"; }
+        bind "7" { GoToTab 7; SwitchToMode "normal"; }
+        bind "8" { GoToTab 8; SwitchToMode "normal"; }
+        bind "9" { GoToTab 9; SwitchToMode "normal"; }
+
+        // Create / close / rename
+        bind "n" { NewTab; SwitchToMode "normal"; }
+        bind "x" { CloseTab; SwitchToMode "normal"; }
+        bind "r" { SwitchToMode "renametab"; TabNameInput 0; }
+
+        // Move the focused pane into its own tab
+        bind "b" { BreakPane; SwitchToMode "normal"; }
+        bind "[" { BreakPaneLeft; SwitchToMode "normal"; }
+        bind "]" { BreakPaneRight; SwitchToMode "normal"; }
+
+        // Type the same input into every pane of the tab (sync on/off)
+        bind "s" { ToggleActiveSyncTab; SwitchToMode "normal"; }
+
+        bind "Ctrl t" { SwitchToMode "normal"; }
+    }
+
+    // ── RESIZE (Ctrl n): lowercase grows, UPPERCASE shrinks ───────────────
+    resize {
+        bind "left"  { Resize "Increase left"; }
+        bind "down"  { Resize "Increase down"; }
+        bind "up"    { Resize "Increase up"; }
+        bind "right" { Resize "Increase right"; }
+        bind "h" { Resize "Increase left"; }
+        bind "j" { Resize "Increase down"; }
+        bind "k" { Resize "Increase up"; }
+        bind "l" { Resize "Increase right"; }
+        bind "H" { Resize "Decrease left"; }
+        bind "J" { Resize "Decrease down"; }
+        bind "K" { Resize "Decrease up"; }
+        bind "L" { Resize "Decrease right"; }
+        bind "+" { Resize "Increase"; }   // grow on all sides
+        bind "=" { Resize "Increase"; }   // same, no Shift needed
+        bind "-" { Resize "Decrease"; }   // shrink on all sides
+        bind "Ctrl n" { SwitchToMode "normal"; }
+    }
+
+    // ── MOVE (Ctrl h): swap the focused pane with its neighbours ──────────
+    move {
+        bind "left"  { MovePane "left"; }
+        bind "down"  { MovePane "down"; }
+        bind "up"    { MovePane "up"; }
+        bind "right" { MovePane "right"; }
+        bind "h" { MovePane "left"; }
+        bind "j" { MovePane "down"; }
+        bind "k" { MovePane "up"; }
+        bind "l" { MovePane "right"; }
+        bind "n" { MovePane; }            // rotate forward
+        bind "tab" { MovePane; }          // rotate forward
+        bind "p" { MovePaneBackwards; }   // rotate backward
+        bind "Ctrl h" { SwitchToMode "normal"; }
+    }
+
+    // ── SCROLL (Ctrl s): scrollback navigation ─────────────────────────────
+    // Movement keys shared with search mode are in the "scroll"+"search" block below.
+    scroll {
+        bind "s" { SwitchToMode "entersearch"; SearchInput 0; }       // start a search
+        bind "e" { EditScrollback; SwitchToMode "normal"; }           // open scrollback in nvim
+        bind "c" { CopyLastCommandOutput; SwitchToMode "normal"; }    // copy last command output (needs shell integration)
+    }
+
+    // ── ENTER-SEARCH: typing the search text ───────────────────────────────
+    entersearch {
+        bind "enter" { SwitchToMode "search"; }
+        bind "esc"   { SwitchToMode "scroll"; }
+        bind "Ctrl c" { SwitchToMode "scroll"; }
+    }
+
+    // ── SEARCH: stepping through matches ───────────────────────────────────
+    search {
+        bind "n" { Search "down"; }                          // next match
+        bind "p" { Search "up"; }                            // previous match
+        bind "c" { SearchToggleOption "CaseSensitivity"; }
+        bind "o" { SearchToggleOption "WholeWord"; }
+        bind "w" { SearchToggleOption "Wrap"; }
+    }
+
+    // ── RENAME TAB / PANE ──────────────────────────────────────────────────
+    renametab {
+        bind "esc" { UndoRenameTab; SwitchToMode "tab"; }       // cancel and restore the old name
+    }
+    renamepane {
+        bind "esc" { UndoRenamePane; SwitchToMode "pane"; }
+    }
+    shared_among "renametab" "renamepane" {
+        bind "Ctrl c" { SwitchToMode "normal"; }
+    }
+
+    // ── SESSION (Ctrl o): plugin launchers and session control ────────────
+    session {
+        bind "w" {                                  // session manager: switch / create / kill sessions
+            LaunchOrFocusPlugin "session-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "normal"
+        }
+        bind "l" {                                  // layout manager
+            LaunchOrFocusPlugin "zellij:layout-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "normal"
+        }
+        bind "c" {                                  // in-app configuration UI (rewrites config.kdl!)
+            LaunchOrFocusPlugin "configuration" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "normal"
+        }
+        bind "p" {                                  // plugin manager
+            LaunchOrFocusPlugin "plugin-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "normal"
+        }
+        bind "s" {                                  // zellij-loom
+            LaunchOrFocusPlugin "zellij-loom" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "normal"
+        }
+        bind "a" {                                  // about / version
+            LaunchOrFocusPlugin "zellij:about" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "normal"
+        }
+        bind "f" { ToggleHostFullscreen; SwitchToMode "normal"; }
+        bind "[" { FocusGuestSession; SwitchToMode "normal"; }   // for nested sessions
+        bind "]" { FocusHostSession; SwitchToMode "normal"; }
+        bind "Ctrl o" { SwitchToMode "normal"; }
+    }
+
+    // ── TMUX (Ctrl b): muscle-memory compatibility with tmux ──────────────
+    tmux {
+        bind "left"  { MoveFocus "left"; SwitchToMode "normal"; }
+        bind "down"  { MoveFocus "down"; SwitchToMode "normal"; }
+        bind "up"    { MoveFocus "up"; SwitchToMode "normal"; }
+        bind "right" { MoveFocus "right"; SwitchToMode "normal"; }
+        bind "h" { MoveFocus "left"; SwitchToMode "normal"; }
+        bind "j" { MoveFocus "down"; SwitchToMode "normal"; }
+        bind "k" { MoveFocus "up"; SwitchToMode "normal"; }
+        bind "l" { MoveFocus "right"; SwitchToMode "normal"; }
+        bind "\"" { NewPane "down"; SwitchToMode "normal"; }     // Ctrl b "  split horizontally
+        bind "%"  { NewPane "right"; SwitchToMode "normal"; }    // Ctrl b %  split vertically
+        bind "c" { NewTab; SwitchToMode "normal"; }
+        bind "," { SwitchToMode "renametab"; }
+        bind "n" { GoToNextTab; SwitchToMode "normal"; }
+        bind "p" { GoToPreviousTab; SwitchToMode "normal"; }
+        bind "o" { FocusNextPane; }
+        bind "z" { ToggleFocusFullscreen; SwitchToMode "normal"; }
+        bind "space" { NextSwapLayout; }
+        bind "[" { SwitchToMode "scroll"; }
+        bind "Ctrl b" { Write 2; SwitchToMode "normal"; }        // Ctrl b Ctrl b sends a literal Ctrl b
+    }
+
+    // ── SHARED: keys that exist in several modes ──────────────────────────
+
+    // Close the focused pane (pane and tmux modes)
+    shared_among "pane" "tmux" {
+        bind "x" { CloseFocus; SwitchToMode "normal"; }
+    }
+
+    // Detach from the session (session and tmux modes); the session keeps running
+    shared_among "session" "tmux" {
+        bind "d" { Detach; }
+    }
+
+    // Scrolling keys (scroll and search modes)
+    shared_among "scroll" "search" {
+        bind "up"    { ScrollUp; }
+        bind "down"  { ScrollDown; }
+        bind "left"  { PageScrollUp; }
+        bind "right" { PageScrollDown; }
+        bind "k" { ScrollUp; }
+        bind "j" { ScrollDown; }
+        bind "h" { PageScrollUp; }
+        bind "l" { PageScrollDown; }
+        bind "PageUp"   { PageScrollUp; }
+        bind "PageDown" { PageScrollDown; }
+        bind "u" { HalfPageScrollUp; }
+        bind "d" { HalfPageScrollDown; }
+        bind "Ctrl b" { PageScrollUp; }
+        bind "Ctrl f" { PageScrollDown; }
+        bind "[" { ScrollToPreviousPrompt; }                    // needs shell integration (OSC 133)
+        bind "]" { ScrollToNextPrompt; }
+        bind "m" { SelectCommandAtScrollPosition; }
+        bind "Ctrl c" { ScrollToBottom; SwitchToMode "normal"; }
+        bind "Ctrl s" { SwitchToMode "normal"; }
+    }
+
+    // Enter / Esc return to normal from every temporary mode
+    shared_except "normal" "locked" "entersearch" {
+        bind "enter" { SwitchToMode "normal"; }
+    }
+    shared_except "normal" "locked" "entersearch" "renametab" "renamepane" {
+        bind "esc" { SwitchToMode "normal"; }
+    }
+
+    // Alt h/l: in every mode except normal they hop to the neighbouring TAB at
+    // the edge (MoveFocusOrTab). In normal mode (see top) they only move panes.
+    // Alt p adds/removes the focused pane from the current pane group.
+    shared_except "normal" "locked" {
+        bind "Alt h" { MoveFocusOrTab "left"; }
+        bind "Alt l" { MoveFocusOrTab "right"; }
+        bind "Alt p" { TogglePaneInGroup; }
+    }
+
+    // ── GLOBAL KEYS (every mode except locked) ─────────────────────────────
+    shared_except "locked" {
+        // Panes
+        bind "Alt n" { NewPane; }
+        bind "Alt f" { ToggleFloatingPanes; }
+        bind "Alt Shift p" { ToggleGroupMarking; }
+
+        // Focus
+        bind "Alt left"  { MoveFocusOrTab "left"; }
+        bind "Alt right" { MoveFocusOrTab "right"; }
+        bind "Alt down"  { MoveFocus "down"; }
+        bind "Alt up"    { MoveFocus "up"; }
+        bind "Alt j" { MoveFocus "down"; }
+        bind "Alt k" { MoveFocus "up"; }
+
+        // Tabs and layouts
+        bind "Alt i" { MoveTab "left"; }
+        bind "Alt o" { MoveTab "right"; }
+        bind "Alt [" { PreviousSwapLayout; }
+        bind "Alt ]" { NextSwapLayout; }
+
+        // Resize
+        bind "Alt +" { Resize "Increase"; }
+        bind "Alt =" { Resize "Increase"; }
+        bind "Alt -" { Resize "Decrease"; }
+
+        // Lock / quit
+        bind "Ctrl g" { SwitchToMode "locked"; }
+        bind "Ctrl q" { Quit; }          // quits immediately. Remove this line if you hit it by accident.
+
+        // zbuffers plugin (opens as a floating pane)
+        bind "Ctrl Space" {
+            LaunchOrFocusPlugin "https://github.com/strech/zbuffers/releases/latest/download/zbuffers.wasm" {
+                floating true
+            }
+            SwitchToMode "normal"
+        }
+
+        // zextract plugin: text extraction (opens as a floating pane)
+        bind "Alt x" {
+            LaunchOrFocusPlugin "https://github.com/codingfragments/zellij-zextract/releases/latest/download/zextract.wasm" {
+                floating true
+            }
+            SwitchToMode "locked"
+        }
+    }
+
+    // ── MODE SWITCHERS ────────────────────────────────────────────────
+    shared_except "locked" "pane" {
+        bind "Ctrl p" { SwitchToMode "pane"; }
+    }
+
+    shared_except "locked" "tab" {
+        bind "Ctrl t" { SwitchToMode "tab"; }
+    }
+
+    shared_except "locked" "resize" {
+        bind "Ctrl n" { SwitchToMode "resize"; }
+    }
+
+    shared_except "locked" "move" {
+        bind "Ctrl h" { SwitchToMode "move"; }
+    }
+
+    shared_except "locked" "session" {
+        bind "Ctrl o" { SwitchToMode "session"; }
+    }
+
+    shared_except "locked" "scroll" "search" {
+        bind "Ctrl s" { SwitchToMode "scroll"; }
+    }
+
+    shared_except "locked" "scroll" "search" "tmux" {
+        bind "Ctrl b" { SwitchToMode "tmux"; }
+    }
+}
+
+// ── 3. PLUGIN ALIASES ───────────────────────────────────────────────────────
+// Short names for plugins, used by LaunchOrFocusPlugin, load_plugins and layouts.
+// Changing these requires a restart.
+plugins {
+    // Built-in plugins
+    about location="zellij:about"
+    compact-bar location="zellij:compact-bar"
+    configuration location="zellij:configuration"
+    filepicker location="zellij:strider" {
+        cwd "/"                                   // start the file picker at the filesystem root
+    }
+    plugin-manager location="zellij:plugin-manager"
+    session-manager location="zellij:session-manager"
+    status-bar location="zellij:status-bar"
+    strider location="zellij:strider"
+    tab-bar location="zellij:tab-bar"
+    welcome-screen location="zellij:session-manager" {
+        welcome_screen false
+    }
+
+    // Status bars: your layout (default.kdl) draws both bars with zjstatus.
+    // Its config lives in the layout file, not here.
+    zjstatus location="https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm"
+
+    // Live key hints for the bottom bar (replaces zjstatus-hints).
+    // zjhints also shows YOUR extra binds (Alt 0-9, Alt u, ...) and fits the list to
+    // the terminal width, dropping the trailing hints instead of pushing the right
+    // side of the bar off screen.
+    // The layout reads it via {pipe_zjstatus_hints}: zjhints publishes under that
+    // name as long as pipe_name is NOT set here.
+    zjhints location="https://github.com/myah-mitchell/zjhints/releases/latest/download/zjhints.wasm" {
+        discover_hints true                       // show binds from your config, not just the common ones
+        hide_in_base_mode false                   // keep showing hints in normal mode
+        auto_width true                           // fit the hints to the terminal width
+        reserve_columns "75"                      // columns kept free for the mode chip + the shortcut strip
+    }
+
+    // Previous hints plugin, kept for rollback (it only shows a fixed set of common keys).
+    // To go back: restore this block, put zjstatus-hints in load_plugins, and set the
+    // layout's pipe_zjstatus_hints_rendermode to "raw".
+    // zjstatus-hints location="https://github.com/b0o/zjstatus-hints/releases/latest/download/zjstatus-hints.wasm" {
+    //     hide_in_base_mode false
+    //     max_length "100"
+    //     overflow_str ".."
+    //     pipe_name "zjstatus_hints"
+    // }
+
+    // Third-party plugins
+    zellij-loom location="https://github.com/drop-stones/zellij-loom/releases/latest/download/zellij-loom.wasm" {
+        jk_timeout "200"                          // ms allowed between j and k
+        keybind_mode "default"
+    }
+    smart-tabs location="https://github.com/YesYouKenSpace/zellij-smart-tabs/releases/latest/download/zellij-smart-tabs.wasm" {
+        poll_interval "10"                        // seconds between checks
+    }
+    zbuffers location="https://github.com/strech/zbuffers/releases/latest/download/zbuffers.wasm"
+    zextract location="https://github.com/codingfragments/zellij-zextract/releases/latest/download/zextract.wasm"
+}
+
+// ── 4. BACKGROUND PLUGINS ───────────────────────────────────────────────────
+// Started with every new session (no pane of their own).
+load_plugins {
+    zjhints           // collects the key hints (including your custom binds) for the bottom bar
+    zjstatus          // status bar plugin, preloaded so it starts fast
+    zellij-loom
+    smart-tabs
+    zbuffers
+}
+
+// ── 5. APPEARANCE ───────────────────────────────────────────────────────────
+
+// false = use the arrow glyphs from your Nerd Font. true = plain-ASCII look.
+simplified_ui false
+
+// Palette used by pane frames and Zellij's own UI (not the zjstatus bars, which
+// carry their own Macchiato colors in the layout file).
+// Zellij also ships a built-in "catppuccin-macchiato"; this block overrides it,
+// mainly to use surface2 (#5b6078) as the selection background.
+themes {
+    catppuccin-macchiato {
+        bg "#5b6078"        // surface2: selected/highlighted background
+        fg "#cad3f5"        // text
+        red "#ed8796"
+        green "#a6da95"
+        blue "#8aadf4"
+        yellow "#eed49f"
+        magenta "#f5bde6"   // pink
+        orange "#f5a97f"    // peach
+        cyan "#91d7e3"      // sky
+        black "#1e2030"     // mantle
+        white "#cad3f5"
+    }
+}
+theme "catppuccin-macchiato"
+
+// theme_dark "..."                // pair these two to follow the terminal's
+// theme_light "..."               // light/dark mode automatically
+// explicit_theme_hue "dark"       // force dark or light, ignoring the terminal
+
+// Borders around each pane. "full" draws the whole box; "titles" only the title line.
+pane_frames true
+pane_frame_style "full"
+
+// Which layout to load at startup. The bundled layouts link into Zellij's
+// default layout directory, which is ~/.config/zellij/layouts.
+default_layout "custom"
+// theme_dir "~/.config/zellij/themes"   // extra theme files, if you add any
+
+// Re-arrange panes automatically into the layouts that Alt [ / Alt ] cycle through
+auto_layout true
+
+// Skip the tips popup and the release-notes screen
+show_startup_tips false
+// show_release_notes false
+
+// Visual bell: flash the pane/tab frame and add a [!] when a pane rings the bell
+// visual_bell true
+
+// ── 6. SHELL & EDITOR ───────────────────────────────────────────────────────
+default_mode "normal"            // the mode Zellij starts in
+default_shell "zsh"              // shell for new panes
+scrollback_editor "/usr/bin/nvim"   // used by "Ctrl s, then e" to edit the scrollback
+
+// REMOVED: default_cwd "$PWD"
+// Zellij does not expand environment variables in this file, so "$PWD" was
+// treated as a literal path. Without it, new panes open in the focused pane's
+// directory, which is what you want. Set a real path here to override that.
+// default_cwd "/home/armoghan"
+
+// ── 7. SESSIONS ─────────────────────────────────────────────────────────────
+
+// Save the session layout so it can be resurrected after a reboot or crash
+session_serialization true
+// serialization_interval 10000    // seconds between saves
+serialize_pane_viewport true     // also save what is visible on screen...
+scrollback_lines_to_serialize 1000   // ...plus this many scrollback lines (0 = all)
+disable_session_metadata false   // let other sessions see this one's info
+
+// What happens when the terminal window closes: "detach" keeps the session alive
+on_force_close "detach"
+
+// Lines of scrollback kept per pane (restart required)
+scroll_buffer_size 10000
+
+// A fixed session name, and whether to re-attach to it if it already exists
+// session_name "main"
+// attach_to_session true
+// mirror_session true            // share one cursor between multiple clients
+
+// What to do when you start Zellij inside a Zellij pane: ask | fullscreen | descend | never
+nested_session_handling "ask"
+
+// ── 8. MOUSE ────────────────────────────────────────────────────────────────
+mouse_mode true                  // click to focus, drag to select, wheel to scroll
+mouse_hover_effects true         // highlight the pane under the pointer
+mouse_hover_tips true            // show small help tips while hovering
+mouse_scroll_resize false        // Ctrl + wheel does NOT resize panes
+scroll_mode_sync false           // scrolling with the wheel does NOT switch to scroll mode
+// advanced_mouse_actions false   // hover effects and pane grouping with the mouse
+// focus_follows_mouse false
+// mouse_click_through false      // clicking a pane to focus it also clicks inside it
+// osc133_command_selection false  // triple-click selects a whole command + output
+// word_separators "[]{}<>()"      // characters that end a double-click word selection
+
+// ── 9. CLIPBOARD ────────────────────────────────────────────────────────────
+copy_command "wl-copy"           // Wayland: pipes selected text to wl-copy
+copy_clipboard "system"          // (ignored while copy_command is set)
+copy_on_select true              // copy as soon as you release the mouse button
+// dangerously_enable_paste_buffer_read false   // keep false: lets panes read your clipboard
+
+// ── 10. MISC ────────────────────────────────────────────────────────────────
+styled_underlines true           // undercurl in editors; turn off if your terminal can't draw it
+// support_kitty_keyboard_protocol false   // set false if some key combos misbehave
+// support_kitty_graphics_protocol false   // inline images
+// host_notification_protocol "auto"       // auto | osc9 | osc99 | bell | off
+// stacked_resize false           // do not auto-stack panes when they get too small
+// stacked_pane_list false
+// client_async_worker_tasks 4    // web clients only
+// post_command_discovery_hook "echo $RESURRECT_COMMAND | sed ..."
+
+// Optional: serve sessions in a browser at http://127.0.0.1:8082 (all off by default)
+// web_server false
+// web_sharing "off"
+// web_server_ip "127.0.0.1"
+// web_server_port 8082
+web_client {
+    font "Hack Nerd Font"          // font used when you open a session in the browser
+}

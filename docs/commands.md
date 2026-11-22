@@ -508,11 +508,15 @@ Lazygit catalog links a Catppuccin Mocha TUI configuration to
 text-mode Git interface configuration to `~/.config/tig/config`. The bundled Starship
 catalog links the Catppuccin Mocha prompt configuration to `~/.config/starship.toml`. The
 bundled Superfile catalog links the main configuration, custom hotkeys, and Catppuccin Frappe
-theme into `~/.config/superfile/`. See **[Dotfiles](dotfiles.md)** for the workflow,
+theme into `~/.config/superfile/`. The bundled Zellij catalog links the Catppuccin
+Macchiato configuration, zextract configuration, and four layout files into
+`~/.config/zellij/` and `~/.config/zellij/layouts/`.
+ See **[Dotfiles](dotfiles.md)** for the workflow,
 **[Git Dotfiles](git.md)** for Git usage and cheat sheets, **[Lazygit Dotfiles](lazygit.md)**
 for TUI usage and keybindings, **[Tig Dotfiles](tig.md)** for Tig usage and keybindings,
-**[Starship Dotfiles](starship.md)** for prompt usage and cheat sheets, and
-**[Superfile Dotfiles](superfile.md)** for file-manager usage and keybindings.
+**[Starship Dotfiles](starship.md)** for prompt usage and cheat sheets,
+**[Superfile Dotfiles](superfile.md)** for file-manager usage and keybindings, and
+**[Zellij Dotfiles](zellij.md)** for terminal multiplexer usage and layout details.
 
 ### Non-interactive use
 
@@ -531,6 +535,7 @@ any catalog failed. Declining confirmation is a safe skip and exits with code `0
 - `lazygit`, `delta`, `nvim`, `tig`, and `xdg-open` are needed for the features used by the bundled lazygit config.
 - `tig`, `delta`, `meld`, and `wl-copy` are needed for the features used by the bundled Tig config.
 - `superfile`, `bat`, `nvim`, `exiftool`, `md5sum`, `zoxide`, and a Nerd Font are needed for the features used by the bundled Superfile config.
+- `zellij`, a Nerd Font, `zsh`, `nvim`, and `wl-copy` are needed for the features used by the bundled Zellij config.
 - The user home directory must be writable.
 - The bundled files in `src/omarchy_tweaker/dotfiles/` must be present.
 
@@ -538,8 +543,9 @@ See **[Dotfiles](dotfiles.md)** for configuration, backups, and safety details,
 **[Git Dotfiles](git.md)** for the Git-specific usage guide,
 **[Lazygit Dotfiles](lazygit.md)** for the lazygit TUI guide,
 **[Tig Dotfiles](tig.md)** for the Tig text-mode guide,
-**[Starship Dotfiles](starship.md)** for the Starship prompt guide, and
-**[Superfile Dotfiles](superfile.md)** for the Superfile file-manager guide.
+**[Starship Dotfiles](starship.md)** for the Starship prompt guide,
+**[Superfile Dotfiles](superfile.md)** for the Superfile file-manager guide, and
+**[Zellij Dotfiles](zellij.md)** for the Zellij terminal multiplexer guide.
 
 ---
 
@@ -687,5 +693,6 @@ omarchy-tweaker --help
 - [Tig Dotfiles](tig.md)
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
+- [Zellij Dotfiles](zellij.md)
 - [Bundled Scripts](scripts.md)
 - [Troubleshooting](troubleshooting.md)

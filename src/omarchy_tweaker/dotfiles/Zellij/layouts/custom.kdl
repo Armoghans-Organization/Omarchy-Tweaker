@@ -1,0 +1,132 @@
+layout {
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm" {
+
+                // ── Catppuccin Macchiato ─────────────────────────────
+                color_rosewater "#f4dbd6"
+                color_flamingo  "#f0c6c6"
+                color_pink      "#f5bde6"
+                color_mauve     "#c6a0f6"
+                color_red       "#ed8796"
+                color_maroon    "#ee99a0"
+                color_peach     "#f5a97f"
+                color_yellow    "#eed49f"
+                color_green     "#a6da95"
+                color_teal      "#8bd5ca"
+                color_sky       "#91d7e3"
+                color_sapphire  "#7dc4e4"
+                color_blue      "#8aadf4"
+                color_lavender  "#b7bdf8"
+                color_text      "#cad3f5"
+                color_subtext1  "#b8c0e0"
+                color_subtext0  "#a5adcb"
+                color_overlay2  "#939ab7"
+                color_overlay1  "#8087a2"
+                color_overlay0  "#6e738d"
+                color_surface2  "#5b6078"
+                color_surface1  "#494d64"
+                color_surface0  "#363a4f"
+                color_base      "#24273a"
+                color_mantle    "#1e2030"
+                color_crust     "#181926"
+
+                // ── Layout: tabs | notifications | session ───────────
+                format_left   "#[bg=$base] {tabs}"
+                format_center "{notifications}"
+                format_right  "#[bg=$base,fg=$sapphire]#[bg=$sapphire,fg=$crust,bold] 󰆍 #[bg=$surface1,fg=$sapphire]#[bg=$surface1,fg=$text,bold] {session} #[bg=$base,fg=$surface1]#[bg=$base] "
+                // format_right "#[bg=$base,fg=$mauve]#[bg=$mauve,fg=$crust,bold] #[bg=$surface1,fg=$mauve]#[bg=$surface1,fg=$text,bold] {session} #[bg=$base,fg=$surface1]"
+                format_space  "#[bg=$base]"
+                format_hide_on_overlength "true"
+                format_precedence "lrc"
+
+                hide_frame_for_single_pane "false"
+
+                // ── Tabs ─────────────────────────────────────────────
+                tab_normal              "#[bg=$base,fg=$surface1]#[bg=$surface1,fg=$subtext0,bold] {index} #[bg=$surface0,fg=$surface1]#[bg=$surface0,fg=$subtext0,nobold] {name}{floating_indicator} #[bg=$base,fg=$surface0]"
+                tab_normal_fullscreen   "#[bg=$base,fg=$surface1]#[bg=$surface1,fg=$subtext0,bold] {index} #[bg=$surface0,fg=$surface1]#[bg=$surface0,fg=$subtext0,nobold] {name}{fullscreen_indicator} #[bg=$base,fg=$surface0]"
+                tab_normal_sync         "#[bg=$base,fg=$surface1]#[bg=$surface1,fg=$subtext0,bold] {index} #[bg=$surface0,fg=$surface1]#[bg=$surface0,fg=$subtext0,nobold] {name}{sync_indicator} #[bg=$base,fg=$surface0]"
+                tab_active              "#[bg=$base,fg=$mauve]#[bg=$mauve,fg=$crust,bold] {index} #[bg=$surface1,fg=$mauve]#[bg=$surface1,fg=$text,bold] {name}{floating_indicator} #[bg=$base,fg=$surface1]"
+                tab_active_fullscreen   "#[bg=$base,fg=$mauve]#[bg=$mauve,fg=$crust,bold] {index} #[bg=$surface1,fg=$mauve]#[bg=$surface1,fg=$text,bold] {name}{fullscreen_indicator} #[bg=$base,fg=$surface1]"
+                tab_active_sync         "#[bg=$base,fg=$mauve]#[bg=$mauve,fg=$crust,bold] {index} #[bg=$surface1,fg=$mauve]#[bg=$surface1,fg=$text,bold] {name}{sync_indicator} #[bg=$base,fg=$surface1]"
+                tab_separator           "#[bg=$base] "
+
+                tab_sync_indicator       " "
+                tab_fullscreen_indicator " 󰊓"
+                tab_floating_indicator   " 󰹙"
+
+                // ── Notifications ────────────────────────────────────
+                notification_format_unread           "#[bg=$base,fg=$yellow]#[bg=$yellow,fg=$crust,bold]  #[bg=$surface1,fg=$yellow]#[bg=$surface1,fg=$text] {message} #[bg=$base,fg=$surface1]"
+                notification_format_no_notifications ""
+                notification_show_interval           "10"
+            }
+        }
+
+        children
+
+        pane size=1 borderless=true {
+            plugin location="https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm" {
+
+                // ── Catppuccin Macchiato ─────────────────────────────
+                color_rosewater "#f4dbd6"
+                color_flamingo  "#f0c6c6"
+                color_pink      "#f5bde6"
+                color_mauve     "#c6a0f6"
+                color_red       "#ed8796"
+                color_maroon    "#ee99a0"
+                color_peach     "#f5a97f"
+                color_yellow    "#eed49f"
+                color_green     "#a6da95"
+                color_teal      "#8bd5ca"
+                color_sky       "#91d7e3"
+                color_sapphire  "#7dc4e4"
+                color_blue      "#8aadf4"
+                color_lavender  "#b7bdf8"
+                color_text      "#cad3f5"
+                color_subtext1  "#b8c0e0"
+                color_subtext0  "#a5adcb"
+                color_overlay2  "#939ab7"
+                color_overlay1  "#8087a2"
+                color_overlay0  "#6e738d"
+                color_surface2  "#5b6078"
+                color_surface1  "#494d64"
+                color_surface0  "#363a4f"
+                color_base      "#24273a"
+                color_mantle    "#1e2030"
+                color_crust     "#181926"
+
+                // ── Layout: mode | live key hints ............ shortcuts ──
+                format_left   "#[bg=$base]{mode}#[bg=$base] {pipe_zjstatus_hints}"
+                format_right  "#[bg=$base,fg=$lavender]#[bg=$lavender,fg=$crust,bold]   Alt #[bg=$surface0,fg=$lavender,nobold]#[bg=$surface0]  #[bg=$surface0,fg=$lavender,bold]n #[bg=$surface0,fg=$subtext0,nobold]New#[bg=$surface0,fg=$surface2] │ #[bg=$surface0,fg=$lavender,bold]f #[bg=$surface0,fg=$subtext0,nobold]Float#[bg=$surface0,fg=$surface2] │ #[bg=$surface0,fg=$lavender,bold]hjkl #[bg=$surface0,fg=$subtext0,nobold]Focus#[bg=$surface0,fg=$surface2] │ #[bg=$surface0,fg=$lavender,bold]+ - #[bg=$surface0,fg=$subtext0,nobold]Resize #[bg=$surface0] "
+                format_space  "#[bg=$base]"
+
+                // Do NOT hide a side when the bar is crowded. (With "true", zjstatus
+                // drops left or right when they don't both fit, which was the bug.)
+                format_hide_on_overlength "false"
+                format_precedence "lr"
+
+                hide_frame_for_single_pane "false"
+
+                // ── Mode chips ───────────────────────────────────────
+                mode_normal        "#[bg=$green,fg=$crust,bold]   NORMAL #[bg=$base,fg=$green,nobold]"
+                mode_locked        "#[bg=$red,fg=$crust,bold]   LOCKED #[bg=$base,fg=$red,nobold]"
+                mode_pane          "#[bg=$blue,fg=$crust,bold]   PANE #[bg=$base,fg=$blue,nobold]"
+                mode_tab           "#[bg=$sapphire,fg=$crust,bold]   TAB #[bg=$base,fg=$sapphire,nobold]"
+                mode_resize        "#[bg=$yellow,fg=$crust,bold]   RESIZE #[bg=$base,fg=$yellow,nobold]"
+                mode_move          "#[bg=$peach,fg=$crust,bold]   MOVE #[bg=$base,fg=$peach,nobold]"
+                mode_scroll        "#[bg=$teal,fg=$crust,bold]   SCROLL #[bg=$base,fg=$teal,nobold]"
+                mode_enter_search  "#[bg=$flamingo,fg=$crust,bold]   SEARCH: #[bg=$base,fg=$flamingo,nobold]"
+                mode_search        "#[bg=$flamingo,fg=$crust,bold]   SEARCH #[bg=$base,fg=$flamingo,nobold]"
+                mode_rename_tab    "#[bg=$pink,fg=$crust,bold]   RENAME TAB #[bg=$base,fg=$pink,nobold]"
+                mode_rename_pane   "#[bg=$pink,fg=$crust,bold]   RENAME PANE #[bg=$base,fg=$pink,nobold]"
+                mode_session       "#[bg=$mauve,fg=$crust,bold]   SESSION #[bg=$base,fg=$mauve,nobold]"
+                mode_prompt        "#[bg=$lavender,fg=$crust,bold]   PROMPT #[bg=$base,fg=$lavender,nobold]"
+                mode_tmux          "#[bg=$maroon,fg=$crust,bold]   TMUX #[bg=$base,fg=$maroon,nobold]"
+
+                // ── Hints from zjstatus-hints ────────────────────────
+                pipe_zjstatus_hints_format     "{output}"
+                pipe_zjstatus_hints_rendermode "dynamic"   // zjhints styles its hints with #[...] directives. If you see raw #[..] text, try "raw".
+            }
+        }
+    }
+}

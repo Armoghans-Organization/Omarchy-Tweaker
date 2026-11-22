@@ -133,7 +133,7 @@ def test_discover_bundled_dotfile_catalogs_includes_expected_catalogs(
     bundles = discover_dotfile_bundles(source)
 
     names = {path.name for path in bundles}
-    assert {"Superfile", "Tig", "git", "lazygit", "starship"} <= names
+    assert {"Superfile", "Tig", "Zellij", "git", "lazygit", "starship"} <= names
 
     for path in bundles:
         bundle = load_dotfile_bundle(path, Path("/home/test"))
@@ -158,6 +158,38 @@ def test_bundled_superfile_catalog_exposes_expected_symlinks(
             home / ".config" / "superfile" / "theme" / "catppuccin-frappe.toml",
         ),
     )
+
+
+def test_bundled_zellij_catalog_exposes_expected_symlinks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OMARCHY_TWEAKER_DOTFILES_DIR", raising=False)
+    source = get_dotfiles_source_directory()
+    home = Path("/home/test")
+
+    bundle = load_dotfile_bundle(source / "Zellij", home)
+
+    assert bundle.symlinks == (
+        ("config", home / ".config" / "zellij" / "config.kdl"),
+        ("zextract", home / ".config" / "zellij" / "zextract.kdl"),
+        (
+            "layouts/custom.kdl",
+            home / ".config" / "zellij" / "layouts" / "custom.kdl",
+        ),
+        (
+            "layouts/default.kdl",
+            home / ".config" / "zellij" / "layouts" / "default.kdl",
+        ),
+        (
+            "layouts/strider.kdl",
+            home / ".config" / "zellij" / "layouts" / "strider.kdl",
+        ),
+        (
+            "layouts/compact.kdl",
+            home / ".config" / "zellij" / "layouts" / "compact.kdl",
+        ),
+    )
+    assert (source / "Zellij" / "layouts").is_dir()
 
 
 def test_load_dotfile_bundle_reads_config_sections(tmp_path: Path) -> None:

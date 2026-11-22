@@ -201,6 +201,7 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Tig Dotfiles](tig.md) — text-mode Git interface, Delta/Meld actions, and keybindings.
 - [Starship Dotfiles](starship.md) — prompt usage, module cheat sheets, and customization.
 - [Superfile Dotfiles](superfile.md) — file manager config, hotkeys, theme, and integrations.
+- [Zellij Dotfiles](zellij.md) — multiplexer config, keybindings, layouts, plugins, and zextract.
 - [Packages](packages.md) — package catalog and installation workflow.
 - [Plugins](plugins.md) — shell plugin catalog, placement, and patch workflow.
 - [Hyprland](hypr.md) — bundled Lua files, symlinks, and workspaces loading.

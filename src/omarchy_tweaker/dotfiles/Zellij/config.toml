@@ -1,0 +1,7 @@
+[symlink]
+config = "~/.config/zellij/config.kdl"
+zextract = "~/.config/zellij/zextract.kdl"
+"layouts/custom.kdl" = "~/.config/zellij/layouts/custom.kdl"
+"layouts/default.kdl" = "~/.config/zellij/layouts/default.kdl"
+"layouts/strider.kdl" = "~/.config/zellij/layouts/strider.kdl"
+"layouts/compact.kdl" = "~/.config/zellij/layouts/compact.kdl"
