@@ -622,6 +622,7 @@ understand exactly what is being committed.
 - [Dotfiles](dotfiles.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
+- [Tmux Dotfiles](tmux.md)
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
 - [Zellij Dotfiles](zellij.md)

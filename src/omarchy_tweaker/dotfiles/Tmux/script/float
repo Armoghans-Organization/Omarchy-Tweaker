@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# float · a persistent "floating pane" for tmux (popup attached to a hidden session)
+# Called by Alt f. Usage: float <parent-session> <start-dir>
+# Press Alt f again inside the popup to hide it; the shell keeps running.
+parent=${1:-main}; dir=${2:-$HOME}
+name="float_${parent//[^A-Za-z0-9_]/_}"
+sock=${TMUX%%,*}
+t() { tmux -S "$sock" "$@"; }
+if ! t has-session -t "$name" 2>/dev/null; then
+  t new-session -d -s "$name" -c "$dir"
+  t set -t "$name" status off
+  t set -t "$name" detach-on-destroy on
+  t set -w -t "$name" pane-border-status off
+fi
+exec env -u TMUX tmux -S "$sock" attach -t "$name"

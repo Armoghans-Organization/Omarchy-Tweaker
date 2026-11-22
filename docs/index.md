@@ -88,7 +88,7 @@ The project is currently in **early implementation**. The implemented surface is
 | `snapshot` command | Implemented | Runs `omarchy snapshot create` with confirmation and live output. |
 | `cleanup` command | Implemented | Removes only selected installed packages, web apps, TUIs, and Mise wrappers. |
 | `directories` command | Implemented | Creates the standard workspace directories after per-path confirmation. |
-| `dotfiles` command | Implemented | Links bundled Git, Lazygit, Tig, Starship, Superfile, and Zellij dotfiles, renders Git identity, and prepares SSH and GPG keys. |
+| `dotfiles` command | Implemented | Links bundled Git, Lazygit, Tig, Tmux, Starship, Superfile, and Zellij dotfiles, renders Git identity, and prepares SSH and GPG keys. |
 | `packages` command | Implemented | Installs selected Pacman and AUR packages from a fixed catalog. |
 | `containers` command | Implemented | Prepares selected Docker Compose containers with Caddy routes and starts them. |
 | `plugins` command | Implemented | Installs selected Omarchy shell plugins from a fixed catalog, applies optional patches, and installs the bundled shell configuration. |
@@ -177,9 +177,9 @@ Each step can be skipped. See **[Getting Started](getting-started.md)** for the 
 
     ---
 
-    Link bundled Git, Lazygit, Tig, Starship, Superfile, and Zellij dotfiles, prepare SSH and GPG keys, and render Git identity.
+    Link bundled Git, Lazygit, Tig, Tmux, Starship, Superfile, and Zellij dotfiles, prepare SSH and GPG keys, and render Git identity.
 
-    [Open Dotfiles](dotfiles.md) · [Git Guide](git.md) · [Lazygit Guide](lazygit.md) · [Tig Guide](tig.md) · [Starship Guide](starship.md) · [Superfile Guide](superfile.md) · [Zellij Guide](zellij.md)
+    [Open Dotfiles](dotfiles.md) · [Git Guide](git.md) · [Lazygit Guide](lazygit.md) · [Tig Guide](tig.md) · [Tmux Guide](tmux.md) · [Starship Guide](starship.md) · [Superfile Guide](superfile.md) · [Zellij Guide](zellij.md)
 
 -   :material-package-variant-closed: **Packages**
 

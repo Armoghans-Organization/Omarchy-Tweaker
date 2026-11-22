@@ -31,6 +31,7 @@ nav = [
         {"Git" = "git.md"},
         {"Lazygit" = "lazygit.md"},
         {"Tig" = "tig.md"},
+        {"Tmux" = "tmux.md"},
         {"Starship" = "starship.md"},
         {"Superfile" = "superfile.md"},
         {"Zellij" = "zellij.md"}

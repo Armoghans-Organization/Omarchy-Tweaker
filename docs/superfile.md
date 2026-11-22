@@ -273,15 +273,16 @@ configurations.
 
 ## Integration with the other dotfiles
 
-- Superfile is a terminal file manager and does not replace Git, Lazygit, Tig, Starship, or Zellij.
-- The shared Nerd Font requirement also improves icons in Starship, lazygit, and Zellij.
+- Superfile is a terminal file manager and does not replace Git, Lazygit, Tig, Tmux, Starship, or Zellij.
+- The shared Nerd Font requirement also improves icons in Starship, lazygit, Tmux, and Zellij.
 - `zoxide_support` complements shell zoxide setup; the dotfile catalog links the Superfile side only.
 - `cd_on_quit` depends on Superfile's shell integration being active.
 - `bat`, `nvim`, `delta`, and other external commands are referenced by configuration only.
 
 See **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**,
-**[Tig Dotfiles](tig.md)**, **[Starship Dotfiles](starship.md)**, and
-**[Zellij Dotfiles](zellij.md)** for the related setups.
+**[Tig Dotfiles](tig.md)**, **[Tmux Dotfiles](tmux.md)**,
+**[Starship Dotfiles](starship.md)**, and **[Zellij Dotfiles](zellij.md)** for the related
+setups.
 
 ---
 
@@ -319,6 +320,7 @@ the catalog at new sources or maintain a separate Superfile config directory. Ke
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
+- [Tmux Dotfiles](tmux.md)
 - [Starship Dotfiles](starship.md)
 - [Zellij Dotfiles](zellij.md)
 - [Commands](commands.md)

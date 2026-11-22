@@ -66,7 +66,9 @@ dotfile backups and key handling, [Git Dotfiles](git.md) for key and hook handli
 [Tig Dotfiles](tig.md) for text-mode Git config linking and shell command bindings,
 [Starship Dotfiles](starship.md) for prompt config linking and module scope,
 [Superfile Dotfiles](superfile.md) for file-manager config linking and external command
-scope, [Zellij Dotfiles](zellij.md) for multiplexer config linking and WASM plugin scope,
+scope, [Tmux Dotfiles](tmux.md) for multiplexer config linking, helper script scope, and TPM
+auto-install behavior, [Zellij Dotfiles](zellij.md) for multiplexer config linking and WASM
+plugin scope,
 [Hyprland](hypr.md) for the configuration link workflow
 and its no-backup policy, and [Bundled Scripts](scripts.md) for the PATH link workflow.
 

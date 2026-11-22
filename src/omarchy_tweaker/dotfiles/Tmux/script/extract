@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+# ╭────────────────────────────────────────────────────────────────────────╮
+# │  extract · zextract for tmux · Catppuccin Macchiato                    │
+# │  Put at: ~/.config/tmux/script/extract    (chmod +x, needs fzf)        │
+# ╰────────────────────────────────────────────────────────────────────────╯
+# Scans a pane (or the whole tab) for URLs, files, compiler errors, hashes, IPs,
+# UUIDs, quoted strings, commands, secrets and your own patterns, then lets you
+# pick with fzf and copy / open / edit / insert them.
+#
+# Keys inside the picker
+#   Enter        default action for the type (url open, file edit, cmd insert, rest copy)
+#   Ctrl-y       copy            Ctrl-o  open (xdg-open)
+#   Ctrl-e       edit in $EDITOR (typed at your prompt, not run)
+#   Alt-Enter    insert at the prompt (not run)
+#   Tab          multi-select    Alt-1..5 profile: quick deep viewport tab full
+#   Ctrl-/       toggle preview
+#
+# Called by tmux.conf:  Alt x all types · Alt y urls of the tab · Alt v files + errors
+# Usage: extract -p PANE_ID [--type url,file] [--grab deep|quick|viewport|tab|full] [--title T]
+#        extract -p %1 --dump          (print the matches, no UI; for testing)
+
+import argparse
+import base64
+import os
+import re
+import shlex
+import shutil
+import subprocess
+
+# ── profiles: how much to scan (same names as your zextract.kdl) ────────────
+PROFILES = {
+    "quick": ("scrollback", 300),
+    "deep": ("scrollback", 3000),
+    "viewport": ("viewport", 0),
+    "tab": ("tab", 3000),
+    "full": ("scrollback", 0),
+}
+DEFAULT_PROFILE = "deep"
+
+# ── types: colors (Macchiato) and which actions Enter / Alt-Enter may use ───
+COLORS = {
+    "url": "#8aadf4",
+    "file": "#a6da95",
+    "diag": "#ed8796",
+    "sha": "#eed49f",
+    "ipv4": "#91d7e3",
+    "ipv6": "#7dc4e4",
+    "uuid": "#f5bde6",
+    "quote": "#939ab7",
+    "cmd": "#b7bdf8",
+    "secret": "#ee99a0",
+}
+DEFAULT_ACTION = {"url": "open", "file": "edit", "diag": "edit", "cmd": "insert", "secret": "copy"}
+ALLOWED = {
+    "url": {"open", "copy", "insert"},
+    "file": {"edit", "open", "copy", "insert"},
+    "diag": {"edit", "open", "copy", "insert"},
+    "cmd": {"insert", "copy"},
+    "secret": {"copy"},
+}
+EDITOR_CMD = "{editor} +{line} {file}"  # {line} empty -> the +N is dropped
+MASK_SECRETS = True
+LIMITS = {"copy": 100, "insert": 5, "open": 10, "edit": 5}
+
+# ── patterns: (name, type, regex, template or None) ─────────────────────────
+# Python regex. Group 1 is the value unless a template is given ({1} {2} ...).
+PATTERNS = [
+    ("url", "url", r"""\b((?:https?|ftp|ssh|git)://[^\s<>"'`)\]}]+[^\s<>"'`)\]}.,;:!?])""", None),
+    ("diag", "diag", r"((?:\.{0,2}/)?[\w@~.+\-/]*[\w\-]\.[A-Za-z0-9]{1,8}):(\d+)(?::(\d+))?", None),
+    (
+        "file",
+        "file",
+        r"((?:~|\.{1,2})?/[\w@.+\-/]+|[\w@.+\-]+(?:/[\w@.+\-]+)+|[\w.+\-]+\.[A-Za-z0-9]{1,8})",
+        None,
+    ),
+    ("sha", "sha", r"\b([0-9a-f]{7,40})\b", None),
+    ("ipv4", "ipv4", r"\b((?:\d{1,3}\.){3}\d{1,3})\b", None),
+    ("ipv6", "ipv6", r"\b((?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{1,4})\b", None),
+    (
+        "uuid",
+        "uuid",
+        r"\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b",
+        None,
+    ),
+    ("quote", "quote", r"""(?:"([^"\n]{3,200})"|'([^'\n]{3,200})')""", None),
+    (
+        "secret",
+        "secret",
+        r"\b(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|"
+        r"sk-[A-Za-z0-9_\-]{20,}|xox[baprs]-[A-Za-z0-9\-]{10,}|"
+        r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,})\b",
+        None,
+    ),
+    (
+        "secret",
+        "secret",
+        r"\b(?:[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_?KEY)[A-Z0-9_]*)=(\S{6,})",
+        None,
+    ),
+    # ── your own patterns (same ones as your zextract.kdl) ──────────────────
+    ("cve", "url", r"(?i)\b(CVE-[0-9]{4}-[0-9]{4,})\b", "https://nvd.nist.gov/vuln/detail/{1}"),
+    (
+        "github-pr",
+        "url",
+        r"github\.com/([^/\s]+)/([^/\s]+)/pull/([0-9]+)",
+        "https://github.com/{1}/{2}/pull/{3}",
+    ),
+    (
+        "github-issue",
+        "url",
+        r"github\.com/([^/\s]+)/([^/\s]+)/issues/([0-9]+)",
+        "https://github.com/{1}/{2}/issues/{3}",
+    ),
+    (
+        "dev-server",
+        "url",
+        r"(?:localhost|127\.0\.0\.1|0\.0\.0\.0):([0-9]{2,5})",
+        "http://localhost:{1}",
+    ),
+    ("email", "url", r"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})", "mailto:{1}"),
+    ("cidr", "ipv4", r"\b((?:[0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2})\b", None),
+    ("mac", "quote", r"\b((?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2})\b", None),
+    ("sha256", "quote", r"\b([a-fA-F0-9]{64})\b", None),
+    # ("ticket", "url", r"\b(PROJ-[0-9]+)\b", "https://tracker.example.com/browse/{1}"),
+]
+CMD_WORDS = (
+    r"(?:git|docker|podman|curl|wget|ssh|scp|rsync|sudo|pacman|yay|npm|pnpm|"
+    r"cargo|make|systemctl|kubectl|nvim|python3?)"
+)
+PROMPT = re.compile(r"^\s*(?:[❯➜λ>$#%])\s+(.+?)\s*$")
+CMDLINE = re.compile(r"^\s*(?:" + CMD_WORDS + r")\s+\S.*$")
+FLAGGED = re.compile(r"^\s*[\w./\-]+(?:\s+\S+)*\s+--?[A-Za-z][\w\-]*(?:\s.*)?$")
+
+
+def sh(*a, **k):
+    return subprocess.run(a, capture_output=True, text=True, **k)
+
+
+def grab_text(pane, profile):
+    source, lines = PROFILES[profile]
+    panes = [pane]
+    if source == "tab":
+        panes = sh("tmux", "list-panes", "-t", pane, "-F", "#{pane_id}").stdout.split() or [pane]
+    out = []
+    for p in panes:
+        a = ["tmux", "capture-pane", "-p", "-J", "-t", p]
+        if source == "scrollback":
+            a += ["-S", f"-{lines}" if lines else "-"]
+        out.append((p, sh(*a).stdout))
+    return out
+
+
+def cwd_of(pane):
+    return (
+        sh("tmux", "display-message", "-p", "-t", pane, "#{pane_current_path}").stdout.strip()
+        or os.getcwd()
+    )
+
+
+def real_file(path, cwd):
+    p = os.path.expanduser(path)
+    if not os.path.isabs(p):
+        p = os.path.join(cwd, p)
+    return os.path.exists(p)
+
+
+def scan(texts, cwd, want):
+    """Return matches newest first: dicts with tag, type, value, display, line, context."""
+    found, seen = [], set()
+    n = 0
+    for _pane, text in texts:
+        for ln in text.splitlines():
+            n += 1
+            if not ln.strip():
+                continue
+            hits = []
+            for name, typ, rx, tpl in PATTERNS:
+                if want and typ not in want and name not in want:
+                    continue
+                for m in re.finditer(rx, ln):
+                    val, disp, line = None, None, ""
+                    if tpl:
+                        groups = (m.group(0),) + m.groups()
+                        val = re.sub(
+                            r"\{(\d+)\}",
+                            lambda g, groups=groups: groups[int(g.group(1))] or "",
+                            tpl,
+                        )
+                    elif typ == "diag":
+                        val, line = m.group(1), m.group(2)
+                        if not real_file(val, cwd):
+                            continue
+                        col = f":{m.group(3)}" if m.group(3) else ""
+                        disp = f"{val}:{line}{col}"
+                    elif typ == "file":
+                        val = m.group(1)
+                        if "://" in ln[max(0, m.start() - 3) : m.start() + 3] or not real_file(
+                            val, cwd
+                        ):
+                            continue
+                    elif typ == "sha":
+                        val = m.group(1)
+                        if not (re.search(r"[a-f]", val) and re.search(r"\d", val)):
+                            continue
+                    elif typ == "quote":
+                        val = next(g for g in m.groups() if g) if m.groups() else m.group(0)
+                    else:
+                        val = m.group(1) if m.groups() else m.group(0)
+                    disp = disp or val
+                    if typ == "secret" and MASK_SECRETS:
+                        disp = val[:3] + "•" * 8
+                    hits.append(
+                        dict(
+                            tag=name,
+                            type=typ,
+                            value=val,
+                            display=disp,
+                            line=line,
+                            context=ln.strip(),
+                            pos=m.start(),
+                        )
+                    )
+            if want is None or "file" in want:
+                for tok in re.findall(r"[^\s\"'<>|;()\[\]{}=,:]+", ln):
+                    tok = tok.strip("`*")
+                    if (
+                        len(tok) > 1
+                        and tok not in (".", "..")
+                        and not tok.startswith("-")
+                        and real_file(tok, cwd)
+                    ):
+                        hits.append(
+                            dict(
+                                tag="file",
+                                type="file",
+                                value=tok,
+                                display=tok,
+                                line="",
+                                context=ln.strip(),
+                                pos=0,
+                            )
+                        )
+            if want is None or "cmd" in want:
+                c = PROMPT.match(ln)
+                if c and len(c.group(1)) > 2:
+                    hits.append(
+                        dict(
+                            tag="cmd",
+                            type="cmd",
+                            value=c.group(1),
+                            display=c.group(1),
+                            line="",
+                            context=ln.strip(),
+                            pos=0,
+                        )
+                    )
+                elif CMDLINE.match(ln) or FLAGGED.match(ln):
+                    hits.append(
+                        dict(
+                            tag="cmd",
+                            type="cmd",
+                            value=ln.strip(),
+                            display=ln.strip(),
+                            line="",
+                            context=ln.strip(),
+                            pos=0,
+                        )
+                    )
+            found.extend(hits)
+    # newest first, dedupe on (type, value). A diag also hides the plain file it contains.
+    out = []
+    for h in reversed(found):
+        k = (h["type"], h["value"])
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(h)
+    diag_files = {h["value"] for h in out if h["type"] == "diag"}
+    out = [h for h in out if not (h["type"] == "file" and h["value"] in diag_files)]
+    # a sha/ipv4 that is just part of a longer url is noise
+    blob = " ".join(
+        h["value"] for h in out if h["type"] in ("url", "uuid", "quote", "file", "diag")
+    )
+    out = [h for h in out if not (h["type"] in ("ipv4", "ipv6", "sha") and h["value"] in blob)]
+    return out
+
+
+def ansi(hexcol, text):
+    r, g, b = int(hexcol[1:3], 16), int(hexcol[3:5], 16), int(hexcol[5:7], 16)
+    return f"\x1b[38;2;{r};{g};{b}m{text}\x1b[0m"
+
+
+def rows(matches):
+    res = []
+    for i, h in enumerate(matches):
+        chip = ansi(COLORS.get(h["type"], "#a5adcb"), f"{h['tag'][:8]:<8}")
+        ctx = base64.b64encode(h["context"].encode()).decode()
+        res.append(f"{i}\t{chip} {h['display']}\t{ctx}")
+    return res
+
+
+def notify(msg, level="ok"):
+    n = os.path.expanduser("~/.config/tmux/script/notify")
+    if os.path.exists(n):
+        subprocess.Popen(["bash", n, msg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def clip(text):
+    for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
+        if shutil.which(cmd[0]):
+            subprocess.run(cmd, input=text.encode())
+            return
+    subprocess.run(["tmux", "load-buffer", "-w", "-"], input=text.encode())
+
+
+def act(action, items, pane):
+    items = items[: LIMITS.get(action, 100)]
+    editor = os.environ.get("EDITOR", "nvim")
+    if action == "copy":
+        clip("\n".join(h["value"] for h in items))
+        notify(f"copied {len(items)} item{'' if len(items) == 1 else 's'}")
+    elif action == "open":
+        for h in items:
+            target = h["value"]
+            subprocess.Popen(
+                ["xdg-open", target],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        notify(f"opened {len(items)}")
+    elif action == "edit":
+        f = " ".join(shlex.quote(os.path.expanduser(h["value"])) for h in items)
+        line = items[0]["line"] if len(items) == 1 else ""
+        cmd = EDITOR_CMD.format(editor=editor, line=line, file=f)
+        if not line:
+            cmd = cmd.replace("+ ", "").replace("+{line} ", "")
+        sh("tmux", "send-keys", "-t", pane, "-l", cmd)
+    elif action == "insert":
+        sh("tmux", "send-keys", "-t", pane, "-l", " ".join(h["value"] for h in items))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("-p", "--pane", default="")
+    ap.add_argument("--type", default="")
+    ap.add_argument("--grab", default=DEFAULT_PROFILE)
+    ap.add_argument("--title", default="extract")
+    ap.add_argument("--dump", action="store_true")
+    ap.add_argument("--list", action="store_true", help="internal: print fzf rows")
+    a = ap.parse_args()
+    if not a.pane or "#{" in a.pane:  # the key binding stores the origin pane in @xpane
+        a.pane = sh("tmux", "show", "-gqv", "@xpane").stdout.strip() or os.environ.get(
+            "TMUX_PANE", ""
+        )
+    want = set(a.type.replace(" ", ",").split(",")) - {""} or None
+    cwd = cwd_of(a.pane)
+    texts = grab_text(a.pane, a.grab)
+    matches = scan(texts, cwd, want)
+
+    if a.dump:
+        for h in matches:
+            print(f"{h['tag']}\t{h['type']}\t{h['display']}")
+        return
+    if a.list:
+        print("\n".join(rows(matches)))
+        return
+    if not matches:
+        notify(f"nothing found ({a.grab})", "warn")
+        total = sum(len(t.splitlines()) for _, t in texts)
+        print(f"nothing found with profile '{a.grab}'.")
+        print(f"pane {a.pane}, folder {cwd}, {total} lines scanned, types: {a.type or 'all'}")
+        if total == 0:
+            print("-> tmux returned no text for that pane (wrong pane id?).")
+        input("press Enter")
+        return
+
+    fzf = os.environ.get("EXTRACT_FZF", "fzf")
+    if not shutil.which(fzf):
+        print("fzf is not installed:  sudo pacman -S fzf")
+        input("press Enter")
+        return
+    me = shlex.quote(os.path.abspath(__file__))
+    base = f"{me} -p {shlex.quote(a.pane)} --type {shlex.quote(a.type)} --list"
+    binds = [
+        f"alt-{i + 1}:reload({base} --grab {p})+change-prompt( {p} ❯ )"
+        for i, p in enumerate(PROFILES)
+    ]
+    binds.append("ctrl-/:toggle-preview")
+    cmd = [
+        fzf,
+        "--ansi",
+        "--multi",
+        "--delimiter=\t",
+        "--with-nth=2",
+        "--layout=reverse",
+        "--no-sort",
+        f"--prompt= {a.grab} ❯ ",
+        "--pointer=▌",
+        "--marker=●",
+        "--header=Enter default · ^y copy · ^o open · ^e edit · "
+        "M-Enter insert · Tab multi · M-1..5 profile",
+        "--color=bg:#24273a,bg+:#363a4f,fg:#cad3f5,fg+:#cad3f5,hl:#eed49f,hl+:#eed49f,prompt:#c6a0f6,"
+        "pointer:#c6a0f6,marker:#f5bde6,info:#6e738d,header:#6e738d,border:#c6a0f6,spinner:#c6a0f6",
+        "--preview=echo {3} | base64 -d",
+        "--preview-window=down,3,wrap,border-top",
+        "--expect=ctrl-y,ctrl-o,ctrl-e,alt-enter",
+    ] + sum((["--bind", b] for b in binds), [])
+    r = subprocess.run(
+        cmd, input="\n".join(rows(matches)), capture_output=False, stdout=subprocess.PIPE, text=True
+    )
+    if r.returncode != 0 or not r.stdout:
+        return  # Esc: nothing to do, tmux is back at NORMAL
+    lines = r.stdout.split("\n")
+    key, picked = lines[0], [x for x in lines[1:] if x.strip()]
+    # rows can come from another profile after Alt-N, so re-scan for the picked ids
+    cur = {"ctrl-y": "copy", "ctrl-o": "open", "ctrl-e": "edit", "alt-enter": "insert"}.get(key)
+    items = []
+    for row in picked:
+        idx = int(row.split("\t")[0])
+        if idx < len(matches):
+            items.append(matches[idx])
+    if not items:
+        return
+    # if a profile was switched inside fzf, ids refer to that profile's list; fall back to the text
+    for i, row in enumerate(picked):
+        txt = re.sub(r"\x1b\[[0-9;]*m", "", row.split("\t")[1])
+        disp = txt[9:].strip()
+        if items[i]["display"] != disp:
+            hit = next((m for m in matches if m["display"] == disp), None)
+            tag = txt[:8].strip()
+            typ = next((t for n, t, _, _ in PATTERNS if n[:8] == tag), "quote")
+            items[i] = hit or dict(items[i], type=typ, tag=tag, value=disp, display=disp, line="")
+    for typ in {h["type"] for h in items}:
+        group = [h for h in items if h["type"] == typ]
+        action = cur or DEFAULT_ACTION.get(typ, "copy")
+        if action not in ALLOWED.get(typ, {"copy", "open", "insert", "edit"}) and action != "copy":
+            action = "copy"
+        act(action, group, a.pane)
+
+
+if __name__ == "__main__":
+    main()

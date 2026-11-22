@@ -10,8 +10,9 @@ mermaid: true
 This page explains what the `dotfiles` feature currently is, how it discovers catalogs,
 how it applies them, and what safety behavior it provides.
 
-For day-to-day usage of the bundled Git, Lazygit, Tig, Starship, Superfile, and Zellij setups,
-see **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**, **[Tig Dotfiles](tig.md)**,
+For day-to-day usage of the bundled Git, Lazygit, Tig, Tmux, Starship, Superfile, and Zellij
+setups, see **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**,
+**[Tig Dotfiles](tig.md)**, **[Tmux Dotfiles](tmux.md)**,
 **[Starship Dotfiles](starship.md)**, **[Superfile Dotfiles](superfile.md)**, and
 **[Zellij Dotfiles](zellij.md)**.
 
@@ -129,10 +130,10 @@ template-file = "~/.config/example/rendered-file"
 | `[keys]` | Defines SSH/GPG paths and generation options. | No |
 
 A catalog can use any combination of these sections. The Git catalog currently uses all
-four. The Lazygit, Tig, Starship, Superfile, and Zellij catalogs use only `[symlink]`.
+four. The Lazygit, Tig, Tmux, Starship, Superfile, and Zellij catalogs use only `[symlink]`.
 
-Quoted `[symlink]` keys can include a source subdirectory, such as
-`"layouts/custom.kdl"`. This lets a catalog keep files organized in subdirectories while
+Quoted `[symlink]` keys can include a source subdirectory, such as `"layouts/custom.kdl"`
+or `"script/extract"`. This lets a catalog keep files organized in subdirectories while
 linking each file to its own destination.
 
 ### Path rules
@@ -178,6 +179,7 @@ Templates can use:
 | Git | `src/omarchy_tweaker/dotfiles/git/` | Git configuration, identity file, commit template, ignore rules, secret patterns, hooks, SSH key, and GPG signing key. |
 | Lazygit | `src/omarchy_tweaker/dotfiles/lazygit/` | Catppuccin Mocha lazygit configuration with Delta, Neovim, tig, and Conventional Commit commands. |
 | Tig | `src/omarchy_tweaker/dotfiles/Tig/` | Catppuccin Mocha-oriented Tig configuration with Delta, Meld, and Wayland clipboard bindings. |
+| Tmux | `src/omarchy_tweaker/dotfiles/Tmux/` | Catppuccin Macchiato tmux configuration with Zellij-style modes, helper scripts, and TPM plugins. |
 | Starship | `src/omarchy_tweaker/dotfiles/starship/` | Catppuccin Mocha prompt configuration for Starship. |
 | Superfile | `src/omarchy_tweaker/dotfiles/Superfile/` | Catppuccin Frappe terminal file manager configuration with custom hotkeys, previews, plugins, and theme colors. |
 | Zellij | `src/omarchy_tweaker/dotfiles/Zellij/` | Catppuccin Macchiato terminal multiplexer configuration with keybindings, plugins, layouts, and zextract settings. |
@@ -188,14 +190,16 @@ Each catalog defines its destinations and options in its own `config.toml`:
 src/omarchy_tweaker/dotfiles/git/config.toml
 src/omarchy_tweaker/dotfiles/lazygit/config.toml
 src/omarchy_tweaker/dotfiles/Tig/config.toml
+src/omarchy_tweaker/dotfiles/Tmux/config.toml
 src/omarchy_tweaker/dotfiles/starship/config.toml
 src/omarchy_tweaker/dotfiles/Superfile/config.toml
 src/omarchy_tweaker/dotfiles/Zellij/config.toml
 ```
 
 See **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**, **[Tig Dotfiles](tig.md)**,
-**[Starship Dotfiles](starship.md)**, **[Superfile Dotfiles](superfile.md)**, and
-**[Zellij Dotfiles](zellij.md)** for what these custom configurations do and how to use them.
+**[Tmux Dotfiles](tmux.md)**, **[Starship Dotfiles](starship.md)**,
+**[Superfile Dotfiles](superfile.md)**, and **[Zellij Dotfiles](zellij.md)** for what these
+custom configurations do and how to use them.
 
 ---
 
@@ -308,9 +312,10 @@ The CLI itself always uses `Path.home()` and the packaged catalog directory.
 - Starship, when you want to use the linked prompt configuration.
 - `lazygit`, plus `delta`, `nvim`, `tig`, and `xdg-open`, for the features used by its linked config.
 - `tig`, plus `delta`, `meld`, and `wl-copy`, for the features used by its linked config.
+- `tmux`, plus `fzf`, Python 3, `nvim`, `wl-copy`, and a Nerd Font, for the features used by its linked config.
 - `superfile`, plus `bat`, `nvim`, `exiftool`, `md5sum`, and `zoxide`, for the features used by its linked config.
 - `zellij`, plus a Nerd Font, `zsh`, `nvim`, and `wl-copy`, for the features used by its linked config.
-- A Nerd Font, when you want Starship, lazygit, Superfile, or Zellij icons to render correctly.
+- A Nerd Font, when you want Starship, lazygit, Tmux, Superfile, or Zellij icons to render correctly.
 
 ---
 
@@ -319,6 +324,7 @@ The CLI itself always uses `Path.home()` and the packaged catalog directory.
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
+- [Tmux Dotfiles](tmux.md)
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
 - [Zellij Dotfiles](zellij.md)

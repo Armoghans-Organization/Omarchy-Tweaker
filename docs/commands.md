@@ -505,15 +505,17 @@ commit template, global ignore file, secret patterns, and hooks directory. It re
 `~/.config/git/user` using the collected name, email, and GPG fingerprint. The bundled
 Lazygit catalog links a Catppuccin Mocha TUI configuration to
 `~/.config/lazygit/config.yml`. The bundled Tig catalog links a Catppuccin Mocha-oriented
-text-mode Git interface configuration to `~/.config/tig/config`. The bundled Starship
-catalog links the Catppuccin Mocha prompt configuration to `~/.config/starship.toml`. The
-bundled Superfile catalog links the main configuration, custom hotkeys, and Catppuccin Frappe
-theme into `~/.config/superfile/`. The bundled Zellij catalog links the Catppuccin
-Macchiato configuration, zextract configuration, and four layout files into
-`~/.config/zellij/` and `~/.config/zellij/layouts/`.
+text-mode Git interface configuration to `~/.config/tig/config`. The bundled Tmux catalog
+links a Catppuccin Macchiato `tmux.conf` and five helper scripts into `~/.config/tmux/` and
+`~/.config/tmux/script/`. The bundled Starship catalog links the Catppuccin Mocha prompt
+configuration to `~/.config/starship.toml`. The bundled Superfile catalog links the main
+configuration, custom hotkeys, and Catppuccin Frappe theme into `~/.config/superfile/`. The
+bundled Zellij catalog links the Catppuccin Macchiato configuration, zextract configuration,
+and four layout files into `~/.config/zellij/` and `~/.config/zellij/layouts/`.
  See **[Dotfiles](dotfiles.md)** for the workflow,
 **[Git Dotfiles](git.md)** for Git usage and cheat sheets, **[Lazygit Dotfiles](lazygit.md)**
 for TUI usage and keybindings, **[Tig Dotfiles](tig.md)** for Tig usage and keybindings,
+**[Tmux Dotfiles](tmux.md)** for multiplexer usage and keybindings,
 **[Starship Dotfiles](starship.md)** for prompt usage and cheat sheets,
 **[Superfile Dotfiles](superfile.md)** for file-manager usage and keybindings, and
 **[Zellij Dotfiles](zellij.md)** for terminal multiplexer usage and layout details.
@@ -534,6 +536,7 @@ any catalog failed. Declining confirmation is a safe skip and exits with code `0
 - `ssh-keygen` and `gpg` must be available when keys are configured.
 - `lazygit`, `delta`, `nvim`, `tig`, and `xdg-open` are needed for the features used by the bundled lazygit config.
 - `tig`, `delta`, `meld`, and `wl-copy` are needed for the features used by the bundled Tig config.
+- `tmux`, `fzf`, Python 3, `nvim`, `wl-copy`, and a Nerd Font are needed for the features used by the bundled Tmux config.
 - `superfile`, `bat`, `nvim`, `exiftool`, `md5sum`, `zoxide`, and a Nerd Font are needed for the features used by the bundled Superfile config.
 - `zellij`, a Nerd Font, `zsh`, `nvim`, and `wl-copy` are needed for the features used by the bundled Zellij config.
 - The user home directory must be writable.
@@ -543,6 +546,7 @@ See **[Dotfiles](dotfiles.md)** for configuration, backups, and safety details,
 **[Git Dotfiles](git.md)** for the Git-specific usage guide,
 **[Lazygit Dotfiles](lazygit.md)** for the lazygit TUI guide,
 **[Tig Dotfiles](tig.md)** for the Tig text-mode guide,
+**[Tmux Dotfiles](tmux.md)** for the Tmux multiplexer guide,
 **[Starship Dotfiles](starship.md)** for the Starship prompt guide,
 **[Superfile Dotfiles](superfile.md)** for the Superfile file-manager guide, and
 **[Zellij Dotfiles](zellij.md)** for the Zellij terminal multiplexer guide.
@@ -691,6 +695,7 @@ omarchy-tweaker --help
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
+- [Tmux Dotfiles](tmux.md)
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
 - [Zellij Dotfiles](zellij.md)

@@ -133,7 +133,7 @@ def test_discover_bundled_dotfile_catalogs_includes_expected_catalogs(
     bundles = discover_dotfile_bundles(source)
 
     names = {path.name for path in bundles}
-    assert {"Superfile", "Tig", "Zellij", "git", "lazygit", "starship"} <= names
+    assert {"Superfile", "Tig", "Tmux", "Zellij", "git", "lazygit", "starship"} <= names
 
     for path in bundles:
         bundle = load_dotfile_bundle(path, Path("/home/test"))
@@ -190,6 +190,33 @@ def test_bundled_zellij_catalog_exposes_expected_symlinks(
         ),
     )
     assert (source / "Zellij" / "layouts").is_dir()
+
+
+def test_bundled_tmux_catalog_exposes_expected_symlinks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OMARCHY_TWEAKER_DOTFILES_DIR", raising=False)
+    source = get_dotfiles_source_directory()
+    home = Path("/home/test")
+
+    bundle = load_dotfile_bundle(source / "Tmux", home)
+
+    assert bundle.symlinks == (
+        ("config", home / ".config" / "tmux" / "tmux.conf"),
+        ("script/extract", home / ".config" / "tmux" / "script" / "extract"),
+        ("script/float", home / ".config" / "tmux" / "script" / "float"),
+        ("script/notify", home / ".config" / "tmux" / "script" / "notify"),
+        ("script/scrollback", home / ".config" / "tmux" / "script" / "scrollback"),
+        ("script/switch", home / ".config" / "tmux" / "script" / "switch"),
+    )
+
+    config_text = (source / "Tmux" / "config").read_text(encoding="utf-8")
+    assert "~/.config/tmux/scripts/" not in config_text
+    for script_name in ("extract", "float", "notify", "scrollback", "switch"):
+        script = source / "Tmux" / "script" / script_name
+        assert script.is_file()
+        assert script.stat().st_mode & stat.S_IXUSR
+        assert f"~/.config/tmux/script/{script_name}" in config_text
 
 
 def test_load_dotfile_bundle_reads_config_sections(tmp_path: Path) -> None:

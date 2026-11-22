@@ -308,6 +308,7 @@ as `generic`, `main`, `diff`, `status`, or `stash`.
 - [Dotfiles](dotfiles.md)
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)
+- [Tmux Dotfiles](tmux.md)
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
 - [Zellij Dotfiles](zellij.md)

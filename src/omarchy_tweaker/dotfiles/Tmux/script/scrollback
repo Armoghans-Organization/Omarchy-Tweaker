@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# scrollback · open the whole pane history in nvim (read-only). Scroll mode: e
+pane=${1:-$(tmux show -gqv @xpane)}; f=$(mktemp /tmp/tmux-scrollback.XXXXXX)
+tmux capture-pane -p -J -S - -t "$pane" > "$f"
+nvim -R +'normal G' "$f"; rm -f "$f"

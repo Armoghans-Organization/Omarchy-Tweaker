@@ -1,0 +1,7 @@
+[symlink]
+config = "~/.config/tmux/tmux.conf"
+"script/extract" = "~/.config/tmux/script/extract"
+"script/float" = "~/.config/tmux/script/float"
+"script/notify" = "~/.config/tmux/script/notify"
+"script/scrollback" = "~/.config/tmux/script/scrollback"
+"script/switch" = "~/.config/tmux/script/switch"

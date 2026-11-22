@@ -387,7 +387,7 @@ Check the linked files, config status, and external tools:
 ```bash
 ls -l ~/.config/zellij/config.kdl
 ls -l ~/.config/zellij/zextract.kdl
-ls -l ~/.config/zellij/layouts
+ls -l ~/.config/zellij/layouts/*.kdl
 zellij setup --check
 zellij list-aliases
 zellij --version
@@ -406,6 +406,35 @@ Common causes:
 - The config files may have been replaced with regular files instead of managed symlinks.
 
 See **[Zellij Dotfiles](zellij.md)** for keybindings, layout details, plugin scope, and
+customization notes.
+
+### Tmux config issues
+
+Check the linked files, installed tools, and active key table:
+
+```bash
+ls -l ~/.config/tmux/tmux.conf
+ls -l ~/.config/tmux/script/*
+tmux -V
+command -v fzf python3 nvim wl-copy
+tmux list-keys
+tmux display-message -p '#{client_key_table}'
+```
+
+Common causes:
+
+- `Ctrl h`, `Ctrl n`, `Ctrl p`, `Ctrl s`, and `Ctrl o` are mode keys and do not reach the active application; press `Ctrl g` to lock tmux and pass keys through, then `Ctrl g` again to unlock.
+- Some terminals send Backspace as `Ctrl h`, which enters MOVE mode; configuring the terminal to send DEL avoids this.
+- `Alt [`, `Alt ]`, and other Alt bindings can feel delayed because they share bytes with terminal escape sequences.
+- `fzf` is required by `script/extract` and `script/switch`; without it, `script/switch` falls back to `tmux choose-tree`.
+- Helper scripts must be executable. Rerun `omarchy-tweaker dotfiles` or use `chmod +x ~/.config/tmux/script/*`.
+- `tmux.conf` and `config.toml` must use the same `script/` directory name; the catalog links helpers to `~/.config/tmux/script/`.
+- TPM auto-install needs `git` and network access on first load. Without TPM, the status-line continuum tick and plugin keys are unavailable.
+- The top bar covers built-in `status-right`/`status-left`; notifications use `@notify` and session saving uses the continuum hook at the end of `status-format[0]`.
+- The bottom bar is drawn through `pane-border-status`, so it is not shown when pane borders are disabled.
+- `script/extract` needs Python 3 and `fzf`; opening URLs needs `xdg-open`, editing needs `nvim`, and copying prefers `wl-copy`.
+
+See **[Tmux Dotfiles](tmux.md)** for keybindings, helper scripts, plugin scope, and
 customization notes.
 
 ---

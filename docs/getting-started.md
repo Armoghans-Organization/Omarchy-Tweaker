@@ -199,6 +199,7 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Git Dotfiles](git.md) — Git usage examples, GitHub setup, and cheat sheets.
 - [Lazygit Dotfiles](lazygit.md) — TUI config, keybindings, and custom commands.
 - [Tig Dotfiles](tig.md) — text-mode Git interface, Delta/Meld actions, and keybindings.
+- [Tmux Dotfiles](tmux.md) — multiplexer config, mode keybindings, helper scripts, and TPM plugins.
 - [Starship Dotfiles](starship.md) — prompt usage, module cheat sheets, and customization.
 - [Superfile Dotfiles](superfile.md) — file manager config, hotkeys, theme, and integrations.
 - [Zellij Dotfiles](zellij.md) — multiplexer config, keybindings, layouts, plugins, and zextract.

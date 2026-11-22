@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# ╭────────────────────────────────────────────────────────────────╮
+# │  notify · puts a pill in the CENTER of the tmux top bar        │
+# │  ~/.config/tmux/script/notify                                 │
+# ╰────────────────────────────────────────────────────────────────╯
+# Usage:
+#   notify [-l info|ok|warn|error] [-t SECONDS] message...
+#   echo "text" | notify -l ok
+#   notify --clear
+# The yellow bell pill only exists while a notification is active and disappears
+# after -t seconds (default 10, like zjstatus notification_show_interval).
+# -l is accepted for compatibility; the pill style is the same as in Zellij. A newer notification
+# replaces an older one and restarts the timer.
+#
+# Optional zsh hook, tells you when a long command ends (put in ~/.zshrc):
+#   preexec() { _t0=$EPOCHSECONDS }
+#   precmd()  { [[ -n $_t0 && $((EPOCHSECONDS-_t0)) -ge 30 && -n $TMUX ]] && \
+#               ~/.config/tmux/script/notify -l ok "done in $((EPOCHSECONDS-_t0))s"; unset _t0 }
+
+level=info; secs=10
+case "${1:-}" in
+  --clear) tmux set -g @notify "" ; tmux refresh-client -S; exit 0 ;;
+esac
+while getopts "l:t:" o; do
+  case $o in l) level=$OPTARG ;; t) secs=$OPTARG ;; *) exit 2 ;; esac
+done
+shift $((OPTIND-1))
+msg="$*"; [ -z "$msg" ] && ! [ -t 0 ] && msg="$(cat)"
+[ -z "$msg" ] && { echo "usage: notify [-l info|ok|warn|error] [-t secs] message" >&2; exit 2; }
+
+msg=${msg//$'\n'/ }; msg=${msg//#/##}; msg=${msg//,/，}   # '#' and ',' would break tmux formats
+msg=${msg:0:80}
+
+gen=$(( $(tmux show -gqv @notify_gen) + 1 ))
+tmux set -g @notify_gen "$gen" \; set -g @notify "$msg" \; refresh-client -S
+( sleep "$secs"
+  [ "$(tmux show -gqv @notify_gen)" = "$gen" ] && tmux set -g @notify "" \; refresh-client -S
+) >/dev/null 2>&1 &
+disown 2>/dev/null
