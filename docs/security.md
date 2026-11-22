@@ -61,7 +61,8 @@ since they include command arguments and system details.
 See [Packages](packages.md) for package installation details, [Plugins](plugins.md) for the
 plugin and patch workflow, [Cleanup](cleanup.md) for the full destructive-operation workflow,
 and [Directories](directories.md) for workspace path rules, [Dotfiles](dotfiles.md) for
-dotfile backups and key handling, [Git Dotfiles](git.md) for key and hook handling,
+dotfile backups and key handling, [Bat Dotfiles](bat.md) for config linking and pager scope,
+[Git Dotfiles](git.md) for key and hook handling,
 [Lazygit Dotfiles](lazygit.md) for TUI config linking and external command scope,
 [Tig Dotfiles](tig.md) for text-mode Git config linking and shell command bindings,
 [Starship Dotfiles](starship.md) for prompt config linking and module scope,

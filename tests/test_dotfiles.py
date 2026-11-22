@@ -133,12 +133,33 @@ def test_discover_bundled_dotfile_catalogs_includes_expected_catalogs(
     bundles = discover_dotfile_bundles(source)
 
     names = {path.name for path in bundles}
-    assert {"Superfile", "Tig", "Tmux", "Zellij", "git", "lazygit", "starship"} <= names
+    assert {"Bat", "Superfile", "Tig", "Tmux", "Zellij", "git", "lazygit", "starship"} <= names
 
     for path in bundles:
         bundle = load_dotfile_bundle(path, Path("/home/test"))
         assert bundle.symlinks
         assert all((path / name).exists() for name, _ in bundle.symlinks)
+
+
+def test_bundled_bat_catalog_exposes_expected_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OMARCHY_TWEAKER_DOTFILES_DIR", raising=False)
+    source = get_dotfiles_source_directory()
+    home = Path("/home/test")
+
+    bundle = load_dotfile_bundle(source / "Bat", home)
+
+    assert bundle.symlinks == (("config", home / ".config" / "bat" / "config"),)
+
+    config_text = (source / "Bat" / "config").read_text(encoding="utf-8")
+    assert '--theme="Catppuccin Macchiato"' in config_text
+    assert '--style="numbers,changes,header,grid"' in config_text
+    assert '--map-syntax "*.md:Markdown"' in config_text
+    assert '--map-syntax "*.sh:Bourne Again Shell (bash)"' in config_text
+    assert '--map-syntax "*.bat:Batch File"' in config_text
+    assert '--map-syntax "*.cmd:Batch File"' in config_text
+    assert '--map-syntax "*.tf:Terraform"' in config_text
 
 
 def test_bundled_superfile_catalog_exposes_expected_symlinks(

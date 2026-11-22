@@ -10,9 +10,9 @@ mermaid: true
 This page explains what the `dotfiles` feature currently is, how it discovers catalogs,
 how it applies them, and what safety behavior it provides.
 
-For day-to-day usage of the bundled Git, Lazygit, Tig, Tmux, Starship, Superfile, and Zellij
-setups, see **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**,
-**[Tig Dotfiles](tig.md)**, **[Tmux Dotfiles](tmux.md)**,
+For day-to-day usage of the bundled Bat, Git, Lazygit, Tig, Tmux, Starship, Superfile, and
+Zellij setups, see **[Bat Dotfiles](bat.md)**, **[Git Dotfiles](git.md)**,
+**[Lazygit Dotfiles](lazygit.md)**, **[Tig Dotfiles](tig.md)**, **[Tmux Dotfiles](tmux.md)**,
 **[Starship Dotfiles](starship.md)**, **[Superfile Dotfiles](superfile.md)**, and
 **[Zellij Dotfiles](zellij.md)**.
 
@@ -130,7 +130,7 @@ template-file = "~/.config/example/rendered-file"
 | `[keys]` | Defines SSH/GPG paths and generation options. | No |
 
 A catalog can use any combination of these sections. The Git catalog currently uses all
-four. The Lazygit, Tig, Tmux, Starship, Superfile, and Zellij catalogs use only `[symlink]`.
+four. The Bat, Lazygit, Tig, Tmux, Starship, Superfile, and Zellij catalogs use only `[symlink]`.
 
 Quoted `[symlink]` keys can include a source subdirectory, such as `"layouts/custom.kdl"`
 or `"script/extract"`. This lets a catalog keep files organized in subdirectories while
@@ -176,6 +176,7 @@ Templates can use:
 
 | Catalog | Source | Purpose |
 |:--|:--|:--|
+| Bat | `src/omarchy_tweaker/dotfiles/Bat/` | Catppuccin Macchiato Bat configuration with line numbers, Git markers, paging, and broad syntax mappings. |
 | Git | `src/omarchy_tweaker/dotfiles/git/` | Git configuration, identity file, commit template, ignore rules, secret patterns, hooks, SSH key, and GPG signing key. |
 | Lazygit | `src/omarchy_tweaker/dotfiles/lazygit/` | Catppuccin Mocha lazygit configuration with Delta, Neovim, tig, and Conventional Commit commands. |
 | Tig | `src/omarchy_tweaker/dotfiles/Tig/` | Catppuccin Mocha-oriented Tig configuration with Delta, Meld, and Wayland clipboard bindings. |
@@ -187,6 +188,7 @@ Templates can use:
 Each catalog defines its destinations and options in its own `config.toml`:
 
 ```text
+src/omarchy_tweaker/dotfiles/Bat/config.toml
 src/omarchy_tweaker/dotfiles/git/config.toml
 src/omarchy_tweaker/dotfiles/lazygit/config.toml
 src/omarchy_tweaker/dotfiles/Tig/config.toml
@@ -196,8 +198,8 @@ src/omarchy_tweaker/dotfiles/Superfile/config.toml
 src/omarchy_tweaker/dotfiles/Zellij/config.toml
 ```
 
-See **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**, **[Tig Dotfiles](tig.md)**,
-**[Tmux Dotfiles](tmux.md)**, **[Starship Dotfiles](starship.md)**,
+See **[Bat Dotfiles](bat.md)**, **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**,
+**[Tig Dotfiles](tig.md)**, **[Tmux Dotfiles](tmux.md)**, **[Starship Dotfiles](starship.md)**,
 **[Superfile Dotfiles](superfile.md)**, and **[Zellij Dotfiles](zellij.md)** for what these
 custom configurations do and how to use them.
 
@@ -309,6 +311,7 @@ The CLI itself always uses `Path.home()` and the packaged catalog directory.
 - A writable home directory.
 - An interactive terminal.
 - `bash`, and optionally `gum`, for the bundled Git pre-commit hook.
+- `bat`, when you want to use the linked syntax-highlighting configuration.
 - Starship, when you want to use the linked prompt configuration.
 - `lazygit`, plus `delta`, `nvim`, `tig`, and `xdg-open`, for the features used by its linked config.
 - `tig`, plus `delta`, `meld`, and `wl-copy`, for the features used by its linked config.
@@ -321,6 +324,7 @@ The CLI itself always uses `Path.home()` and the packaged catalog directory.
 
 ## Related pages
 
+- [Bat Dotfiles](bat.md)
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)

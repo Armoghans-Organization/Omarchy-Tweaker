@@ -424,6 +424,7 @@ with `tmux source-file ~/.config/tmux/tmux.conf` and `tmux list-keys`.
 ## Related pages
 
 - [Dotfiles](dotfiles.md)
+- [Bat Dotfiles](bat.md)
 - [Zellij Dotfiles](zellij.md)
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)

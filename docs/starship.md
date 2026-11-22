@@ -378,6 +378,7 @@ another `[symlink]` entry.
 ## Related pages
 
 - [Dotfiles](dotfiles.md)
+- [Bat Dotfiles](bat.md)
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)

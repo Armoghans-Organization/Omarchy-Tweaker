@@ -620,6 +620,7 @@ understand exactly what is being committed.
 ## Related pages
 
 - [Dotfiles](dotfiles.md)
+- [Bat Dotfiles](bat.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
 - [Tmux Dotfiles](tmux.md)

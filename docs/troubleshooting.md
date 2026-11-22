@@ -348,6 +348,30 @@ Common causes:
 See **[Tig Dotfiles](tig.md)** for keybindings, external command requirements, and
 customization notes.
 
+### Bat config issues
+
+Check the linked config, installed version, theme, and pager:
+
+```bash
+ls -l ~/.config/bat/config
+bat --version
+bat --list-themes
+command -v less
+BAT_CONFIG_PATH=~/.config/bat/config bat --paging=never --color=never pyproject.toml > /dev/null
+```
+
+Common causes:
+
+- `BAT_CONFIG_PATH` overrides the linked `~/.config/bat/config`.
+- The Catppuccin Macchiato theme is missing on older Bat versions.
+- Colors disappear when a terminal, pipe, or downstream tool strips ANSI codes.
+- `--decorations=always` keeps headers and line numbers in piped output; use `bat -p` for plain output.
+- The configured `less` command needs `--RAW-CONTROL-CHARS`, `--quit-if-one-screen`, and `--mouse`; override with `--pager="less -R"` or `--paging=never`.
+- Syntax mappings must use exact names from `bat --list-languages`; otherwise use `-l` to force one.
+- The config file may have been replaced with a regular file instead of the managed symlink.
+
+See **[Bat Dotfiles](bat.md)** for config options, pager details, and customization notes.
+
 ### Superfile config issues
 
 Check the linked files and the tools the config calls:

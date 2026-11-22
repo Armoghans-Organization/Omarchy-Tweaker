@@ -1,0 +1,140 @@
+# ╭──────────────────────────────────────────────────────────────────────╮
+# │ BAT · PREMIUM CONFIGURATION                                          │
+# │ Catppuccin Macchiato                                                 │
+# ╰──────────────────────────────────────────────────────────────────────╯
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# APPEARANCE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--theme="Catppuccin Macchiato"
+--style="numbers,changes,header,grid"
+--italic-text=always
+--tabs=4
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# SYNTAX & FORMATTING
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--color=always
+--wrap=auto
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# GIT INTEGRATION
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--decorations=always
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# PAGING & NAVIGATION
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--paging=always
+--pager="less --RAW-CONTROL-CHARS --quit-if-one-screen --mouse"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# READING EXPERIENCE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--highlight-line=0
+--map-syntax "*.ino:C++"
+--map-syntax ".ignore:Git Ignore"
+--map-syntax "*.md:Markdown"
+--map-syntax "*.yml:YAML"
+--map-syntax "*.yaml:YAML"
+--map-syntax "*.json:JSON"
+--map-syntax "*.sh:Bourne Again Shell (bash)"
+--map-syntax "*.ps1:PowerShell"
+--map-syntax "*.py:Python"
+--map-syntax "*.js:JavaScript"
+--map-syntax "*.ts:TypeScript"
+--map-syntax "*.cpp:C++"
+--map-syntax "*.c:C"
+--map-syntax "*.h:C++"
+--map-syntax "*.hpp:C++"
+--map-syntax "*.java:Java"
+--map-syntax "*.go:Go"
+--map-syntax "*.rs:Rust"
+--map-syntax "*.rb:Ruby"
+--map-syntax "*.php:PHP"
+--map-syntax "*.html:HTML"
+--map-syntax "*.css:CSS"
+--map-syntax "*.xml:XML"
+--map-syntax "*.toml:TOML"
+--map-syntax "*.ini:INI"
+--map-syntax "*.bat:Batch File"
+--map-syntax "*.dockerfile:Dockerfile"
+--map-syntax "*.lua:Lua"
+--map-syntax "*.sql:SQL"
+--map-syntax "*.asm:x86_64 Assembly"
+--map-syntax "*.s:ARM Assembly"
+--map-syntax "*.m:Objective-C"
+--map-syntax "*.tsx:TypeScript"
+--map-syntax "*.jsx:JavaScript"
+--map-syntax "*.robot:Robot Framework"
+--map-syntax "*.cmake:CMake"
+--map-syntax "*.sql:SQL"
+--map-syntax "*.tsx:TypeScript"
+--map-syntax "*.jsx:JavaScript"
+--map-syntax "*.bat:Batch File"
+--map-syntax "*.cmd:Batch File"
+--map-syntax "*.psm1:PowerShell"
+--map-syntax "*.json5:JSON"
+--map-syntax "*.jsonc:JSON"
+--map-syntax "*.properties:INI"
+--map-syntax "*.env:INI"
+--map-syntax "*.desktop:INI"
+--map-syntax "*.xaml:XML"
+--map-syntax "*.svg:XML"
+--map-syntax "*.rss:XML"
+--map-syntax "*.config:XML"
+--map-syntax "*.manifest:XML"
+--map-syntax "*.lock:INI"
+--map-syntax "*.yarn:INI"
+--map-syntax "*.npmrc:INI"
+--map-syntax "*.editorconfig:INI"
+--map-syntax "*.gitconfig:INI"
+--map-syntax "*.gitattributes:INI"
+--map-syntax "*.gitmodules:INI"
+--map-syntax "*.dockerignore:INI"
+--map-syntax "*.npmignore:INI"
+--map-syntax "*.eslintignore:INI"
+--map-syntax "*.prettierignore:INI"
+--map-syntax "*.babelrc:JSON"
+--map-syntax "*.eslintrc:JSON"
+--map-syntax "*.prettierrc:JSON"
+--map-syntax "*.stylelintrc:JSON"
+--map-syntax "*.tsconfig:JSON"
+--map-syntax "*.jsconfig:JSON"
+--map-syntax "*.package-lock:JSON"
+--map-syntax "*.yarn.lock:INI"
+--map-syntax "*.composer.lock:JSON"
+--map-syntax "*.Cargo.lock:INI"
+--map-syntax "*.Gemfile:Ruby"
+--map-syntax "*.Makefile:Makefile"
+--map-syntax "*.mk:Makefile"
+--map-syntax "*.cmake:CMake"
+--map-syntax "*.CMakeLists.txt:CMake"
+--map-syntax "*.toml:TOML"
+--map-syntax "*.pyproject.toml:TOML"
+--map-syntax "*.Cargo.toml:TOML"
+--map-syntax "*.Pipfile:TOML"
+--map-syntax "*.Pipfile.lock:JSON"
+--map-syntax "*.requirements.txt:INI"
+--map-syntax "*.envrc:INI"
+--map-syntax "*.dotenv:INI"
+--map-syntax "*.env.example:INI"
+--map-syntax "*.env.local:INI"
+--map-syntax "*.env.production:INI"
+--map-syntax "*.env.development:INI"
+--map-syntax "*.log:INI"
+--map-syntax "*.zsh:Bourne Again Shell (bash)"
+--map-syntax "*.fish:Fish"
+--map-syntax "*.nix:Nix"
+--map-syntax "*.tf:Terraform"
+--map-syntax "*.tfvars:Terraform"
+--map-syntax "*.hcl:Terraform"
+--map-syntax "*.diff:Diff"
+--map-syntax "*.patch:Diff"
+--map-syntax "*.conf:INI"
+--map-syntax "Dockerfile:Dockerfile"

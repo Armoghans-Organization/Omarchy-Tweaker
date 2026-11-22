@@ -196,6 +196,7 @@ clean. See **[Architecture](architecture.md)** for logging internals.
 - [Cleanup](cleanup.md) — discovery and removal details.
 - [Directories](directories.md) — workspace folder targets and safety rules.
 - [Dotfiles](dotfiles.md) — catalog format, keys, and backups.
+- [Bat Dotfiles](bat.md) — syntax highlighting, pager behavior, and customization.
 - [Git Dotfiles](git.md) — Git usage examples, GitHub setup, and cheat sheets.
 - [Lazygit Dotfiles](lazygit.md) — TUI config, keybindings, and custom commands.
 - [Tig Dotfiles](tig.md) — text-mode Git interface, Delta/Meld actions, and keybindings.

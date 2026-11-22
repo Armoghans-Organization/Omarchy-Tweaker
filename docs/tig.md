@@ -306,6 +306,7 @@ as `generic`, `main`, `diff`, `status`, or `stash`.
 ## Related pages
 
 - [Dotfiles](dotfiles.md)
+- [Bat Dotfiles](bat.md)
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tmux Dotfiles](tmux.md)
