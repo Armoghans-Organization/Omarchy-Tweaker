@@ -26,11 +26,13 @@ The bundled config gives Bat a consistent Catppuccin Macchiato look and predicta
 for interactive and piped use:
 
 - Catppuccin Macchiato syntax colors.
-- Line numbers, Git change markers, a file header, and a subtle grid.
-- Italic text where a syntax definition uses italics.
-- Four-space tab rendering and automatic wrapping at the terminal width.
-- Colored, decorated output even when Bat writes to a pipe.
-- A `less` pager configured for ANSI color codes, single-screen shortcuts, and mouse input.
+- Line numbers, Git change markers, a file header, a subtle grid, and `snip` range markers.
+- Italic text where a syntax definition uses italics and the terminal font has an italic face.
+- Four-space tab rendering and automatic wrapping on terminals, but not when piping.
+- Automatic color for terminals; piped output stays free of ANSI color codes.
+- Always-on decorations, with `-p` available when plain output is needed.
+- A `less` pager with one-screen exit, mouse and wheel scrolling, smart-case search, and
+  centered search hits.
 - Broad syntax mappings for common source, config, lock, dotenv, and markup files.
 
 ```mermaid
@@ -38,9 +40,9 @@ flowchart LR
     A[omarchy-tweaker dotfiles] --> B[Accept Bat catalog]
     B --> C[~/.config/bat/config]
     C --> D[Catppuccin Macchiato theme]
-    C --> E[Numbers, changes, header, grid]
-    C --> F[Always color and decorations]
-    C --> G[less pager]
+    C --> E[Numbers, changes, header, grid, snip]
+    C --> F[Auto color and always decorations]
+    C --> G[less with mouse and smart search]
     C --> H[101 syntax mappings]
 ```
 
@@ -51,12 +53,13 @@ flowchart LR
 | Tool | Used for |
 |---|---|
 | `bat` | The linked configuration itself. |
-| Catppuccin Macchiato theme | Included with current Bat releases; verify with `bat --list-themes`. |
-| `less` | The configured pager. |
+| Catppuccin Macchiato theme | Verify with `bat --list-themes`; some releases need a one-time theme install and cache build. |
+| `less` | The configured pager; needs `--mouse` and `--wheel-lines` support. |
 | A 256-color or truecolor terminal | Accurate Catppuccin colors. |
+| A font with a real italic face | Italic comments and keywords. |
 
-The configuration was validated with Bat `0.26.1`. Older releases may not support every
-option or theme name.
+The configuration was validated with Bat `0.26.1` and `less` 704. Older releases may not support
+every option, theme name, or pager flag.
 
 ---
 
@@ -72,10 +75,24 @@ Check the link and Bat setup:
 
 ```bash
 ls -l ~/.config/bat/config
+bat --config-file
 bat --version
 bat --list-themes
 bat --paging=never --color=never pyproject.toml > /dev/null
 ```
+
+If `bat --list-themes` does not show `Catppuccin Macchiato`, install the theme once and rebuild
+Bat's theme cache:
+
+```bash
+mkdir -p "$(bat --config-dir)/themes"
+cd "$(bat --config-dir)/themes"
+curl -O https://raw.githubusercontent.com/catppuccin/bat/main/themes/Catppuccin%20Macchiato.tmTheme
+bat cache --build
+```
+
+The bundled config itself does not require a cache rebuild. Only theme and syntax asset changes
+do.
 
 You can also validate the bundled file before linking it:
 
@@ -106,15 +123,14 @@ or changed.
 | Option | Value | Effect |
 |---|---|---|
 | `--theme` | `Catppuccin Macchiato` | Sets the default syntax theme. |
-| `--style` | `numbers,changes,header,grid` | Shows line numbers, Git change markers, a header, and a grid. |
-| `--italic-text` | `always` | Enables italic text where the syntax supports it. |
+| `--style` | `numbers,changes,header,grid,snip` | Shows line numbers, Git markers, a header, a grid, and `snip` range markers. |
+| `--italic-text` | `always` | Enables italic text where the syntax and font support it. |
 | `--tabs` | `4` | Renders tabs as four spaces. |
-| `--color` | `always` | Keeps ANSI colors even when output is piped. |
-| `--wrap` | `auto` | Wraps long lines to terminal width. |
-| `--decorations` | `always` | Keeps headers and line numbers in piped output. |
-| `--paging` | `always` | Uses the pager for output. |
-| `--pager` | `less --RAW-CONTROL-CHARS --quit-if-one-screen --mouse` | Preserves colors, exits quickly for short output, and enables mouse scrolling. |
-| `--highlight-line` | `0` | Sets a neutral line-highlight value; use `-H` for a real line. |
+| `--wrap` | `auto` | Wraps long lines on terminals but not in pipes. |
+| `--paging` | `auto` | Pages only when output is longer than the screen. |
+| `--pager` | `less -RFKX -i -j.5 --mouse --wheel-lines=3` | Keeps colors, exits on one screen, keeps output visible, and configures mouse and search behavior. |
+| `--color` | Not set; Bat's `auto` default | Colors terminals only, avoiding ANSI codes in pipes and redirects. |
+| `--decorations` | `always` | Keeps headers and line numbers even in piped output. |
 | `--map-syntax` | 101 extension mappings | Applies known Bat syntaxes to common file extensions and dotfiles. |
 
 ### Syntax mappings
@@ -159,7 +175,8 @@ Common overrides:
 - `-p` uses plain style without decorations.
 - `-l` forces a language or syntax.
 - `-H` highlights a real line number.
-- `--paging=never` or `cat` piped input avoids the pager.
+- `--paging=auto` is the configured default; use `--paging=never` to force no pager or
+  `--paging=always` to page short output.
 - `--theme=...` overrides the configured theme for one invocation.
 
 ---
@@ -169,14 +186,16 @@ Common overrides:
 The linked pager command uses `less`:
 
 ```text
-less --RAW-CONTROL-CHARS --quit-if-one-screen --mouse
+less -RFKX -i -j.5 --mouse --wheel-lines=3
 ```
 
-`--RAW-CONTROL-CHARS` tells `less` to preserve Bat's ANSI colors, `--quit-if-one-screen`
-short-circuits short files, and `--mouse` enables mouse scrolling where supported by the
-terminal and `less`.
+`-R` preserves Bat's ANSI colors, `-F` exits for output that fits on one screen, `-K` quits on
+`Ctrl+c`, and `-X` keeps the output visible after exiting. `-i` enables smart-case search and
+`-j.5` centers search hits. `--mouse` enables mouse input where supported by the terminal, and
+`--wheel-lines=3` controls wheel scroll speed.
 
-If mouse input or colors behave badly, override the pager for a single command:
+Paging itself is set to `auto`, so short files print directly like `cat` and long files open in
+`less`. If mouse input or colors behave badly, override the pager for a single command:
 
 ```bash
 bat --pager="less -R" README.md
@@ -201,11 +220,13 @@ src/omarchy_tweaker/dotfiles/Bat/config
 
 After editing, validate the file with `BAT_CONFIG_PATH` before rerunning
 `omarchy-tweaker dotfiles`. Rerunning the dotfiles command backs up and replaces the
-existing destination.
+existing destination. Config-option changes take effect on the next Bat invocation; only theme
+or syntax asset changes require `bat cache --build`.
 
 Useful checks after customization:
 
 ```bash
+bat --config-file
 bat --list-themes
 bat --paging=never --color=never pyproject.toml > /dev/null
 bat --paging=never --color=never --map-syntax "*.md:Markdown" example.md > /dev/null
@@ -217,9 +238,11 @@ bat --paging=never --color=never --map-syntax "*.md:Markdown" example.md > /dev/
 
 - The catalog links configuration only; it installs no packages and edits no shell startup files.
 - Existing destinations are backed up before replacement.
-- `--color=always` and `--decorations=always` are intentional; use `-p` or `--color=never` when piping plain text matters.
-- `--paging=always` is intentional; use `--paging=never` in scripts or non-interactive contexts.
+- `--color` is intentionally unset, so pipes and redirects stay free of ANSI color codes; use `--color=always` only when colored piped output is wanted.
+- `--decorations=always` is intentional; use `-p` when plain output is needed.
+- `--paging=auto` avoids opening a pager for short output; use `--paging=never` in scripts or non-interactive contexts.
 - Bat reads syntax definitions and themes from installed data files; malformed custom assets are outside this catalog's control.
+- Theme and syntax asset changes require `bat cache --build`; config-option changes do not.
 
 ---
 
@@ -228,11 +251,13 @@ bat --paging=never --color=never --map-syntax "*.md:Markdown" example.md > /dev/
 | Symptom | Fix |
 |---|---|
 | Config changes are ignored | Check `BAT_CONFIG_PATH`; it overrides `~/.config/bat/config`. |
-| Theme not found | Run `bat --list-themes`, update Bat, or choose another installed theme. |
-| Output has no colors | Use a color-capable terminal and avoid `--color=never`; some pipes and tools strip ANSI codes. |
+| Theme not found | Run `bat --list-themes`; if missing, install the Catppuccin theme and run `bat cache --build`. |
+| Output has no colors in a pipe | Expected with the default `auto` color mode; use `--color=always` when colored piped output is intentional. |
+| Output has no colors in a terminal | Use a color-capable terminal and avoid `--color=never`; verify the theme is installed. |
+| Short files open in a pager | The old config used `always`; this config uses `auto`. Override with `--paging=never` or `--paging=always`. |
 | Too much decoration when piping | Use `bat -p` or remove `--decorations=always`. |
-| Pager shows escape codes | Confirm `less` supports `--RAW-CONTROL-CHARS`, or use `--pager="less -R"`. |
-| Mouse scrolling does not work | Confirm terminal and `less` support `--mouse`, or remove that pager flag. |
+| Pager shows escape codes | Confirm `less` supports `-R`, or use `--pager="less -R"`. |
+| Mouse scrolling does not work | Confirm terminal and `less` support `--mouse` and `--wheel-lines`, or remove those pager flags. |
 | A file extension uses the wrong syntax | Add a `--map-syntax` entry with an exact name from `bat --list-languages`, or force one with `-l`. |
 | Config file is not a symlink | Rerun `omarchy-tweaker dotfiles`; check the backup created before replacement. |
 

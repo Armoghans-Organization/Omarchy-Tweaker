@@ -164,12 +164,22 @@ def test_bundled_bat_catalog_exposes_expected_symlink(
 
     config_text = (source / "Bat" / "config").read_text(encoding="utf-8")
     assert '--theme="Catppuccin Macchiato"' in config_text
-    assert '--style="numbers,changes,header,grid"' in config_text
+    assert '--style="numbers,changes,header,grid,snip"' in config_text
+    assert "--paging=auto" in config_text
+    assert '--pager="less -RFKX -i -j.5 --mouse --wheel-lines=3"' in config_text
+    active_options = [
+        line.strip()
+        for line in config_text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert not any(option.startswith("--color=") for option in active_options)
+    assert "--highlight-line=0" not in config_text
     assert '--map-syntax "*.md:Markdown"' in config_text
     assert '--map-syntax "*.sh:Bourne Again Shell (bash)"' in config_text
     assert '--map-syntax "*.bat:Batch File"' in config_text
     assert '--map-syntax "*.cmd:Batch File"' in config_text
     assert '--map-syntax "*.tf:Terraform"' in config_text
+    assert config_text.count("--map-syntax ") == 101
 
 
 def test_bundled_foot_catalog_exposes_expected_symlink(

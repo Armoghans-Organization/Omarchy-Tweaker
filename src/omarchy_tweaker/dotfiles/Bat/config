@@ -1,42 +1,63 @@
 # ╭──────────────────────────────────────────────────────────────────────╮
-# │ BAT · PREMIUM CONFIGURATION                                          │
-# │ Catppuccin Macchiato                                                 │
+# │  BAT · Catppuccin Macchiato                                          │
+# │  Put this at: ~/.config/bat/config      (check: bat --config-file)   │
 # ╰──────────────────────────────────────────────────────────────────────╯
+#
+# One option per line, exactly like on the command line. `#` starts a comment.
+# Changes apply the next time you run bat, no cache rebuild needed (only the
+# theme / syntax files below need `bat cache --build`).
+#
+# ── ONE-TIME THEME SETUP (skip if `bat --list-themes` already shows it) ─────
+#   mkdir -p "$(bat --config-dir)/themes" && cd "$(bat --config-dir)/themes"
+#   curl -O https://raw.githubusercontent.com/catppuccin/bat/main/themes/Catppuccin%20Macchiato.tmTheme
+#   bat cache --build
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# APPEARANCE
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+# ── THEME & LOOK ───────────────────────────────────────────────────────────
 --theme="Catppuccin Macchiato"
---style="numbers,changes,header,grid"
+
+# Real italics for comments, keywords etc. (your terminal font must have an
+# italic face; Nerd Font Mono variants usually do).
 --italic-text=always
+
+# What to draw around the file:
+#   numbers  line numbers          changes  git +/~/- marks in the gutter
+#   header   file name on top      grid     lines between header / gutter / code
+#   snip     the "8<" cut marker when you print a line range (-r 10:20)
+# For a minimal look use "numbers,changes" instead.
+--style="numbers,changes,header,grid,snip"
+
+# Terminal tab width when a file contains tab characters
 --tabs=4
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# SYNTAX & FORMATTING
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
---color=always
+# ── LONG LINES ─────────────────────────────────────────────────────────────
+# auto = wrap on a terminal, never wrap when piping.
+# Use --wrap=never if you prefer sideways scrolling in the pager.
 --wrap=auto
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# GIT INTEGRATION
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── PAGER ──────────────────────────────────────────────────────────────────
+# auto   = page only when the output is longer than the screen (a short file
+#          is just printed, like cat). "always" pages even 3-line files.
+--paging=auto
 
+# less flags:
+#   -R  keep colors     -F  quit if it fits on one screen     -K  quit on Ctrl-C
+#   -X  do not clear the screen on exit (the output stays visible)
+#   --mouse             wheel scrolling        --wheel-lines=3  smooth wheel
+#   -i  smart-case search       -j.5  search hits land in the middle of the screen
+--pager="less -RFKX -i -j.5 --mouse --wheel-lines=3"
+
+# ── COLOR ──────────────────────────────────────────────────────────────────
+# Left out on purpose: `--color=always` makes `bat file | grep x` and
+# `bat file > out.txt` full of escape codes. The default `auto` colors only
+# when the output is a terminal. Force it per command: bat --color=always ...
+
+# ── Git Integration ──────────────────────────────────────────────────────────────────
+# Show git diff information in the gutter.
 --decorations=always
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# PAGING & NAVIGATION
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
---paging=always
---pager="less --RAW-CONTROL-CHARS --quit-if-one-screen --mouse"
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# READING EXPERIENCE
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
---highlight-line=0
+# ── SYNTAX MAPPING ─────────────────────────────────────────────────────────
+# Teach bat which syntax to use for files it does not know. Format "glob:Syntax".
+# List all syntax names with:  bat --list-languages
 --map-syntax "*.ino:C++"
 --map-syntax ".ignore:Git Ignore"
 --map-syntax "*.md:Markdown"
@@ -138,3 +159,8 @@
 --map-syntax "*.patch:Diff"
 --map-syntax "*.conf:INI"
 --map-syntax "Dockerfile:Dockerfile"
+
+# ── BEHAVIOR ───────────────────────────────────────────────────────────────
+# Show non-printable characters only when you ask (bat -A). Keep default off.
+# Uncomment to also show git-ignored/hidden binary files as plain text:
+# --binary=as-text

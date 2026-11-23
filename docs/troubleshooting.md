@@ -354,6 +354,7 @@ Check the linked config, installed version, theme, and pager:
 
 ```bash
 ls -l ~/.config/bat/config
+bat --config-file
 bat --version
 bat --list-themes
 command -v less
@@ -363,10 +364,12 @@ BAT_CONFIG_PATH=~/.config/bat/config bat --paging=never --color=never pyproject.
 Common causes:
 
 - `BAT_CONFIG_PATH` overrides the linked `~/.config/bat/config`.
-- The Catppuccin Macchiato theme is missing on older Bat versions.
-- Colors disappear when a terminal, pipe, or downstream tool strips ANSI codes.
+- The Catppuccin Macchiato theme is missing on older Bat versions; install it and run `bat cache --build`.
+- Config-option changes do not require a cache rebuild, but theme or syntax asset changes do.
+- Colors are automatic by default, so pipes and redirects normally contain no ANSI codes; use `--color=always` only when that is intentional.
+- Colors disappear in a terminal when the terminal, pipe, or downstream tool strips ANSI codes.
 - `--decorations=always` keeps headers and line numbers in piped output; use `bat -p` for plain output.
-- The configured `less` command needs `--RAW-CONTROL-CHARS`, `--quit-if-one-screen`, and `--mouse`; override with `--pager="less -R"` or `--paging=never`.
+- The configured `less` command uses `-R`, `-F`, `-K`, `-X`, `-i`, `-j.5`, `--mouse`, and `--wheel-lines`; override with `--pager="less -R"` or `--paging=never`.
 - Syntax mappings must use exact names from `bat --list-languages`; otherwise use `-l` to force one.
 - The config file may have been replaced with a regular file instead of the managed symlink.
 
