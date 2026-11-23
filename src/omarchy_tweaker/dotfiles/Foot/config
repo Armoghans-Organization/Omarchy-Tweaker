@@ -1,0 +1,109 @@
+# ╭──────────────────────────────────────────────────────────────────────╮
+# │  FOOT · Omarchy                                                      │
+# │  Put this at: ~/.config/foot/foot.ini                                │
+# │  Colors come from your Omarchy theme (the include below), so the     │
+# │  terminal follows theme changes and matches tmux / nvim / starship.  │
+# ╰──────────────────────────────────────────────────────────────────────╯
+# foot reads this file on start. Check it with:  foot --check-config
+
+# ── MAIN ───────────────────────────────────────────────────────────────────
+[main]
+# Theme colors. Keep this line first: anything below can still override it.
+include=~/.local/state/omarchy/current/theme/foot.ini
+
+# xterm-256color works everywhere, including over ssh. Switch to "foot" for
+# the full feature set if you only use local machines (terminfo ships with foot).
+term=xterm-256color
+
+# Main font, then fallbacks for emoji and extra symbols (foot tries them in order).
+font=Hack Nerd Font:size=11.5, Noto Color Emoji:size=9
+font-bold=Hack Nerd Font:weight=bold:size=11.5
+font-italic=Hack Nerd Font:slant=italic:size=11.5
+font-bold-italic=Hack Nerd Font:weight=bold:slant=italic:size=11.5
+
+# Optional spacing. line-height uses the same unit as the font size (points) and
+# overrides the font's own height; try 14 for a slightly airier look. Off by default.
+# line-height=14
+# letter-spacing=0
+# Do not turn bold text into the bright color variant; keeps Catppuccin accents true.
+bold-text-in-bright=no
+
+# Inner margin. "center" splits leftover pixels evenly instead of piling them
+# on the right/bottom, so the text block is centered in the window.
+pad=14x14 center
+initial-window-mode=windowed
+
+# ── SCROLLBACK ─────────────────────────────────────────────────────────────
+# tmux keeps its own history; this is for plain (non-tmux) windows.
+[scrollback]
+lines=20000
+multiplier=5.0
+indicator-position=relative
+indicator-format=percentage
+
+# ── CURSOR ─────────────────────────────────────────────────────────────────
+[cursor]
+style=beam
+beam-thickness=1.5
+blink=yes
+blink-rate=600
+# Hollow outline when the window is not focused, so you can see where you were.
+unfocused-style=hollow
+
+# ── MOUSE ──────────────────────────────────────────────────────────────────
+[mouse]
+hide-when-typing=yes
+# Wheel scrolls inside less / man / nvim when the app has no mouse support.
+alternate-scroll-mode=yes
+
+[mouse-bindings]
+# Left drag selects, double-click = word, triple-click = line (foot defaults).
+# Right click pastes the selection (no middle button needed).
+select-begin=BTN_LEFT
+select-extend=none
+primary-paste=BTN_RIGHT
+
+# ── URLS ───────────────────────────────────────────────────────────────────
+# Ctrl+Shift+o shows a letter on every link on screen; press the letters to open.
+[url]
+launch=xdg-open ${url}
+label-letters=sadfjklewcmpgh
+osc8-underline=url-mode
+
+# ── KEYS ───────────────────────────────────────────────────────────────────
+[key-bindings]
+clipboard-copy=Control+Insert Control+Shift+c XF86Copy
+# Ctrl+v pastes (as in a GUI app); Ctrl+Shift+v also works.
+clipboard-paste=Control+v Control+Shift+v XF86Paste
+primary-paste=none
+# Font size on the fly: Ctrl + / Ctrl - / Ctrl 0
+font-increase=Control+plus Control+equal Control+KP_Add
+font-decrease=Control+minus Control+KP_Subtract
+font-reset=Control+0 Control+KP_0
+
+# Raw sequences sent to the program. These keep Shift+Enter usable in TUIs and tmux.
+[text-bindings]
+# Shift+Return as CSI-u so TUIs can tell it apart from Return.
+\x1b[13;2u=Shift+Return
+# Alt+Shift+Return as CSI-u so tmux can match M-S-Enter.
+\x1b[13;4u=Mod1+Shift+Return
+
+# ── NOTIFICATIONS & BELL ───────────────────────────────────────────────────
+[desktop-notifications]
+inhibit-when-focused=yes
+command=notify-send --app-name="${app-id}" --icon="${app-id}" --urgency=normal -- "${title}" "${body}"
+
+# A bell (what tmux alert-bell and many tools send) marks the window urgent and
+# shows a desktop notification, but only while you are looking elsewhere.
+# `command` expects a program, not yes/no; it is intentionally left unset.
+# To play a sound instead, add for example:
+#   command=pw-play /usr/share/sounds/freedesktop/stereo/bell.oga
+[bell]
+urgent=yes
+notify=yes
+command-focused=no
+
+# ── TWEAKS ─────────────────────────────────────────────────────────────────
+[tweak]
+# Let wide Nerd Font icons overflow into the next cell instead of being clipped.
+overflowing-glyphs=yes

@@ -30,6 +30,7 @@ nav = [
     {"Dotfiles" = [
         {"Git" = "git.md"},
         {"Bat" = "bat.md"},
+        {"Foot" = "foot.md"},
         {"Lazygit" = "lazygit.md"},
         {"Tig" = "tig.md"},
         {"Tmux" = "tmux.md"},

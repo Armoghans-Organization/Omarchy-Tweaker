@@ -501,7 +501,9 @@ sequence and is also available as a standalone command.
 6. Renders entries from `[create]` from bundled templates.
 
 The bundled Bat catalog links a Catppuccin Macchiato configuration to
-`~/.config/bat/config`. The bundled Git catalog links the main Git configuration, Catppuccin Delta theme,
+`~/.config/bat/config`. The bundled Foot catalog links a terminal configuration to
+`~/.config/foot/foot.ini`, including Omarchy theme colors and terminal key bindings. The bundled
+Git catalog links the main Git configuration, Catppuccin Delta theme,
 commit template, global ignore file, secret patterns, and hooks directory. It renders
 `~/.config/git/user` using the collected name, email, and GPG fingerprint. The bundled
 Lazygit catalog links a Catppuccin Mocha TUI configuration to
@@ -515,6 +517,7 @@ bundled Zellij catalog links the Catppuccin Macchiato configuration, zextract co
 and four layout files into `~/.config/zellij/` and `~/.config/zellij/layouts/`.
  See **[Dotfiles](dotfiles.md)** for the workflow,
 **[Bat Dotfiles](bat.md)** for syntax-highlighting usage and options,
+**[Foot Dotfiles](foot.md)** for terminal usage and key bindings,
 **[Git Dotfiles](git.md)** for Git usage and cheat sheets, **[Lazygit Dotfiles](lazygit.md)**
 for TUI usage and keybindings, **[Tig Dotfiles](tig.md)** for Tig usage and keybindings,
 **[Tmux Dotfiles](tmux.md)** for multiplexer usage and keybindings,
@@ -537,6 +540,7 @@ any catalog failed. Declining confirmation is a safe skip and exits with code `0
 
 - `ssh-keygen` and `gpg` must be available when keys are configured.
 - `bat` and a color-capable terminal are needed for the bundled Bat config.
+- `foot`, an Omarchy theme, a Nerd Font, `notify-send`, and `xdg-open` are needed for the features used by the bundled Foot config.
 - `lazygit`, `delta`, `nvim`, `tig`, and `xdg-open` are needed for the features used by the bundled lazygit config.
 - `tig`, `delta`, `meld`, and `wl-copy` are needed for the features used by the bundled Tig config.
 - `tmux`, `fzf`, Python 3, `nvim`, `wl-copy`, and a Nerd Font are needed for the features used by the bundled Tmux config.
@@ -547,6 +551,7 @@ any catalog failed. Declining confirmation is a safe skip and exits with code `0
 
 See **[Dotfiles](dotfiles.md)** for configuration, backups, and safety details,
 **[Bat Dotfiles](bat.md)** for the Bat usage guide,
+**[Foot Dotfiles](foot.md)** for the Foot terminal guide,
 **[Git Dotfiles](git.md)** for the Git-specific usage guide,
 **[Lazygit Dotfiles](lazygit.md)** for the lazygit TUI guide,
 **[Tig Dotfiles](tig.md)** for the Tig text-mode guide,
@@ -697,6 +702,7 @@ omarchy-tweaker --help
 - [Hyprland](hypr.md)
 - [Dotfiles](dotfiles.md)
 - [Bat Dotfiles](bat.md)
+- [Foot Dotfiles](foot.md)
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)

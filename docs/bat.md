@@ -115,7 +115,7 @@ or changed.
 | `--paging` | `always` | Uses the pager for output. |
 | `--pager` | `less --RAW-CONTROL-CHARS --quit-if-one-screen --mouse` | Preserves colors, exits quickly for short output, and enables mouse scrolling. |
 | `--highlight-line` | `0` | Sets a neutral line-highlight value; use `-H` for a real line. |
-| `--map-syntax` | 91 extension mappings | Applies known Bat syntaxes to common file extensions and dotfiles. |
+| `--map-syntax` | 101 extension mappings | Applies known Bat syntaxes to common file extensions and dotfiles. |
 
 ### Syntax mappings
 
@@ -241,6 +241,7 @@ bat --paging=never --color=never --map-syntax "*.md:Markdown" example.md > /dev/
 ## Related pages
 
 - [Dotfiles](dotfiles.md)
+- [Foot Dotfiles](foot.md)
 - [Superfile Dotfiles](superfile.md)
 - [Git Dotfiles](git.md)
 - [Lazygit Dotfiles](lazygit.md)

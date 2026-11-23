@@ -372,6 +372,29 @@ Common causes:
 
 See **[Bat Dotfiles](bat.md)** for config options, pager details, and customization notes.
 
+### Foot config issues
+
+Check the linked config and validate it with Foot:
+
+```bash
+ls -l ~/.config/foot/foot.ini
+foot --version
+foot --check-config
+ls -l ~/.local/state/omarchy/current/theme/foot.ini
+```
+
+Common causes:
+
+- The Omarchy current theme state is missing or stale, so the theme include has no colors.
+- Hack Nerd Font or Noto Color Emoji is not installed.
+- `clipboard-paste=Control+v` can conflict with applications that expect `Ctrl+v` themselves.
+- `Shift+Return` needs a TUI that understands CSI-u sequences.
+- The `[bell] command` option must be empty or a real program, never `yes` or `no`.
+- Foot reads its config at startup; open a new window or run `omarchy restart terminal`.
+- The config file may have been replaced with a regular file instead of the managed symlink.
+
+See **[Foot Dotfiles](foot.md)** for terminal options, key bindings, and customization notes.
+
 ### Superfile config issues
 
 Check the linked files and the tools the config calls:

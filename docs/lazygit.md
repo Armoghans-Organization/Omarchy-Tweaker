@@ -393,6 +393,7 @@ belong under `customCommands:` and should use a specific context such as `files`
 
 - [Dotfiles](dotfiles.md)
 - [Bat Dotfiles](bat.md)
+- [Foot Dotfiles](foot.md)
 - [Git Dotfiles](git.md)
 - [Tig Dotfiles](tig.md)
 - [Tmux Dotfiles](tmux.md)

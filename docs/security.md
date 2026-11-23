@@ -62,6 +62,7 @@ See [Packages](packages.md) for package installation details, [Plugins](plugins.
 plugin and patch workflow, [Cleanup](cleanup.md) for the full destructive-operation workflow,
 and [Directories](directories.md) for workspace path rules, [Dotfiles](dotfiles.md) for
 dotfile backups and key handling, [Bat Dotfiles](bat.md) for config linking and pager scope,
+[Foot Dotfiles](foot.md) for terminal config linking, URL mode, and bell command scope,
 [Git Dotfiles](git.md) for key and hook handling,
 [Lazygit Dotfiles](lazygit.md) for TUI config linking and external command scope,
 [Tig Dotfiles](tig.md) for text-mode Git config linking and shell command bindings,

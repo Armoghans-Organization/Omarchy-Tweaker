@@ -621,6 +621,7 @@ understand exactly what is being committed.
 
 - [Dotfiles](dotfiles.md)
 - [Bat Dotfiles](bat.md)
+- [Foot Dotfiles](foot.md)
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
 - [Tmux Dotfiles](tmux.md)

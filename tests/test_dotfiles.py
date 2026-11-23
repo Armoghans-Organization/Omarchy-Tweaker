@@ -133,7 +133,17 @@ def test_discover_bundled_dotfile_catalogs_includes_expected_catalogs(
     bundles = discover_dotfile_bundles(source)
 
     names = {path.name for path in bundles}
-    assert {"Bat", "Superfile", "Tig", "Tmux", "Zellij", "git", "lazygit", "starship"} <= names
+    assert {
+        "Bat",
+        "Foot",
+        "Superfile",
+        "Tig",
+        "Tmux",
+        "Zellij",
+        "git",
+        "lazygit",
+        "starship",
+    } <= names
 
     for path in bundles:
         bundle = load_dotfile_bundle(path, Path("/home/test"))
@@ -160,6 +170,29 @@ def test_bundled_bat_catalog_exposes_expected_symlink(
     assert '--map-syntax "*.bat:Batch File"' in config_text
     assert '--map-syntax "*.cmd:Batch File"' in config_text
     assert '--map-syntax "*.tf:Terraform"' in config_text
+
+
+def test_bundled_foot_catalog_exposes_expected_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OMARCHY_TWEAKER_DOTFILES_DIR", raising=False)
+    source = get_dotfiles_source_directory()
+    home = Path("/home/test")
+
+    bundle = load_dotfile_bundle(source / "Foot", home)
+
+    assert bundle.symlinks == (("config", home / ".config" / "foot" / "foot.ini"),)
+
+    config_text = (source / "Foot" / "config").read_text(encoding="utf-8")
+    assert "include=~/.local/state/omarchy/current/theme/foot.ini" in config_text
+    assert "term=xterm-256color" in config_text
+    assert "font=Hack Nerd Font:size=11.5, Noto Color Emoji:size=9" in config_text
+    assert "clipboard-copy=Control+Insert Control+Shift+c XF86Copy" in config_text
+    assert "clipboard-paste=Control+v Control+Shift+v XF86Paste" in config_text
+    assert "\\x1b[13;2u=Shift+Return" in config_text
+    assert "urgent=yes" in config_text
+    assert "notify=yes" in config_text
+    assert "command=yes" not in config_text
 
 
 def test_bundled_superfile_catalog_exposes_expected_symlinks(
