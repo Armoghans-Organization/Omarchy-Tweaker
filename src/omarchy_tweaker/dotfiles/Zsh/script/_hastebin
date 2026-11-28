@@ -1,0 +1,1402 @@
+#!/usr/bin/env bash
+# ╭────────────────────────────────────────────────────────────────────────╮
+# │  hastebin · share text & code to pste.us · Catppuccin Mocha            │
+# ╰────────────────────────────────────────────────────────────────────────╯
+#
+#  hastebin                  pick a file (Ctrl-P = command palette)
+#  hastebin FILE [options]   upload a file
+#  cat x | hastebin -        upload stdin
+#  hastebin history          browse / search / sort / re-copy / delete
+#  hastebin status ID|URL    is it still alive? views left? expires when?
+#  hastebin doctor           dependency + connectivity check
+#
+#  Needs: curl jq fzf gum bat qrencode wl-clipboard
+#  Optional: notify-send (libnotify) for desktop notifications
+#
+#  Config (optional): ~/.config/hastebin/config   (plain KEY=VALUE)
+#     DEF_EXPIRES=1d  DEF_VISIBILITY=1  DEF_BURN=0  HASTEBIN_URL=https://pste.us
+#     VIS_UNLISTED=1  VIS_PUBLIC=0      (form values for the visibility field)
+
+set -o pipefail
+
+VERSION="1.0.0"
+
+# ── Configuration ──────────────────────────────────────────────────────────
+HASTEBIN_URL="${HASTEBIN_URL:-https://pste.us}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hastebin"
+CONFIG_FILE="$CONFIG_DIR/config"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hastebin"
+AUDIT_FILE="$STATE_DIR/audit.jsonl"
+SPEED_FILE="$STATE_DIR/speed"
+
+DEF_EXPIRES="1d"
+DEF_VISIBILITY="1"          # 1 = unlisted (link only), 0 = public (listed)
+DEF_BURN="0"                # 0 = off
+VIS_UNLISTED="1"
+VIS_PUBLIC="0"
+MAX_BYTES=$(( 10 * 1024 * 1024 ))
+WARN_BYTES=$(( 1 * 1024 * 1024 ))
+ENTROPY_MIN="4.2"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+    while IFS='=' read -r key value || [[ -n "$key" ]]; do
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+        value="${value%$'\r'}"
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        case "$key" in
+            HASTEBIN_URL|DEF_EXPIRES|DEF_VISIBILITY|DEF_BURN|VIS_UNLISTED|VIS_PUBLIC|MAX_BYTES|WARN_BYTES|ENTROPY_MIN)
+                printf -v "$key" '%s' "$value"
+                ;;
+        esac
+    done < "$CONFIG_FILE"
+fi
+BASE_URL="${HASTEBIN_URL%/}"
+[[ "$BASE_URL" == https://* || "$BASE_URL" == http://localhost* || "$BASE_URL" == http://127.0.0.1* ]] || die "HASTEBIN_URL must use HTTPS, or localhost over HTTP"
+API_URL="$BASE_URL/api/v1"
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+
+terminal_width() {
+    local cols=80
+
+    if [[ -t 2 ]]; then
+        cols="$(tput cols 2>/dev/null || printf '80')"
+    fi
+
+    [[ "$cols" =~ ^[0-9]+$ ]] || cols=80
+
+    # Keep enough room for indentation and borders.
+    (( cols > 76 )) && cols=76
+    (( cols < 40 )) && cols=40
+
+    printf '%s' "$cols"
+}
+
+W="$(terminal_width)"
+
+SUPPORTED_LANGUAGES=(text bash c cpp csharp css go html java javascript json kotlin
+    markdown php powershell python ruby rust sql swift toml typescript xml yaml)
+EXPIRY_VALUES=(1h 1d 1w 1m 3m 6m 18m 1y 2y never)
+
+# ── Colors (Catppuccin Mocha) ──────────────────────────────────────────────
+RST=$'\033[0m'; BOLD=$'\033[1m'; ITAL=$'\033[3m'
+fg() { printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3"; }
+MAUVE="$(fg 203 166 247)"; BLUE="$(fg 137 180 250)"; TEAL="$(fg 148 226 213)"
+GREEN="$(fg 166 227 161)"; YELLOW="$(fg 249 226 175)"; PEACH="$(fg 250 179 135)"
+RED="$(fg 243 139 168)";   TEXT="$(fg 205 214 244)"; SUB="$(fg 166 173 200)"
+DIM="$(fg 108 112 134)";   SURFACE="$(fg 88 91 112)"
+
+FZF_COLORS="bg+:#313244,bg:-1,spinner:#f5c2e7,hl:#f38ba8,fg:#cdd6f4,header:#7f849c,\
+info:#6c7086,pointer:#cba6f7,marker:#a6e3a1,fg+:#cdd6f4,prompt:#89b4fa,hl+:#f38ba8,\
+border:#585b70,label:#cba6f7,preview-border:#45475a,gutter:-1"
+
+# ── Runtime state ──────────────────────────────────────────────────────────
+declare -a TMP_FILES=()
+SPINNER_PID=""
+BAT_BIN=""
+PIPED=false
+
+cleanup() {
+    [[ -n "$SPINNER_PID" ]] && kill "$SPINNER_PID" 2>/dev/null
+    local f
+    for f in "${TMP_FILES[@]}"; do [[ -n "$f" && -e "$f" ]] && rm -f "$f"; done
+    [[ -t 2 ]] && tput cnorm 2>/dev/null
+    return 0
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+mktmp() { local f; f="$(mktemp "${TMPDIR:-/tmp}/hastebin.XXXXXX")" || exit 1; TMP_FILES+=("$f"); printf '%s' "$f"; }
+
+# ── Output helpers ─────────────────────────────────────────────────────────
+repeat() { local n="$1" ch="$2" s; (( n > 0 )) || return 0; printf -v s '%*s' "$n" ''; printf '%s' "${s// /$ch}"; }
+vlen()   { local s; s="$(printf '%s' "$1" | sed -E 's/\x1b\[[0-9;]*m//g')"; printf '%d' "${#s}"; }
+rule()   { printf '  %s%s%s\n' "$SURFACE" "$(repeat "$W" ─)" "$RST"; }
+
+box() {   # box "text" [width]
+    local txt="$1" w="${2:-$W}" pad
+    pad=$(( w - 4 - $(vlen "$txt") )); (( pad < 0 )) && pad=0
+    printf '  %s╭%s╮%s\n' "$SURFACE" "$(repeat $((w - 2)) ─)" "$RST"
+    printf '  %s│%s  %s%*s%s│%s\n' "$SURFACE" "$RST" "$txt" "$pad" '' "$SURFACE" "$RST"
+    printf '  %s╰%s╯%s\n' "$SURFACE" "$(repeat $((w - 2)) ─)" "$RST"
+}
+
+die()  { printf '\n  %s✗%s  %s%s%s\n' "$RED" "$RST" "$BOLD$TEXT" "$1" "$RST" >&2
+        [[ -n "${2:-}" ]] && printf '     %s%s%s\n' "$DIM" "$2" "$RST" >&2
+        printf '\n' >&2; exit "${3:-1}"; }
+warn() { printf '  %s⚠%s  %s%s%s\n' "$YELLOW" "$RST" "$TEXT" "$1" "$RST"; }
+ok()   { printf '  %s✓%s  %s%s%s\n' "$GREEN" "$RST" "$TEXT" "$1" "$RST"; }
+info() { printf '  %s●%s  %s%s%s\n' "$BLUE" "$RST" "$SUB" "$1" "$RST"; }
+head1(){ printf '\n  %s%s%s%s\n' "$MAUVE" "$BOLD" "$1" "$RST"; }
+
+kv() {
+    if [[ "$2" == *$'\033'* ]]; then printf '  %s%-8s%s %s\n' "$DIM" "$1" "$RST" "$2"
+    else printf '  %s%-8s%s %s%s%s\n' "$DIM" "$1" "$RST" "$SUB" "$2" "$RST"; fi
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+have_tty() { { : </dev/tty; } 2>/dev/null; }
+
+# gum always talks to the terminal, even when stdin/stdout are pipes.
+G() { gum "$@" </dev/tty; }
+
+pause_key() { have_tty || return 0; printf '\n  %spress any key…%s' "$DIM" "$RST" >&2; read -r -n1 -s </dev/tty; printf '\n' >&2; }
+
+spinner_start() {
+    local msg="$1"
+    [[ -t 2 ]] || return 0
+    tput civis 2>/dev/null
+    (
+        local f=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) i=0
+        while :; do
+            printf '\r  %s%s%s  %s%s%s ' "$MAUVE" "${f[i % 10]}" "$RST" "$TEXT" "$msg" "$RST" >&2
+            i=$(( i + 1 )); sleep 0.08
+        done
+    ) &
+    SPINNER_PID=$!
+}
+spinner_stop() {
+    [[ -n "$SPINNER_PID" ]] && { kill "$SPINNER_PID" 2>/dev/null; wait "$SPINNER_PID" 2>/dev/null; }
+    SPINNER_PID=""
+    [[ -t 2 ]] && { printf '\r\033[2K' >&2; tput cnorm 2>/dev/null; }
+    return 0
+}
+
+# ── Notifications (desktop, optional) ──────────────────────────────────────
+DO_NOTIFY=true
+notify() {   # notify low|normal|critical "title" "body"
+    [[ "$DO_NOTIFY" == true ]] || return 0
+    if have notify-send; then
+        notify-send -a hastebin -u "$1" -i text-x-generic -- "$2" "$3" >/dev/null 2>&1 || true
+    elif [[ -t 2 ]]; then
+        printf '\a' >&2
+    fi
+}
+
+# ── Dependency check (pretty, works even when gum itself is missing) ───────
+# label | purpose | package | commands that must exist
+DEPS=(
+    "curl|talks to pste.us|curl|curl"
+    "jq|parses API replies & history|jq|jq"
+    "fzf|pickers, history, palette|fzf|fzf"
+    "gum|prompts & confirmations|gum|gum"
+    "bat|syntax-colored previews|bat|bat batcat"
+    "qrencode|QR code for the URL|qrencode|qrencode"
+    "wl-clipboard|copy / paste (wl-copy, wl-paste)|wl-clipboard|wl-copy wl-paste"
+)
+
+dep_ok() {   # dep_ok "cmd1 cmd2"  (bat accepts either alias)
+    local c any=false all=true
+    for c in $1; do have "$c" && any=true || all=false; done
+    [[ "$1" == "bat batcat" ]] && { $any; return; }
+    $all
+}
+
+detect_pm() {
+    if   have pacman;  then echo pacman
+    elif have apt-get; then echo apt
+    elif have dnf;     then echo dnf
+    elif have zypper;  then echo zypper
+    elif have apk;     then echo apk
+    elif have brew;    then echo brew
+    elif have nix-env; then echo nix
+    else echo unknown; fi
+}
+
+check_deps() {   # check_deps strict|report
+    local mode="${1:-strict}" entry label purpose pkg cmds miss=0
+    local -a missing_pkgs=() rows=()
+    for entry in "${DEPS[@]}"; do
+        IFS='|' read -r label purpose pkg cmds <<<"$entry"
+        if dep_ok "$cmds"; then
+            rows+=("  ${GREEN}✓${RST}  ${TEXT}$(printf '%-14s' "$label")${RST} ${DIM}${purpose}${RST}")
+        else
+            rows+=("  ${RED}✗${RST}  ${BOLD}${RED}$(printf '%-14s' "$label")${RST} ${SUB}${purpose}${RST}")
+            missing_pkgs+=("$pkg"); miss=$(( miss + 1 ))
+        fi
+    done
+    if have bat; then BAT_BIN="bat"; elif have batcat; then BAT_BIN="batcat"; fi
+
+    if (( miss == 0 )) && [[ "$mode" == strict ]]; then return 0; fi
+
+    {
+        printf '\n'
+        if (( miss > 0 )); then
+            box "${RED}${BOLD}✗  hastebin${RST}  ${SUB}is missing ${BOLD}${miss}${RST}${SUB} required tool$([[ $miss == 1 ]] || printf s)${RST}"
+        else
+            box "${GREEN}${BOLD}✓  hastebin${RST}  ${SUB}all required tools found${RST}"
+        fi
+        printf '\n'
+        printf '%s\n' "${rows[@]}"
+        if have notify-send; then
+            printf '  %s✓%s  %s%-14s%s %sdesktop notifications %s(optional)%s\n' "$GREEN" "$RST" "$TEXT" "notify-send" "$RST" "$DIM" "$SURFACE" "$RST"
+        else
+            printf '  %s○%s  %s%-14s%s %sdesktop notifications %s(optional · pkg: libnotify)%s\n' "$YELLOW" "$RST" "$SUB" "notify-send" "$RST" "$DIM" "$SURFACE" "$RST"
+        fi
+        if (( miss > 0 )); then
+            local pm cmd uniq
+            pm="$(detect_pm)"; uniq="${missing_pkgs[*]}"
+            printf '\n'; rule; printf '\n'
+            printf '  %s%sInstall%s\n\n' "$MAUVE" "$BOLD" "$RST"
+            case "$pm" in
+                pacman)  cmd="sudo pacman -S --needed $uniq" ;;
+                apt)     cmd="sudo apt install $uniq" ;;
+                dnf)     cmd="sudo dnf install $uniq" ;;
+                zypper)  cmd="sudo zypper install $uniq" ;;
+                apk)     cmd="sudo apk add $uniq" ;;
+                brew)    cmd="brew install ${uniq//wl-clipboard/}" ;;
+                nix)     cmd="nix-env -iA nixpkgs.${uniq// / nixpkgs.}" ;;
+                *)       cmd="" ;;
+            esac
+            if [[ -n "$cmd" ]]; then
+                printf '    %s$%s %s%s%s\n' "$GREEN" "$RST" "$BOLD$TEXT" "$cmd" "$RST"
+            else
+                printf '    %sInstall with your package manager:%s %s%s%s\n' "$SUB" "$RST" "$TEXT" "$uniq" "$RST"
+            fi
+            if [[ " ${missing_pkgs[*]} " == *" gum "* && "$pm" =~ ^(apt|dnf|zypper)$ ]]; then
+                printf '    %sgum is not in the default repos: %shttps://github.com/charmbracelet/gum#installation%s\n' "$DIM" "$BLUE" "$RST"
+            fi
+            if [[ "$pm" == apt && " ${missing_pkgs[*]} " == *" bat "* ]]; then
+                printf '    %sOn Debian/Ubuntu bat installs as "batcat", hastebin handles that.%s\n' "$DIM" "$RST"
+            fi
+            if [[ "$pm" == brew && " ${missing_pkgs[*]} " == *" wl-clipboard "* ]]; then
+                printf '    %swl-clipboard is Wayland/Linux only.%s\n' "$DIM" "$RST"
+            fi
+            printf '\n  %sThen run hastebin again.%s\n\n' "$DIM" "$RST"
+        else
+            printf '\n'
+        fi
+    } >&2
+    [[ "$mode" == strict ]] && exit 127
+    return $(( miss > 0 ))
+}
+
+# ── Help / meta ────────────────────────────────────────────────────────────
+usage() {
+    printf '\n'
+    box "${MAUVE}${BOLD}󰒿  hastebin${RST}  ${DIM}v${VERSION}${RST}  ${SUB}share text & code to ${BLUE}${BASE_URL#https://}${RST}"
+    printf '\n  %sPrivate by default: unlisted, expires in 24h, secrets scanned first.%s\n' "$SUB" "$RST"
+    printf '\n'; rule
+    head1 "USAGE"
+    printf '\n'
+    printf '  %shastebin%s                       %spick a file  %s(Ctrl-P = command palette)%s\n' "$GREEN" "$RST" "$SUB" "$DIM" "$RST"
+    printf '  %shastebin%s %sFILE%s %s[options]%s        %supload a file%s\n' "$GREEN" "$RST" "$TEAL" "$RST" "$DIM" "$RST" "$SUB" "$RST"
+    printf '  %scat x | hastebin%s %s-%s            %supload stdin%s\n' "$GREEN" "$RST" "$TEAL" "$RST" "$SUB" "$RST"
+    printf '  %shastebin clip%s                  %supload the clipboard%s\n' "$GREEN" "$RST" "$SUB" "$RST"
+    printf '\n'; rule
+    head1 "OPTIONS"
+    printf '\n'
+    local o
+    o() { printf '  %s%-22s%s %s%s%s\n' "$TEAL" "$1" "$RST" "$SUB" "$2" "$RST"; }
+    o "-t, --title TEXT"      "title (default: filename or first line)"
+    o "-l, --language LANG"   "syntax highlighting (default: auto-detected)"
+    o "-e, --expires WHEN"    "${EXPIRY_VALUES[*]} | seconds"
+    o "-b, --burn N"          "delete after N views (0 = off)"
+    o "-u, --unlisted"        "link only (default)"
+    o "-p, --public"          "listed on /recent"
+    o "-i, --interactive"     "set every option with prompts"
+    o "-y, --yes"             "skip the review prompt"
+    o "-f, --force"           "upload despite sensitive file / secrets"
+    o "    --redact"          "auto-replace detected secrets with [REDACTED]"
+    o "    --no-scan"         "skip secret scanning"
+    o "-c, --no-copy"         "do not copy the URL"
+    o "-q, --no-qr"           "do not draw a QR code"
+    o "    --no-notify"       "no desktop notification"
+    o "-n, --dry-run"         "scan and preview, never upload"
+    printf '\n'; rule
+    head1 "COMMANDS"
+    printf '\n'
+    o "history [QUERY]"       "browse, search, sort, re-copy, delete"
+    o "    --sort KEY"        "date | language | title | size"
+    o "status ID|URL"         "alive? views left? expires?"
+    o "copy [ID|URL]"         "re-copy a URL (default: last upload)"
+    o "qr [ID|URL]"           "show a QR code again"
+    o "delete [ID|URL]"       "delete with the saved owner token"
+    o "palette"               "command palette (also Ctrl-P in the picker)"
+    o "doctor"                "dependency + connectivity check"
+    o "languages"             "list supported languages"
+    printf '\n'; rule
+    head1 "EXAMPLES"
+    printf '\n'
+    printf '  %s$%s hastebin script.sh\n' "$GREEN" "$RST"
+    printf '  %s$%s hastebin notes.md -t "Meeting notes" -e 1w\n' "$GREEN" "$RST"
+    printf '  %s$%s dmesg | hastebin - -t "dmesg" -b 3\n' "$GREEN" "$RST"
+    printf '  %s$%s hastebin history --sort size\n' "$GREEN" "$RST"
+    printf '\n'
+    exit 0
+}
+
+show_version() { printf '\n  %s%shastebin%s %sv%s%s\n\n' "$MAUVE" "$BOLD" "$RST" "$DIM" "$VERSION" "$RST"; exit 0; }
+list_languages() { printf '\n  %s%sSupported languages%s %s(use with -l)%s\n\n    %s\n\n' "$MAUVE" "$BOLD" "$RST" "$DIM" "$RST" "${SUPPORTED_LANGUAGES[*]}"; exit 0; }
+
+# ── Small utilities ────────────────────────────────────────────────────────
+human_bytes() {
+    awk -v b="$1" 'BEGIN { split("B KB MB GB", s, " "); i = 1
+        while (b >= 1024 && i < 4) { b /= 1024; i++ }
+        if (i == 1) printf "%d %s", b, s[i]; else printf "%.1f %s", b, s[i] }'
+}
+
+human_duration() {   # seconds -> "~3s" / "~2m 10s"
+    awk -v t="$1" 'BEGIN { t = int(t + 0.999); if (t < 1) t = 1
+        if (t < 60) printf "~%ds", t; else printf "~%dm %ds", t / 60, t % 60 }'
+}
+
+expiry_label() {
+    case "$1" in
+        1h) echo "1 hour" ;; 1d) echo "24 hours" ;; 1w) echo "1 week" ;; 1m) echo "1 month" ;;
+        3m) echo "3 months" ;; 6m) echo "6 months" ;; 18m) echo "18 months" ;; 1y) echo "1 year" ;;
+        2y) echo "2 years" ;; never) echo "never" ;; *) echo "${1}s" ;;
+    esac
+}
+
+expiry_seconds() {   # 0 = never
+    case "$1" in
+        1h) echo 3600 ;; 1d) echo 86400 ;; 1w) echo 604800 ;; 1m) echo 2592000 ;;
+        3m) echo 7776000 ;; 6m) echo 15552000 ;; 18m) echo 46656000 ;; 1y) echo 31536000 ;;
+        2y) echo 63072000 ;; never) echo 0 ;; *) echo "$1" ;;
+    esac
+}
+
+fmt_remaining() {   # epoch -> "in 3h 12m" | "expired"
+    local left=$(( $1 - $(date +%s) ))
+    (( left <= 0 )) && { printf 'expired'; return; }
+    awk -v s="$left" 'BEGIN { d = int(s / 86400); h = int(s % 86400 / 3600); m = int(s % 3600 / 60)
+        if (d > 0) printf "in %dd %dh", d, h; else if (h > 0) printf "in %dh %dm", h, m
+        else if (m > 0) printf "in %dm", m; else printf "in %ds", s }'
+}
+
+upload_speed() { local s; s="$(cat "$SPEED_FILE" 2>/dev/null)"; [[ "$s" =~ ^[0-9]+$ ]] && (( s > 10000 )) && printf '%s' "$s" || printf '300000'; }
+
+vis_label() { [[ "$1" == "0" ]] && printf '%spublic %s(listed on /recent)%s' "$YELLOW" "$RED" "$RST" || printf '%sunlisted%s' "$GREEN" "$RST"; }
+burn_label() { [[ "$1" == "0" ]] && printf 'off' || printf 'after %s view%s' "$1" "$([[ $1 == 1 ]] || printf s)"; }
+
+id_from() { local x="$1"; x="${x%%\?*}"; x="${x%/}"; printf '%s' "${x##*/}"; }
+
+# ── Audit log (created / deleted events) ───────────────────────────────────
+audit() {   # audit EVENT key=value ...  (values are strings; numeric ones converted by jq)
+    local event="$1"; shift
+    ( umask 077; mkdir -p "$STATE_DIR" ) 2>/dev/null
+    local -a args=(--arg event "$event" --arg ts "$(date -Iseconds)" --argjson epoch "$(date +%s)")
+    local kv k v prog='{event:$event, ts:$ts, epoch:$epoch'
+    for kv in "$@"; do
+        k="${kv%%=*}"; v="${kv#*=}"
+        args+=(--arg "v_$k" "$v"); prog+=", $k:\$v_$k"
+    done
+    prog+='}'
+    ( umask 077; jq -nc "${args[@]}" "$prog" >> "$AUDIT_FILE" ) 2>/dev/null
+    chmod 600 "$AUDIT_FILE" 2>/dev/null
+}
+
+created_json() {   # created_json ID|last  -> merged record (created + deleted flag)
+    [[ -s "$AUDIT_FILE" ]] || return 1
+    jq -cs --arg id "$1" '
+        (map(select(.event=="deleted") | .id)) as $d
+        | map(select(.event=="created"))
+        | (if $id == "last" then last else (map(select(.id==$id)) | last) end)
+        | select(. != null) | . + {deleted: ((.id as $i | $d | index($i)) != null)}' "$AUDIT_FILE" 2>/dev/null
+}
+
+last_id() { created_json last | jq -r '.id // empty' 2>/dev/null; }
+
+# ── Clipboard / QR ─────────────────────────────────────────────────────────
+copy_clip() { printf '%s' "$1" | wl-copy 2>/dev/null; }
+
+show_qr() {
+    local url="$1"
+    local qr
+
+    if ! have qrencode; then
+        warn "qrencode is not installed."
+        return 1
+    fi
+
+    qr="$(qrencode \
+        -t UTF8 \
+        -m 4 \
+        -l Q \
+        "$url" 2>/dev/null)" || {
+            warn "Could not generate QR code."
+            return 1
+        }
+
+    printf '\n'
+    printf '  %s%sSCAN TO OPEN%s\n' "$MAUVE" "$BOLD" "$RST"
+    printf '  %sScan this code with your phone.%s\n\n' "$DIM" "$RST"
+
+    # Preserve the QR's complete quiet zone and indent consistently.
+    while IFS= read -r line; do
+        printf '    %s\n' "$line"
+    done <<< "$qr"
+
+    printf '\n'
+}
+
+# ── Language detection (extension first, then content) ─────────────────────
+detect_language() {   # detect_language NAME FILE
+    local name="${1##*/}" file="$2" lower ext first sample
+    lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+
+    case "$lower" in
+        dockerfile|dockerfile.*|containerfile|makefile|gnumakefile|pkgbuild|.bashrc|.zshrc|.profile|\
+        .bash_profile|.zprofile|.bash_aliases|.zshenv|.xinitrc|.xprofile) echo bash; return ;;
+        cmakelists.txt) echo text; return ;;
+    esac
+
+    if [[ "$lower" == *.* ]]; then
+        ext="${lower##*.}"
+        case "$ext" in
+            sh|bash|zsh|ksh|fish|mk|ebuild|install) echo bash; return ;;
+            c|h) echo c; return ;;
+            cpp|cc|cxx|hpp|hh|hxx) echo cpp; return ;;
+            cs) echo csharp; return ;;
+            css|scss|sass|less) echo css; return ;;
+            go) echo go; return ;;
+            html|htm|xhtml|vue|svelte) echo html; return ;;
+            java) echo java; return ;;
+            js|mjs|cjs|jsx) echo javascript; return ;;
+            ts|tsx|mts|cts) echo typescript; return ;;
+            json|jsonc|json5|geojson) echo json; return ;;
+            kt|kts) echo kotlin; return ;;
+            md|markdown|mdx) echo markdown; return ;;
+            php|phtml) echo php; return ;;
+            ps1|psm1|psd1) echo powershell; return ;;
+            py|pyw|pyi) echo python; return ;;
+            rb|rake|gemspec) echo ruby; return ;;
+            rs) echo rust; return ;;
+            sql) echo sql; return ;;
+            swift) echo swift; return ;;
+            toml) echo toml; return ;;
+            xml|svg|xsd|xsl|xslt|plist|kdl) echo xml; return ;;
+            yml|yaml) echo yaml; return ;;
+            txt|log|text|csv|tsv|diff|patch) echo text; return ;;
+        esac
+    fi
+
+    # Content detection ------------------------------------------------------
+    first="$(head -n1 "$file" 2>/dev/null)"
+    case "$first" in
+        '#!'*python*)                     echo python; return ;;
+        '#!'*node*|'#!'*deno*|'#!'*bun*)  echo javascript; return ;;
+        '#!'*ruby*)                       echo ruby; return ;;
+        '#!'*php*)                        echo php; return ;;
+        '#!'*pwsh*|'#!'*powershell*)      echo powershell; return ;;
+        '#!'*bash*|'#!'*/sh|'#!'*/sh\ *|'#!'*zsh*|'#!'*ksh*|'#!'*'env sh'*|'#!'*fish*) echo bash; return ;;
+    esac
+    sample="$(mktmp)"; head -c 8192 "$file" > "$sample" 2>/dev/null
+
+    if grep -qE '^[[:space:]]*[\{\[]' "$sample" && [[ "$(stat -c%s "$file")" -lt 2000000 ]] && jq -e . "$file" >/dev/null 2>&1; then echo json; return; fi
+    grep -qiE '^[[:space:]]*<\?xml'                        "$sample" && { echo xml; return; }
+    grep -qiE '<!doctype html|<html[ >]'                   "$sample" && { echo html; return; }
+    grep -qE  '^<\?php'                                    "$sample" && { echo php; return; }
+    grep -qE  '^package [a-z_]+$|^func [A-Za-z(]'          "$sample" && { echo go; return; }
+    grep -qE  '^(fn |use [a-z_:]+;|let mut |impl |pub (fn|struct))' "$sample" && { echo rust; return; }
+    grep -qE  '^(def [a-z_]+\(|import [a-z_.]+$|from [a-z_.]+ import |class [A-Za-z_]+(\(.*\))?:$)' "$sample" && { echo python; return; }
+    grep -qiE '^[[:space:]]*(select .* from|create table|insert into|alter table)' "$sample" && { echo sql; return; }
+    grep -qE  '^(const|let|var) [A-Za-z_]+ = |^function [A-Za-z_]+\(|=> \{|require\(|^export (default|const)' "$sample" && { echo javascript; return; }
+    grep -qE  '^\[[A-Za-z0-9_.-]+\]$' "$sample" && grep -qE '^[A-Za-z0-9_.-]+ *= *' "$sample" && { echo toml; return; }
+    grep -qE  '^---$|^[A-Za-z0-9_-]+: ?.*$' "$sample" && ! grep -qE '[{};]' "$sample" && [[ "$(grep -cE '^[A-Za-z0-9_-]+:' "$sample")" -ge 3 ]] && { echo yaml; return; }
+    grep -qE  '^(#{1,6} |```|\* \[.\] |- \[.\] )' "$sample" && { echo markdown; return; }
+    grep -qE  '^(if \[|for [a-z_]+ in |echo |export [A-Z_]+=|set -[eu])' "$sample" && { echo bash; return; }
+    echo text
+}
+
+# ── Title generation ───────────────────────────────────────────────────────
+generate_title() {   # generate_title NAME FILE   (NAME="-" for stdin / clipboard)
+    local name="$1" file="$2" t
+    if [[ "$name" != "-" ]]; then printf '%s' "${name##*/}"; return; fi
+    t="$(grep -vE '^[[:space:]]*($|#!)' "$file" 2>/dev/null | head -n1)"
+    t="$(printf '%s' "$t" | sed -E 's/^[[:space:]]*(#+|\/\/+|--+|\/\*+|\*+|<!--|;+|>)[[:space:]]*//; s/[[:space:]]*(\*\/|-->)[[:space:]]*$//; s/[[:space:]]+/ /g; s/^ //; s/ $//')"
+    if [[ -z "$t" ]]; then
+        if head -n1 "$file" 2>/dev/null | grep -q '^#!'; then t="script"; else t="Untitled"; fi
+    fi
+    (( ${#t} > 60 )) && t="${t:0:59}…"
+    printf '%s' "$t"
+}
+
+# ── Safety: sensitive files ────────────────────────────────────────────────
+# glob | reason   (matched case-insensitively against the file name)
+SENSITIVE_NAME_RULES=(
+    '.env|environment file, usually holds API keys and passwords'
+    '.env.*|environment file variant'
+    '*.env|environment file'
+    '.envrc|direnv file that exports secrets'
+    'id_rsa|SSH private key'
+    'id_dsa|SSH private key'
+    'id_ecdsa|SSH private key'
+    'id_ed25519|SSH private key'
+    '*.pem|PEM certificate or private key'
+    '*.key|private key file'
+    '*.p12|PKCS#12 key bundle'
+    '*.pfx|PKCS#12 key bundle'
+    '*.jks|Java keystore'
+    '*.keystore|keystore'
+    '*.kdbx|KeePass password database'
+    '*.ovpn|VPN profile (may embed keys)'
+    '.netrc|stores machine logins'
+    '.pgpass|PostgreSQL passwords'
+    '.my.cnf|MySQL credentials'
+    '.htpasswd|password hashes'
+    '.npmrc|may hold registry auth tokens'
+    '.pypirc|may hold PyPI credentials'
+    '.git-credentials|stored git logins'
+    'credentials|credential store'
+    'credentials.json|credential store'
+    'service-account*.json|cloud service-account key'
+    '*.tfvars|Terraform variables, often secrets'
+    'terraform.tfstate*|Terraform state, contains secrets in clear text'
+    'wallet.dat|cryptocurrency wallet'
+    'known_hosts|reveals the hosts you connect to'
+    'authorized_keys|SSH access list'
+    'shadow|system password hashes'
+    '*secret*|file name contains "secret"'
+    '*passwd*|file name contains "passwd"'
+    '*password*|file name contains "password"'
+)
+SENSITIVE_PATH_RULES=(
+    '*/.ssh/*|inside ~/.ssh (SSH keys and config)'
+    '*/.gnupg/*|inside ~/.gnupg (GPG keys)'
+    '*/.aws/*|inside ~/.aws (AWS credentials)'
+    '*/.kube/config|kubectl config (cluster credentials)'
+    '*/.config/gh/*|GitHub CLI credentials'
+    '*/.docker/config.json|Docker registry credentials'
+    '/etc/shadow|system password hashes'
+    '/etc/sudoers*|sudo configuration'
+)
+
+sensitive_reason() {   # sets SENS_REASON, returns 0 when flagged
+    local path base real rule glob why
+    SENS_REASON=""
+    base="${1##*/}"
+    real="$(readlink -f "$1" 2>/dev/null || printf '%s' "$1")"
+    shopt -s nocasematch
+    for rule in "${SENSITIVE_PATH_RULES[@]}"; do
+        glob="${rule%%|*}"; why="${rule#*|}"
+        # shellcheck disable=SC2053
+        if [[ "$real" == $glob ]]; then SENS_REASON="path matches ${glob}: ${why}"; shopt -u nocasematch; return 0; fi
+    done
+    for rule in "${SENSITIVE_NAME_RULES[@]}"; do
+        glob="${rule%%|*}"; why="${rule#*|}"
+        # shellcheck disable=SC2053
+        if [[ "$base" == $glob ]]; then SENS_REASON="name matches ${glob}: ${why}"; shopt -u nocasematch; return 0; fi
+    done
+    shopt -u nocasematch
+    return 1
+}
+
+# ── Safety: secret scanning (patterns + entropy) ───────────────────────────
+SECRET_RULES=(
+    'AWS access key@@(AKIA|ASIA)[0-9A-Z]{16}'
+    'Google API key@@AIza[0-9A-Za-z_-]{35}'
+    'GitHub token@@gh[pousr]_[0-9A-Za-z]{36,}'
+    'GitHub fine-grained token@@github_pat_[0-9A-Za-z_]{22,}'
+    'Anthropic API key@@sk-ant-[0-9A-Za-z_-]{20,}'
+    'OpenAI-style API key@@sk-[0-9A-Za-z_-]{20,}'
+    'Slack token@@xox[baprs]-[0-9A-Za-z-]{10,}'
+    'GitLab token@@glpat-[0-9A-Za-z_-]{20,}'
+    'Stripe live key@@[sr]k_live_[0-9A-Za-z]{16,}'
+    'SendGrid key@@SG\.[0-9A-Za-z_-]{16,}\.[0-9A-Za-z_-]{16,}'
+    'JSON Web Token@@eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+)
+RE_ASSIGN_KEY='(secret|token|passwd|password|passphrase|api[_-]?key|apikey|access[_-]?key|auth[_-]?key|private[_-]?key)[A-Za-z0-9_]*'
+RE_ASSIGN_VAL="[:=][[:space:]]*[\"']?[A-Za-z0-9/+_.-]{12,}"
+RE_URLCRED='[A-Za-z][A-Za-z0-9+.-]*://[^/[:space:]:@]+:[^/[:space:]@]+@'
+RE_BEARER='[Bb]earer[[:space:]]+[A-Za-z0-9._~+/=-]{20,}'
+RE_PRIVKEY='-----BEGIN [A-Z ]*PRIVATE KEY-----'
+ENTROPY_KIND="high-entropy string"
+
+mask_tok() {
+    local t="$1"
+    (( ${#t} > 48 )) && t="${t:0:48}"
+    if (( ${#t} <= 10 )); then printf '%s••••' "${t:0:2}"; else printf '%s••••%s' "${t:0:4}" "${t: -2}"; fi
+}
+
+scan_one() {   # scan_one FILE KIND REGEX [grep flags]
+    local f="$1" kind="$2" re="$3" flags="${4:--noE}" ln m
+    grep "$flags" -e "$re" "$f" 2>/dev/null | while IFS=: read -r ln m; do
+        printf '%s\t%s\t%s\n' "$ln" "$kind" "$m"
+    done
+}
+
+ENTROPY_AWK='
+function H(s,   n, i, c, cnt, k, e, p) {
+    n = length(s); delete cnt
+    for (i = 1; i <= n; i++) cnt[substr(s, i, 1)]++
+    e = 0
+    for (k in cnt) { p = cnt[k] / n; e -= p * log(p) / log(2) }
+    return e
+}
+{
+    rest = $0; out = ""
+    while (match(rest, /[A-Za-z0-9+\/_-]+/)) {
+        tok = substr(rest, RSTART, RLENGTH)
+        pre = substr(rest, 1, RSTART - 1)
+        rest = substr(rest, RSTART + RLENGTH)
+        flag = 0
+        if (length(tok) >= 24 && tok ~ /[0-9]/ && tok ~ /[A-Za-z]/ && tok !~ /\/\// && tok !~ /^\//) {
+            t2 = tok; ns = gsub(/\//, "", t2)
+            hexonly = (tok ~ /^[0-9a-fA-F]+$/ && (length(tok) == 32 || length(tok) == 40 || length(tok) == 64))
+            if (ns < 2 && !hexonly && H(tok) >= min) flag = 1
+        }
+        if (flag) {
+            if (mode == "scan") printf "%d\t%s\t%s\n", NR, kind, tok
+            else tok = "[REDACTED]"
+        }
+        out = out pre tok
+    }
+    out = out rest
+    if (mode == "redact") print out
+}'
+
+scan_entropy() { awk -v mode=scan -v kind="$ENTROPY_KIND" -v min="$ENTROPY_MIN" "$ENTROPY_AWK" "$1" 2>/dev/null; }
+
+scan_all() {   # prints "line<TAB>kind<TAB>match", sorted, de-duplicated
+    local f="$1" rule
+    {
+        for rule in "${SECRET_RULES[@]}"; do scan_one "$f" "${rule%%@@*}" "${rule#*@@}"; done
+        scan_one "$f" "private key block" "$RE_PRIVKEY"
+        scan_one "$f" "credentials in URL" "$RE_URLCRED"
+        scan_one "$f" "bearer token" "$RE_BEARER"
+        scan_one "$f" "credential assignment" "${RE_ASSIGN_KEY}[[:space:]]*${RE_ASSIGN_VAL}" -noEi
+        scan_entropy "$f"
+    } | awk -F'\t' -v ek="$ENTROPY_KIND" '
+        $2 != ek { seen[$1] = seen[$1] "\x01" $3; print; next }
+        { if (index(seen[$1], $3) == 0) print }' \
+      | sort -t$'\t' -k1,1n -k2,2 -u
+}
+
+redact_file() {   # redact_file FILE   (in place)
+    local f="$1" rule tmp
+    tmp="$(mktmp)"
+    sed -E -e "/${RE_PRIVKEY}/,/-----END [A-Z ]*PRIVATE KEY-----/c\\[REDACTED PRIVATE KEY BLOCK]" "$f" > "$tmp" && cat "$tmp" > "$f"
+    for rule in "${SECRET_RULES[@]}"; do
+        sed -E -i -e "s#${rule#*@@}#[REDACTED]#g" "$f"
+    done
+    sed -E -i \
+        -e "s#(://[^/[:space:]:@]+:)[^/[:space:]@]+@#\1[REDACTED]@#g" \
+        -e "s#([Bb]earer[[:space:]]+)[A-Za-z0-9._~+/=-]{20,}#\1[REDACTED]#g" \
+        -e "s#(${RE_ASSIGN_KEY}[[:space:]]*[:=][[:space:]]*[\"']?)[A-Za-z0-9/+_.-]{12,}#\1[REDACTED]#Ig" "$f"
+    awk -v mode=redact -v kind="$ENTROPY_KIND" -v min="$ENTROPY_MIN" "$ENTROPY_AWK" "$f" > "$tmp" && cat "$tmp" > "$f"
+}
+
+file_bytes() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null || echo 0; }
+
+# ── Options (shared by the upload flow) ────────────────────────────────────
+TITLE=""; LANGUAGE=""; EXPIRES="$DEF_EXPIRES"; VISIBILITY="$DEF_VISIBILITY"; BURN="$DEF_BURN"
+TITLE_SET=false; LANG_SET=false
+DO_COPY=true; DO_QR=true; DO_CONFIRM=true; DO_SCAN=true
+FORCE=false; AUTO_REDACT=false; DRY_RUN=false; INTERACTIVE=false
+
+validate_options() {
+    case "$EXPIRES" in
+        never|1h|1d|1w|1m|3m|6m|18m|1y|2y) ;;
+        ''|*[!0-9]*) die "Invalid expiry: $EXPIRES" "Allowed: ${EXPIRY_VALUES[*]} or a number of seconds." ;;
+    esac
+    if [[ "$BURN" != "0" ]]; then
+        [[ "$BURN" =~ ^[0-9]+$ ]] && (( BURN >= 1 && BURN <= 9999 )) \
+            || die "Invalid burn value: $BURN" "Use 0 (off) or 1–9999 views."
+    fi
+    if [[ "$LANG_SET" == true ]]; then
+        [[ " ${SUPPORTED_LANGUAGES[*]} " == *" $LANGUAGE "* ]] \
+            || die "Unsupported language: $LANGUAGE" "Run 'hastebin languages' for the list."
+    fi
+}
+
+edit_options() {
+    local v
+
+    have_tty || {
+        warn "Interactive options require a terminal."
+        return 1
+    }
+
+    while true; do
+        printf '\n'
+        box "${MAUVE}${BOLD}⚙  Upload settings${RST}"
+        printf '\n'
+
+        kv "title"   "$TITLE"
+        kv "lang"    "$LANGUAGE"
+        kv "expire"  "$(expiry_label "$EXPIRES")"
+        kv "vis"     "$(vis_label "$VISIBILITY")"
+        kv "burn"    "$(burn_label "$BURN")"
+
+        printf '\n'
+        rule
+        printf '\n'
+
+        v="$(G choose \
+            --header "  What would you like to change?" \
+            --header.foreground "#cba6f7" \
+            --cursor "▸ " \
+            --height 8 \
+            "Title" \
+            "Language" \
+            "Expiration" \
+            "Visibility" \
+            "Burn after views" \
+            "Done" \
+            2>/dev/tty)" || return 0
+
+        case "$v" in
+            Title)
+                v="$(G input \
+                    --header "  Paste title" \
+                    --prompt "  ▸ " \
+                    --value "$TITLE" \
+                    --placeholder "Untitled" \
+                    --width 60 \
+                    --char-limit 120)" || continue
+
+                if [[ -n "$v" ]]; then
+                    TITLE="$v"
+                    TITLE_SET=true
+                fi
+                ;;
+
+            Language)
+                # gum filter needs its candidate list on stdin.
+                # Do NOT use G here: G redirects stdin to /dev/tty.
+                v="$(printf '%s\n' "${SUPPORTED_LANGUAGES[@]}" |
+                    gum filter \
+                        --prompt "  Language ▸ " \
+                        --placeholder "Type to search..." \
+                        --height 12 \
+                        --value "$LANGUAGE")" || continue
+
+                if [[ -n "$v" ]]; then
+                    LANGUAGE="$v"
+                    LANG_SET=true
+                fi
+                ;;
+
+            Expiration)
+                # gum choose accepts choices as positional arguments.
+                v="$(G choose \
+                    --header "  Paste expiration" \
+                    --cursor "▸ " \
+                    --selected "$EXPIRES" \
+                    --height 12 \
+                    "${EXPIRY_VALUES[@]}")" || continue
+
+                [[ -n "$v" ]] && EXPIRES="$v"
+                ;;
+
+            Visibility)
+                v="$(G choose \
+                    --header "  Who can discover this paste?" \
+                    --cursor "▸ " \
+                    "unlisted (link only)" \
+                    "public (listed on /recent)")" || continue
+
+                case "$v" in
+                    public*) VISIBILITY="0" ;;
+                    unlisted*) VISIBILITY="1" ;;
+                esac
+                ;;
+
+            "Burn after views")
+                v="$(G input \
+                    --header "  Delete after how many views?" \
+                    --prompt "  ▸ " \
+                    --value "$BURN" \
+                    --placeholder "0 = disabled" \
+                    --width 20)" || continue
+
+                if [[ "$v" =~ ^[0-9]+$ ]] &&
+                    (( v <= 9999 )); then
+                    BURN="$v"
+                else
+                    warn "Enter a number between 0 and 9999."
+                    pause_key
+                fi
+                ;;
+
+            Done)
+                break
+                ;;
+        esac
+    done
+
+    validate_options
+}
+
+# ── The upload itself ──────────────────────────────────────────────────────
+UP_ID=""; UP_URL=""; UP_TOKEN=""; UP_ERR=""
+
+do_upload() {   # do_upload FILE  -> sets UP_*
+    local f="$1" resp hdr meta errf code speed pid
+    resp="$(mktmp)"; hdr="$(mktmp)"; meta="$(mktmp)"; errf="$(mktmp)"
+    UP_ID=""; UP_URL=""; UP_TOKEN=""; UP_ERR=""
+
+    local vis="$VISIBILITY"
+    [[ "$VISIBILITY" == "0" ]] && vis="$VIS_PUBLIC" || vis="$VIS_UNLISTED"
+
+    curl -sS --max-time 300 -D "$hdr" -o "$resp" -w '%{http_code} %{speed_upload}' \
+        -H 'Accept: application/json' \
+        --form-string "title=$TITLE" --form-string "language=$LANGUAGE" \
+        --form-string "expires_in=$EXPIRES" --form-string "visibility=$vis" \
+        --form-string "burn_after=$BURN" \
+        -F "content=<$f" "$API_URL/pastes" >"$meta" 2>"$errf" &
+    pid=$!
+    spinner_start "Uploading"
+    wait "$pid"; local rc=$?
+    spinner_stop
+
+    read -r code speed < "$meta"
+    if (( rc != 0 )) || [[ -z "$code" ]]; then
+        UP_ERR="$(tr -d '\r' < "$errf" | tail -n1)"; [[ -n "$UP_ERR" ]] || UP_ERR="network error"
+        return 1
+    fi
+    if [[ ! "$code" =~ ^2 ]]; then
+        UP_ERR="HTTP $code: $(jq -r '.message // .error // empty' "$resp" 2>/dev/null)"
+        [[ "$UP_ERR" == "HTTP $code: " ]] && UP_ERR="HTTP $code: $(head -c 200 "$resp" | tr '\n\r' '  ')"
+        return 1
+    fi
+
+    UP_ID="$(jq -r '(.data.id // .data.paste.id // .id // .key // empty)' "$resp" 2>/dev/null)"
+    UP_URL="$(jq -r '(.data.url // .data.paste.url // .url // empty)' "$resp" 2>/dev/null)"
+    UP_TOKEN="$(jq -r '[.. | objects | to_entries[] | select(.key | test("token"; "i")) | .value | strings] | first // empty' "$resp" 2>/dev/null)"
+    [[ -n "$UP_TOKEN" ]] || UP_TOKEN="$(tr -d '\r' < "$hdr" | awk -F': *' 'tolower($1) ~ /token/ { print $2; exit }')"
+    if [[ -z "$UP_ID" ]]; then   # plain-text fallback
+        UP_URL="$(tr -d '\r' < "$resp" | grep -oE 'https?://[^[:space:]"]+' | head -n1)"
+        UP_ID="$(id_from "$UP_URL")"
+    fi
+    [[ -n "$UP_ID" ]] || { UP_ERR="unexpected reply from server"; return 1; }
+    [[ -n "$UP_URL" ]] || UP_URL="$BASE_URL/$UP_ID"
+
+    if [[ "$speed" =~ ^[0-9]+ ]] && (( ${speed%%.*} > 20000 )); then
+        mkdir -p "$STATE_DIR" 2>/dev/null; printf '%s' "${speed%%.*}" > "$SPEED_FILE" 2>/dev/null
+    fi
+    return 0
+}
+
+# After an unlisted upload, make sure it did not land on the public list.
+privacy_check() {   # privacy_check ID
+    [[ "$VISIBILITY" == "1" ]] || return 0
+    local body; body="$(mktmp)"
+    curl -sS --max-time 15 -H 'Accept: application/json' -o "$body" "$API_URL/pastes" 2>/dev/null || return 0
+    if jq -e --arg id "$1" '[.data[]?.id] | index($id) != null' "$body" >/dev/null 2>&1; then
+        printf '\n'
+        warn "This paste shows up on the PUBLIC list, so 'unlisted' was not applied."
+        printf '     %sThe server may expect a different visibility value (VIS_UNLISTED in the config).%s\n' "$DIM" "$RST"
+        if have_tty && G confirm "  Delete it right now?" --default=true --affirmative "Delete" --negative "Keep" \
+                --prompt.foreground "#f9e2af" --selected.background "#cba6f7" --selected.foreground "#181825" 2>/dev/tty >/dev/tty; then
+            delete_paste "$1" "$UP_TOKEN" && ok "Deleted."
+            return 2
+        fi
+    fi
+    return 0
+}
+
+# ── Remote status / delete ─────────────────────────────────────────────────
+R_CODE=""; R_VIEWS=""; R_BURN=""; R_EXPIRES=""; R_TITLE=""; R_LANG=""
+remote_status() {   # remote_status ID
+    local body code; body="$(mktmp)"
+    code="$(curl -sS --max-time 15 -o "$body" -w '%{http_code}' -H 'Accept: application/json' "$API_URL/pastes/$1" 2>/dev/null)" || code="000"
+    R_CODE="$code"; R_VIEWS=""; R_BURN=""; R_EXPIRES=""; R_TITLE=""; R_LANG=""
+    if [[ "$code" == 200 ]]; then
+        IFS=$'\t' read -r R_VIEWS R_BURN R_EXPIRES R_TITLE R_LANG < <(
+            jq -r '(.data // .) | [(.views // 0), (.burn_after // 0), (.expires_at // "-"), (.title // "-"), (.language // "-")] | @tsv' "$body" 2>/dev/null)
+    fi
+}
+
+status_card() {   # status_card ID   (local audit + live check)
+    local id="$1" rec url created del exp_epoch burn age
+    rec="$(created_json "$id")"
+    printf '\n'
+    printf '  %s%s%s\n' "$BLUE$BOLD" "$BASE_URL/$id" "$RST"
+    if [[ -n "$rec" ]]; then
+        IFS=$'\t' read -r created del exp_epoch burn < <(printf '%s' "$rec" | jq -r '[.ts, (.deleted|tostring), (.expires_epoch // "0"), (.burn // "0")] | @tsv')
+        kv "created" "$created"
+        [[ "$del" == true ]] && kv "audit" "${RED}deleted by you${RST}"
+    fi
+    remote_status "$id"
+    case "$R_CODE" in
+        200)
+            kv "status" "${GREEN}live${RST}"
+            kv "title"  "$R_TITLE"
+            kv "lang"   "$R_LANG"
+            if [[ "$R_BURN" != 0 && "$R_BURN" =~ ^[0-9]+$ ]]; then
+                kv "views" "$R_VIEWS ${DIM}· burns after ${R_BURN} ($(( R_BURN - R_VIEWS )) left)${RST}"
+            else
+                kv "views" "$R_VIEWS"
+            fi
+            if [[ "$R_EXPIRES" != "-" && -n "$R_EXPIRES" ]]; then
+                local e; e="$(date -d "$R_EXPIRES" +%s 2>/dev/null || echo 0)"
+                kv "expires" "$R_EXPIRES  ${DIM}($(fmt_remaining "$e"))${RST}"
+            else
+                kv "expires" "never"
+            fi ;;
+        404|410) kv "status" "${YELLOW}gone${RST} ${DIM}(expired, burned or deleted)${RST}" ;;
+        000)     kv "status" "${RED}unreachable${RST} ${DIM}(network problem)${RST}" ;;
+        *)       kv "status" "${RED}HTTP ${R_CODE}${RST}" ;;
+    esac
+    printf '\n'
+}
+
+delete_paste() {   # delete_paste ID [TOKEN]
+    local id="$1" token="${2:-}" code body
+    [[ -n "$token" ]] || token="$(created_json "$id" | jq -r '.token // empty' 2>/dev/null)"
+    if [[ -z "$token" ]]; then
+        warn "No owner token saved for $id. Pass one: hastebin delete $id TOKEN"
+        return 1
+    fi
+    [[ "$id" =~ ^[A-Za-z0-9_-]+$ ]] || { warn "Invalid paste ID: $id"; return 1; }
+    [[ "$token" =~ ^[A-Za-z0-9._~+/=-]+$ ]] || { warn "Invalid owner token"; return 1; }
+    body="$(mktmp)"
+    code="$(curl -sS --max-time 20 -X DELETE -o "$body" -w '%{http_code}' -H "Authorization: Bearer $token" "$API_URL/pastes/$id" 2>/dev/null)" || code="000"
+    if [[ "$code" =~ ^2 ]]; then
+        audit deleted "id=$id" "url=$BASE_URL/$id"
+        notify low "Paste deleted" "$id"
+        return 0
+    fi
+    warn "Delete failed (HTTP $code) $(jq -r '.message // empty' "$body" 2>/dev/null)"
+    return 1
+}
+
+show_result() {
+    local copied=false
+
+    printf '\n'
+    rule
+    printf '\n'
+
+    box "${GREEN}${BOLD}✓  Upload successful${RST}  ${DIM}hastebin${RST}"
+
+    printf '\n'
+    printf '  %s%s%s\n' "$BLUE" "$BOLD$UP_URL" "$RST"
+    printf '\n'
+
+    kv "title"   "$TITLE"
+    kv "lang"    "$LANGUAGE"
+    kv "expires" "$(expiry_label "$EXPIRES")"
+    kv "privacy" "$(vis_label "$VISIBILITY")"
+    kv "burn"    "$(burn_label "$BURN")"
+    kv "size"    "$(human_bytes "$FINAL_BYTES")"
+
+    printf '\n'
+    rule
+
+    if [[ -n "$UP_TOKEN" ]]; then
+        printf '\n'
+        printf '  %s%sOWNER TOKEN%s\n' "$MAUVE" "$BOLD" "$RST"
+        printf '  %sSaved securely in your local history.%s\n' "$DIM" "$RST"
+        printf '  %sDelete with: hastebin delete %s%s\n' \
+            "$SUB" "$UP_ID" "$RST"
+    else
+        warn "No owner token received. Remote deletion may be unavailable."
+    fi
+
+    if [[ "$DO_COPY" == true ]]; then
+        printf '\n'
+
+        if copy_clip "$UP_URL"; then
+            copied=true
+            ok "URL copied to clipboard"
+        else
+            warn "Clipboard unavailable. Copy the URL above."
+        fi
+    fi
+
+    if [[ "$DO_QR" == true ]]; then
+        show_qr "$UP_URL"
+    fi
+
+    printf '\n'
+    rule
+    printf '\n'
+
+    notify normal "Paste uploaded" \
+        "$TITLE\n$UP_URL$([[ "$copied" == true ]] && printf '\nCopied to clipboard')"
+}
+
+# ── The upload flow ────────────────────────────────────────────────────────
+FINAL_BYTES=0
+
+upload_flow() {   # upload_flow KIND NAME WORKFILE   KIND=file|stdin|clipboard
+    local kind="$1" name="$2" work="$3" bytes findings count shown choice i
+    if [[ ! -t 1 ]]; then exec 3>&1 1>&2; PIPED=true; fi
+
+    [[ -s "$work" ]] || die "Nothing to upload: empty ${kind}."
+    LC_ALL=C grep -qI . "$work" 2>/dev/null || die "That looks like a binary file." "hastebin only handles text and code."
+    bytes="$(file_bytes "$work")"
+    (( bytes <= MAX_BYTES )) || die "Too large: $(human_bytes "$bytes")" "The server limit is 10 MB."
+
+    [[ "$TITLE_SET" == true ]] || TITLE="$(generate_title "$name" "$work")"
+    [[ "$LANG_SET"  == true ]] || LANGUAGE="$(detect_language "$name" "$work")"
+    validate_options
+
+    # 1 · sensitive file ------------------------------------------------------
+    if [[ "$kind" == file ]] && sensitive_reason "$name"; then
+        printf '\n  %s%s󰒃  Sensitive file%s\n\n' "$YELLOW" "$BOLD" "$RST"
+        printf '  %s✗%s  %s%s%s\n' "$RED" "$RST" "$BOLD$TEXT" "${name##*/}" "$RST"
+        printf '     %s%s%s\n' "$SUB" "$SENS_REASON" "$RST"
+        printf '     %sAnyone with the link can read it.%s\n\n' "$DIM" "$RST"
+        if [[ "$FORCE" == true ]]; then
+            warn "Continuing because of --force."
+        elif have_tty && [[ "$DO_CONFIRM" == true || "$INTERACTIVE" == true ]]; then
+            G confirm "  Upload this file anyway?" --default=false --affirmative "Upload anyway" --negative "Cancel" \
+                --prompt.foreground "#f9e2af" --selected.background "#cba6f7" --selected.foreground "#181825" 2>/dev/tty >/dev/tty \
+                || { info "Cancelled."; exit 0; }
+        else
+            die "Blocked: sensitive file." "Review it, then re-run with --force." 2
+        fi
+    fi
+
+    # 2 · secrets (patterns + entropy) with optional redaction -----------------
+    if [[ "$DO_SCAN" == true ]]; then
+        findings="$(scan_all "$work")"
+        count=0; [[ -n "$findings" ]] && count="$(printf '%s\n' "$findings" | wc -l)"
+        if (( count > 0 )); then
+            printf '\n  %s%s󰒃  Possible secrets%s %s(%s)%s\n\n' "$RED" "$BOLD" "$RST" "$DIM" "$count" "$RST"
+            shown=0
+            while IFS=$'\t' read -r ln kind_f tok; do
+                printf '  %sline %-5s%s %s%-22s%s %s%s%s\n' "$DIM" "$ln" "$RST" "$TEXT" "$kind_f" "$RST" "$YELLOW" "$(mask_tok "$tok")" "$RST"
+                shown=$(( shown + 1 )); (( shown >= 12 )) && { (( count > 12 )) && printf '  %s… and %d more%s\n' "$DIM" $(( count - 12 )) "$RST"; break; }
+            done <<<"$findings"
+            printf '\n'
+            choice=""
+            if [[ "$AUTO_REDACT" == true ]]; then choice="redact"
+            elif [[ "$FORCE" == true ]]; then choice="asis"
+            elif have_tty && [[ "$DO_CONFIRM" == true || "$INTERACTIVE" == true ]]; then
+                case "$(G choose --header "  What now?" --header.foreground "#cba6f7" --cursor "▸ " \
+                        "Redact all and continue" "Upload as is" "Cancel" 2>/dev/tty)" in
+                    Redact*) choice="redact" ;;
+                    Upload*) choice="asis" ;;
+                    *)       info "Cancelled."; exit 0 ;;
+                esac
+            else
+                die "Blocked: possible secrets found." "Use --redact to mask them or --force to upload anyway." 2
+            fi
+            if [[ "$choice" == redact ]]; then
+                redact_file "$work"
+                ok "Replaced ${count} item(s) with [REDACTED]"
+                bytes="$(file_bytes "$work")"
+            else
+                warn "Uploading as is. These values WILL be visible to anyone with the link."
+            fi
+        fi
+    fi
+
+    # 3 · large file ----------------------------------------------------------
+    if (( bytes > WARN_BYTES )); then
+        printf '\n  %s⚠%s  %s%sLarge paste%s  %s%s%s\n' "$YELLOW" "$RST" "$BOLD" "$TEXT" "$RST" "$SUB" "$(human_bytes "$bytes")" "$RST"
+        printf '     %sEstimated upload time %s at %s/s. Big pastes are slow to render.%s\n' \
+            "$DIM" "$(human_duration "$(awk -v b="$bytes" -v s="$(upload_speed)" 'BEGIN { print b / s }')")" "$(human_bytes "$(upload_speed)")" "$RST"
+    fi
+    FINAL_BYTES="$bytes"
+
+    # 4 · interactive options + review ----------------------------------------
+    [[ "$INTERACTIVE" == true ]] && edit_options
+    while true; do
+        printf '\n'
+        box "${MAUVE}${BOLD}󰒿  hastebin${RST}  ${DIM}→ ${BASE_URL#https://}${RST}"
+        printf '\n  %s%s%s\n\n' "$BOLD$TEXT" "${name##*/}" "$RST"
+        kv "size"   "$(human_bytes "$bytes")  ${DIM}·${RST}  $(wc -l < "$work") lines"
+        kv "lang"   "$LANGUAGE"
+        kv "title"  "$TITLE"
+        kv "expire" "$(expiry_label "$EXPIRES")"
+        kv "vis"    "$(vis_label "$VISIBILITY")"
+        kv "burn"   "$(burn_label "$BURN")"
+        printf '\n'; rule
+
+        if [[ "$DRY_RUN" == true ]]; then
+            printf '\n'; info "Dry run, nothing was uploaded."; printf '\n'; return 0
+        fi
+        [[ "$DO_CONFIRM" == true ]] && have_tty || break
+        choice="$(G choose --cursor "▸ " --cursor.foreground "#cba6f7" --selected.foreground "#a6e3a1" \
+                "Upload now" "Edit options" "Cancel" 2>/dev/tty)" || { info "Cancelled."; return 0; }
+        case "$choice" in
+            Upload*) break ;;
+            Edit*)   edit_options ;;
+            *)       info "Cancelled."; return 0 ;;
+        esac
+    done
+
+    # 5 · upload --------------------------------------------------------------
+    printf '\n'
+    if ! do_upload "$work"; then
+        printf '  %s✗%s  %sUpload failed.%s\n     %s%s%s\n\n' "$RED" "$RST" "$TEXT" "$RST" "$DIM" "$UP_ERR" "$RST"
+        notify critical "Upload failed" "$UP_ERR"
+        exit 1
+    fi
+
+    local exp_epoch=0 secs
+    secs="$(expiry_seconds "$EXPIRES")"; (( secs > 0 )) && exp_epoch=$(( $(date +%s) + secs ))
+    audit created "id=$UP_ID" "url=$UP_URL" "title=$TITLE" "language=$LANGUAGE" "bytes=$bytes" \
+        "expires=$EXPIRES" "expires_epoch=$exp_epoch" "burn=$BURN" "visibility=$VISIBILITY" \
+        "source=${name##*/}" "token=$UP_TOKEN"
+    show_result
+    privacy_check "$UP_ID"
+    [[ "$PIPED" == true ]] && printf '%s\n' "$UP_URL" >&3
+    return 0
+}
+
+upload_file() {   # upload_file PATH
+    local path="$1" work
+    [[ -e "$path" ]] || die "File not found: $path"
+    [[ -f "$path" ]] || die "Not a regular file: $path"
+    [[ -r "$path" ]] || die "Not readable: $path"
+    work="$(mktmp)"; cat -- "$path" > "$work" || die "Could not read $path"
+    upload_flow file "$path" "$work"
+}
+
+upload_stdin() {
+    local work; work="$(mktmp)"; cat > "$work"
+    upload_flow stdin "-" "$work"
+}
+
+upload_clipboard() {
+    local work; work="$(mktmp)"
+    wl-paste --no-newline > "$work" 2>/dev/null || die "Could not read the clipboard." "wl-paste needs a Wayland session with text on the clipboard."
+    upload_flow clipboard "-" "$work"
+}
+
+# ── History (browse · search · sort · re-copy · delete) ────────────────────
+history_rows() {   # history_rows SORT  ->  id<TAB>colored display
+    local sort="$1" key now
+    now="$(date +%s)"
+    case "$sort" in
+        language) key='sort_by([.language, .epoch])' ;;
+        title)    key='sort_by(.title | ascii_downcase)' ;;
+        size)     key='sort_by(.bytes | tonumber) | reverse' ;;
+        *)        key='sort_by(.epoch) | reverse' ;;
+    esac
+    jq -rs "
+        (map(select(.event==\"deleted\") | .id)) as \$d
+        | map(select(.event==\"created\") | . + {deleted: ((.id as \$i | \$d | index(\$i)) != null)})
+        | $key
+        | .[] | [.id, (.epoch|tostring), .language, .bytes, .title, (.expires_epoch // \"0\"), (.deleted|tostring)] | @tsv" "$AUDIT_FILE" 2>/dev/null |
+    while IFS=$'\t' read -r id epoch lang bytes title exp del; do
+        local icon state when
+        if   [[ "$del" == true ]];                             then icon="${RED}✗${RST}";    state="${RED}deleted${RST} "
+        elif (( exp > 0 && exp < now ));                       then icon="${YELLOW}◌${RST}"; state="${YELLOW}expired${RST} "
+        else                                                        icon="${GREEN}●${RST}";  state="${GREEN}live${RST}    "; fi
+        printf -v when '%(%Y-%m-%d %H:%M)T' "$epoch"
+        printf '%s\t %s  %s%s%s  %s%-11s%s %s%8s%s  %s%s%s\n' "$id" "$icon" "$DIM" "$when" "$RST" "$MAUVE" "${lang:0:10}" "$RST" \
+            "$SUB" "$(human_bytes "$bytes")" "$RST" "$TEXT" "${title:0:44}" "$RST"
+    done
+}
+
+history_browser() {   # history_browser [SORT] [QUERY]
+    local sort="${1:-date}" query="${2:-}" out q key sel id rc hdr selfq
+    printf -v selfq '%q' "$SELF"
+    [[ -s "$AUDIT_FILE" ]] || { printf '\n'; warn "No uploads recorded yet."; printf '\n'; return 0; }
+    while true; do
+        hdr="${MAUVE}⏎${RST} ${SUB}copy${RST}  ${MAUVE}^Q${RST} ${SUB}qr${RST}  ${MAUVE}^T${RST} ${SUB}status${RST}  ${MAUVE}^D${RST} ${SUB}delete${RST}  ${MAUVE}^O${RST} ${SUB}open${RST}  ${MAUVE}^P${RST} ${SUB}palette${RST}"
+        hdr+=$'\n'"${DIM}sort:${RST} ${MAUVE}alt-1${RST} ${SUB}date${RST}  ${MAUVE}alt-2${RST} ${SUB}language${RST}  ${MAUVE}alt-3${RST} ${SUB}title${RST}  ${MAUVE}alt-4${RST} ${SUB}size${RST}   ${DIM}now: ${TEXT}${sort}${RST}"
+        out="$(history_rows "$sort" | fzf --ansi --delimiter=$'\t' --with-nth=2 --query="$query" --print-query \
+            --expect=enter,ctrl-q,ctrl-t,ctrl-d,ctrl-o,ctrl-p,alt-1,alt-2,alt-3,alt-4 \
+            --layout=reverse --border=rounded --margin=1,2 --padding=1,2 --info=inline --cycle --no-multi \
+            --prompt="  search ▸ " --pointer='▌' --color="$FZF_COLORS" \
+            --border-label=" 󰒿 hastebin history " --border-label-pos=4 \
+            --header="$hdr" --header-first \
+            --preview="$selfq __preview {1:q}" --preview-window='right,45%,border-rounded,wrap')"
+        rc=$?
+        (( rc == 130 )) && return 0
+        { IFS= read -r q; IFS= read -r key; IFS= read -r sel; } <<<"$out"
+        query="$q"
+        case "$key" in
+            alt-1) sort=date;     continue ;;
+            alt-2) sort=language; continue ;;
+            alt-3) sort=title;    continue ;;
+            alt-4) sort=size;     continue ;;
+            ctrl-p) palette_menu; continue ;;
+        esac
+        [[ -n "$sel" ]] || { [[ -z "$key" && $rc -ne 0 ]] && return 0; continue; }
+        id="${sel%%$'\t'*}"
+        case "$key" in
+            ctrl-q) show_qr "$BASE_URL/$id"; pause_key ;;
+            ctrl-t) status_card "$id"; pause_key ;;
+            ctrl-o) if have xdg-open; then xdg-open "$BASE_URL/$id" >/dev/null 2>&1 & fi ;;
+            ctrl-d)
+                if G confirm "  Delete $id for good?" --default=false --affirmative "Delete" --negative "Cancel" \
+                    --prompt.foreground "#f9e2af" --selected.background "#cba6f7" --selected.foreground "#181825" 2>/dev/tty >/dev/tty; then
+                    delete_paste "$id" && ok "Deleted $id"; sleep 1
+                fi ;;
+            *)      if copy_clip "$BASE_URL/$id"; then notify low "URL copied" "$BASE_URL/$id"; ok "Copied $BASE_URL/$id"; else warn "Could not copy"; fi
+                    sleep 0.8 ;;
+        esac
+    done
+}
+
+preview_paste() {   # fzf preview: hastebin __preview ID
+    local id="$1" rec
+    rec="$(created_json "$id")"
+    [[ -n "$rec" ]] || { printf '\n  %s(no record)%s\n' "$DIM" "$RST"; return; }
+    local title lang bytes ts exp burn del vis source
+    IFS=$'\t' read -r title lang bytes ts exp burn del vis source < <(printf '%s' "$rec" | jq -r '[.title, .language, .bytes, .ts, .expires, (.burn // "0"), (.deleted|tostring), (.visibility // "1"), (.source // "-")] | @tsv')
+    printf '\n  %s%s%s\n' "$BOLD$TEXT" "$title" "$RST"
+    printf '  %s%s/%s%s\n\n' "$BLUE" "$BASE_URL" "$id" "$RST"
+    kv "created" "$ts"
+    kv "lang"    "$lang"
+    kv "size"    "$(human_bytes "$bytes")"
+    kv "source"  "$source"
+    kv "expire"  "$(expiry_label "$exp")"
+    kv "vis"     "$(vis_label "$vis")"
+    kv "burn"    "$(burn_label "$burn")"
+    if [[ "$del" == true ]]; then
+        kv "status" "${RED}deleted by you${RST}"
+    elif [[ "$burn" != 0 ]]; then
+        kv "status" "${DIM}burn-after paste: Ctrl-T checks it (counts as a view)${RST}"
+    else
+        remote_status "$id"
+        case "$R_CODE" in
+            200) kv "status" "${GREEN}live${RST}  ${DIM}· ${R_VIEWS} views${RST}" ;;
+            404|410) kv "status" "${YELLOW}gone${RST} ${DIM}(expired or deleted)${RST}" ;;
+            *) kv "status" "${RED}unknown${RST} ${DIM}(HTTP ${R_CODE})${RST}" ;;
+        esac
+    fi
+}
+
+# ── Command palette (Ctrl-P) ───────────────────────────────────────────────
+PAL_EXIT=false
+palette_menu() {
+    local choice
+    choice="$(printf '%s\n' \
+        "file|  Upload a file…" \
+        "clip|  Upload the clipboard" \
+        "hist|  Browse history" \
+        "search|  Search history…" \
+        "copy|  Re-copy the last URL" \
+        "qr|  Show QR for the last paste" \
+        "status|  Status of the last paste" \
+        "delete|  Delete the last paste" \
+        "doctor|  Check dependencies" \
+        "help|  Show help" \
+        | fzf --delimiter='|' --with-nth=2 --layout=reverse --border=rounded --margin=1,2 --padding=1,2 \
+            --height=60% --info=hidden --prompt="  ❯ " --pointer='▌' --color="$FZF_COLORS" \
+            --border-label=" 󰘳 command palette " --border-label-pos=4 --cycle)" || return 0
+    local id; id="$(last_id)"
+    case "${choice%%|*}" in
+        file)   return 0 ;;
+        clip)   upload_clipboard; PAL_EXIT=true ;;
+        hist)   history_browser date ;;
+        search) local q; q="$(G input --header "  Search history" --header.foreground "#cba6f7" --prompt "  ▸ " --placeholder "title, language, id…" 2>/dev/tty)" && history_browser date "$q" ;;
+        copy)   [[ -n "$id" ]] || { warn "No uploads yet."; sleep 1; return 0; }
+                copy_clip "$BASE_URL/$id" && ok "Copied $BASE_URL/$id" || warn "Could not copy"; sleep 1 ;;
+        qr)     [[ -n "$id" ]] || { warn "No uploads yet."; sleep 1; return 0; }; show_qr "$BASE_URL/$id"; pause_key ;;
+        status) [[ -n "$id" ]] || { warn "No uploads yet."; sleep 1; return 0; }; status_card "$id"; pause_key ;;
+        delete) [[ -n "$id" ]] || { warn "No uploads yet."; sleep 1; return 0; }
+                if G confirm "  Delete the last paste ($id)?" --default=false --affirmative "Delete" --negative "Cancel" \
+                    --prompt.foreground "#f9e2af" --selected.background "#cba6f7" --selected.foreground "#181825" 2>/dev/tty >/dev/tty; then
+                    delete_paste "$id" && ok "Deleted $id"; sleep 1
+                fi ;;
+        doctor) check_deps report; pause_key ;;
+        help)   ( usage ) | ${PAGER:-less -R}; ;;
+    esac
+}
+
+# ── File picker (Ctrl-P opens the palette) ─────────────────────────────────
+pick_file_and_upload() {
+    have_tty || die "No file given." "Usage: hastebin FILE   or   cmd | hastebin -"
+    local out key sel prev
+    if [[ -n "$BAT_BIN" ]]; then prev="$BAT_BIN --style=numbers --color=always --line-range=:120 {} 2>/dev/null"
+    else prev="head -n 120 {}"; fi
+    while true; do
+        out="$(find . -maxdepth 3 -type f -not -path '*/.git/*' -not -path '*/node_modules/*' -printf '%P\n' 2>/dev/null | sort |
+            fzf --prompt="  file ▸ " --layout=reverse --border=rounded --margin=1,2 --padding=1,2 --info=inline \
+                --border-label=" 󰒿 hastebin " --border-label-pos=4 --pointer='▌' --marker='◆' --cycle \
+                --header=" ↑↓ move  ·  ⏎ select  ·  ^P palette  ·  esc cancel " --color="$FZF_COLORS" \
+                --expect=ctrl-p --preview="$prev" --preview-window='right,55%,border-rounded,wrap')" || return 0
+        key="$(sed -n 1p <<<"$out")"; sel="$(sed -n 2p <<<"$out")"
+        if [[ "$key" == ctrl-p ]]; then
+            PAL_EXIT=false; palette_menu
+            [[ "$PAL_EXIT" == true ]] && return 0
+            continue
+        fi
+        [[ -n "$sel" ]] || return 0
+        upload_file "$sel"
+        return 0
+    done
+}
+
+# ── Main ───────────────────────────────────────────────────────────────────
+resolve_id() {   # resolve_id [ID|URL]  -> id (defaults to the last upload)
+    local id; [[ -n "${1:-}" ]] && id="$(id_from "$1")" || id="$(last_id)"
+    [[ -n "$id" ]] || die "No uploads recorded yet."
+    printf '%s' "$id"
+}
+
+# internal calls from fzf (must stay quiet and dependency-light)
+case "${1:-}" in
+    __preview) have jq && have curl && preview_paste "${2:-}"; exit 0 ;;
+    -h|--help|help)       usage ;;
+    -V|-v|--version|version) show_version ;;
+    languages|--languages) list_languages ;;
+esac
+
+# check_deps strict
+if [[ "${1:-}" != "doctor" ]]; then
+    check_deps strict
+fi
+
+SUBCMD=""; HIST_SORT="date"; HIST_QUERY=""; EXTRA=()
+case "${1:-}" in
+    history|hist|ls|status|copy|cp|qr|delete|rm|palette|doctor|clip|last)
+        SUBCMD="$1"; shift ;;
+esac
+
+FILE_PATH=""; FROM_STDIN=false
+while (( $# > 0 )); do
+    case "$1" in
+        -t|--title)       [[ -n "${2:-}" ]] || die "$1 needs a value"; TITLE="$2"; TITLE_SET=true; shift 2 ;;
+        -l|--language)    [[ -n "${2:-}" ]] || die "$1 needs a value"; LANGUAGE="$2"; LANG_SET=true; shift 2 ;;
+        -e|--expires)     [[ -n "${2:-}" ]] || die "$1 needs a value"; EXPIRES="$2"; shift 2 ;;
+        -b|--burn)        [[ -n "${2:-}" ]] || die "$1 needs a value"; BURN="$2"; shift 2 ;;
+        --sort)           [[ -n "${2:-}" ]] || die "$1 needs a value"; HIST_SORT="$2"; shift 2 ;;
+        -u|--unlisted)    VISIBILITY="1"; shift ;;
+        -p|--public)      VISIBILITY="0"; shift ;;
+        -i|--interactive) INTERACTIVE=true; shift ;;
+        -y|--yes)         DO_CONFIRM=false; shift ;;
+        -f|--force)       FORCE=true; shift ;;
+        --redact)         AUTO_REDACT=true; shift ;;
+        --no-scan)        DO_SCAN=false; shift ;;
+        -c|--no-copy)     DO_COPY=false; shift ;;
+        -q|--no-qr)       DO_QR=false; shift ;;
+        --no-notify)      DO_NOTIFY=false; shift ;;
+        -n|--dry-run)     DRY_RUN=true; shift ;;
+        -)                FROM_STDIN=true; shift ;;
+        -*)               die "Unknown option: $1" "Run 'hastebin --help' for usage." ;;
+        *)                EXTRA+=("$1"); shift ;;
+    esac
+done
+
+case "$SUBCMD" in
+    history|hist|ls) HIST_QUERY="${EXTRA[*]}"; history_browser "$HIST_SORT" "$HIST_QUERY"; exit 0 ;;
+    status)  status_card "$(resolve_id "${EXTRA[0]:-}")"; exit 0 ;;
+    copy|cp) id="$(resolve_id "${EXTRA[0]:-}")"
+            if copy_clip "$BASE_URL/$id"; then printf '\n'; ok "Copied $BASE_URL/$id"; printf '\n'; else die "Could not copy." "wl-copy needs a Wayland session."; fi
+            exit 0 ;;
+    qr)      id="$(resolve_id "${EXTRA[0]:-}")"; show_qr "$BASE_URL/$id"; exit 0 ;;
+    delete|rm)
+            id="$(resolve_id "${EXTRA[0]:-}")"
+            if have_tty && ! G confirm "  Delete $id for good?" --default=false --affirmative "Delete" --negative "Cancel" \
+                    --prompt.foreground "#f9e2af" --selected.background "#cba6f7" --selected.foreground "#181825" 2>/dev/tty >/dev/tty; then
+                info "Cancelled."; exit 0
+            fi
+            printf '\n'; delete_paste "$id" "${EXTRA[1]:-}" && ok "Deleted $id"; printf '\n'; exit 0 ;;
+    last)    created_json last | jq -r '.url // empty'; exit 0 ;;
+    palette) PAL_EXIT=false; palette_menu; exit 0 ;;
+    doctor)  check_deps report
+            printf '  %s●%s  %sServer%s  ' "$BLUE" "$RST" "$SUB" "$RST"
+            if curl -fsS --max-time 8 -o /dev/null "$API_URL/server/healthz" 2>/dev/null; then printf '%s✓ reachable%s %s(%s)%s\n\n' "$GREEN" "$RST" "$DIM" "$BASE_URL" "$RST"
+            else printf '%s✗ unreachable%s %s(%s)%s\n\n' "$RED" "$RST" "$DIM" "$BASE_URL" "$RST"; fi
+            exit 0 ;;
+    clip)    validate_options; upload_clipboard; exit 0 ;;
+esac
+
+validate_options
+if [[ "$FROM_STDIN" == true ]]; then
+    upload_stdin
+elif (( ${#EXTRA[@]} > 0 )); then
+    upload_file "${EXTRA[-1]}"
+elif [[ ! -t 0 ]]; then
+    upload_stdin                       # `cmd | hastebin` without the dash
+else
+    pick_file_and_upload
+fi
+exit 0

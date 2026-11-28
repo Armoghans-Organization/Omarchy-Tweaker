@@ -256,6 +256,7 @@ will replace it with the bundled version after creating a backup.
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
 - [Zellij Dotfiles](zellij.md)
+- [Zsh Dotfiles](zsh.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

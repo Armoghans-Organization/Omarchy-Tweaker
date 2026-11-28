@@ -1,0 +1,22 @@
+[symlink]
+zshrc = "~/.zshrc"
+functions = "~/.config/zsh/functions"
+lib = "~/.config/zsh/lib"
+"script/_hastebin" = "~/.local/bin/_hastebin"
+"script/_ltx" = "~/.local/bin/_ltx"
+"script/_lzj" = "~/.local/bin/_lzj"
+"script/_pal" = "~/.local/bin/_pal"
+"script/_server" = "~/.local/bin/_server"
+"script/startup.py" = "~/.local/bin/startup.py"
+
+[ask]
+OPENROUTER_API_KEY = "What is your OpenRouter API key?"
+OPENROUTER_MANAGEMENT_KEY = "What is your OpenRouter Management API key?"
+OMNIROUTE_API_KEY = "What is your Omniroute API key?"
+OMNIROUTE_MANAGEMENT_KEY = "What is your Omniroute Management API key?"
+OMNIROUTE_CLAUDE_API_KEY = "What is your Omniroute Claude API key?"
+OMNIROUTE_OPENCODE_API_KEY = "What is your Omniroute OpenCode API key?"
+OMNIROUTE_ATUIN_API_KEY = "What is your Omniroute Atuin API key?"
+
+[create]
+secrets = "~/.secrets.zsh"

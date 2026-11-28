@@ -628,6 +628,7 @@ understand exactly what is being committed.
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
 - [Zellij Dotfiles](zellij.md)
+- [Zsh Dotfiles](zsh.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

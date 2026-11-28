@@ -1,0 +1,864 @@
+#!/usr/bin/env bash
+# ╭────────────────────────────────────────────────────────────────────────╮
+# │  server · local server launcher · Catppuccin Macchiato                 │
+# │  Put at: ~/.local/bin/_server  (alias: server)                         │
+# │  The same look and keys as lzj and tij.                                │
+# ╰────────────────────────────────────────────────────────────────────────╯
+#
+#  server                       pick a server in the picker
+#  server SERVICE [PORT|PATH] [PATH]
+#  server caddy -p 9000 -d ./public -o
+#  server -                     run the last server again (same folder, port, host)
+#  server history               pick one of your recent runs
+#  server ls                    list services and what is installed
+#  server ports                 what is listening on this machine
+#  server stop PORT             stop whatever listens on PORT
+#  server SERVICE -n            dry run: show the command, start nothing
+#  server SERVICE -- ARGS…      everything after -- is added to the server command
+#
+#  Needs:    fzf (picker only). The server programs themselves are optional and
+#            the picker marks the ones you do not have.
+#  Used when present (each one falls back gracefully):
+#            gum   prompts and confirmations     bat   colored command preview
+#            eza   folder tree in the preview    git   branch in the preview
+#            ss    port checks (falls back to /dev/tcp)
+#            qrencode  QR code for the LAN address (--qr)
+#            wl-copy / xclip / xsel   copy the URL (--copy)
+#
+#  A folder can carry its own defaults in a file named .serverrc:
+#       service = vite
+#       port    = 5173
+#       host    = 0.0.0.0
+#       open    = true
+#  Command line flags always win over .serverrc.
+
+set -uo pipefail
+
+VERSION="3.0.0"
+DEFAULT_PORT=8000
+DEFAULT_HOST="127.0.0.1"
+
+# ── Tools and paths ────────────────────────────────────────────────────────
+FZF_BIN="${FZF_BIN:-$(command -v fzf || true)}"
+GUM_BIN="${GUM_BIN:-$(command -v gum || true)}"
+BAT_BIN="${BAT_BIN:-$(command -v bat || true)}"
+EZA_BIN="${EZA_BIN:-$(command -v eza || true)}"
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/server"
+HISTORY_FILE="$STATE_DIR/history"
+
+# ── Colors (Catppuccin Macchiato) ──────────────────────────────────────────
+RST=$'\033[0m'; BOLD=$'\033[1m'; ITAL=$'\033[3m'; UNDER=$'\033[4m'
+fgc() { printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3"; }
+bgc() { printf '\033[48;2;%d;%d;%dm' "$1" "$2" "$3"; }
+MAUVE="$(fgc 198 160 246)"; TEAL="$(fgc 139 213 202)"; GREEN="$(fgc 166 218 149)"
+RED="$(fgc 237 135 150)";   YELLOW="$(fgc 238 212 159)"; PEACH="$(fgc 245 169 127)"
+BLUE="$(fgc 138 173 244)";  TEXT="$(fgc 202 211 245)"
+SUB="$(fgc 165 173 203)";   DIM="$(fgc 110 115 141)";    LINE="$(fgc 73 77 100)"
+CRUST="$(fgc 24 25 38)"
+BG_MAUVE="$(bgc 198 160 246)"; BG_GREEN="$(bgc 166 218 149)"; BG_RED="$(bgc 237 135 150)"
+BG_YELLOW="$(bgc 238 212 159)"; BG_BLUE="$(bgc 138 173 244)"; BG_TEAL="$(bgc 139 213 202)"
+
+# Glyphs are built from codepoints (UTF-8 bytes) so no editor or locale can strip them.
+u8() {
+    local cp=$((16#$1)) b1 b2 b3 b4
+    if (( cp < 0x800 )); then
+        b1=$(( 0xC0 | (cp >> 6) )); b2=$(( 0x80 | (cp & 0x3F) ))
+        printf '\\x%02x\\x%02x' "$b1" "$b2"
+    elif (( cp < 0x10000 )); then
+        b1=$(( 0xE0 | (cp >> 12) )); b2=$(( 0x80 | ((cp >> 6) & 0x3F) )); b3=$(( 0x80 | (cp & 0x3F) ))
+        printf '\\x%02x\\x%02x\\x%02x' "$b1" "$b2" "$b3"
+    else
+        b1=$(( 0xF0 | (cp >> 18) )); b2=$(( 0x80 | ((cp >> 12) & 0x3F) ))
+        b3=$(( 0x80 | ((cp >> 6) & 0x3F) )); b4=$(( 0x80 | (cp & 0x3F) ))
+        printf '\\x%02x\\x%02x\\x%02x\\x%02x' "$b1" "$b2" "$b3" "$b4"
+    fi
+}
+g() { printf "$(u8 "$1")"; }
+I_SERVER="$(g f0214)"; I_DIR="$(g f024b)"; I_HOST="$(g f0a5f)"; I_PORT="$(g f033e)"; I_URL="$(g f059f)"
+I_STOP="$(g f0453)"; I_WARN="$(g f071)"; I_CHECK="$(g f00c)"; I_BOLT="$(g f0e7)"; I_HELP="$(g f059)"
+I_LOCK="$(g f023)"; I_GIT="$(g e725)"; I_CLOCK="$(g f017)"; I_CROSS="$(g f00d)"; I_WIFI="$(g f1eb)"
+I_TERM="$(g f120)"; I_PLAY="$(g f04b)"; I_DOT="$(g f111)"; I_COPY="$(g f0c5)"; I_EYE="$(g f06e)"
+CAP_L="$(g e0b6)"; CAP_R="$(g e0b4)"
+
+# ── Services ───────────────────────────────────────────────────────────────
+# group: files = serve a folder as it is · live = reloads the browser · site = site generator / docs · project = your own dev script
+SERVICE_ORDER=(caddy node npm bun python uv php deno ruby miniserve darkhttpd vite live-server hugo mkdocs jekyll docsify dev)
+
+declare -A DESC=(
+    [caddy]="Caddy file server with directory browsing"
+    [node]="http-server on Node.js (via npx)"
+    [npm]="serve, the static server from Vercel (via npx)"
+    [bun]="serve through bunx"
+    [python]="Python's built-in http.server"
+    [uv]="Python http.server through uv"
+    [php]="PHP's built-in development server"
+    [deno]="Deno's std file server"
+    [ruby]="Ruby's built-in httpd (webrick)"
+    [miniserve]="miniserve: fast, with uploads and QR codes"
+    [darkhttpd]="darkhttpd: tiny single-binary server"
+    [vite]="Vite dev server with hot reload"
+    [live-server]="live-server: reloads the page when files change"
+    [hugo]="Hugo site server"
+    [mkdocs]="MkDocs documentation server"
+    [jekyll]="Jekyll site server with livereload"
+    [docsify]="docsify docs server (via npx)"
+    [dev]="Your project's own dev script (npm/pnpm/bun/yarn run dev)"
+)
+declare -A GROUP=(
+    [caddy]=files [node]=files [npm]=files [bun]=files [python]=files [uv]=files [php]=files [deno]=files
+    [ruby]=files [miniserve]=files [darkhttpd]=files [vite]=live [live-server]=live
+    [hugo]=site [mkdocs]=site [jekyll]=site [docsify]=site [dev]=project
+)
+declare -A ICONHEX=(
+    [caddy]=f059f [node]=f0399 [npm]=f0399 [bun]=f06e6 [python]=f0320 [uv]=f0320 [php]=f031f [deno]=f1b2
+    [ruby]=e739 [miniserve]=f233 [darkhttpd]=f233 [vite]=f1106 [live-server]=f021 [hugo]=f024b
+    [mkdocs]=f00ba [jekyll]=f0ac [docsify]=f02d [dev]=f120
+)
+declare -A HINT=(
+    [caddy]="sudo pacman -S caddy" [node]="sudo pacman -S nodejs npm" [npm]="sudo pacman -S nodejs npm"
+    [bun]="yay -S bun-bin" [python]="sudo pacman -S python" [uv]="sudo pacman -S uv" [php]="sudo pacman -S php"
+    [deno]="sudo pacman -S deno" [ruby]="sudo pacman -S ruby" [miniserve]="sudo pacman -S miniserve"
+    [darkhttpd]="sudo pacman -S darkhttpd" [vite]="sudo pacman -S nodejs npm" [live-server]="sudo pacman -S nodejs npm"
+    [hugo]="sudo pacman -S hugo" [mkdocs]="uv tool install mkdocs" [jekyll]="gem install jekyll"
+    [docsify]="sudo pacman -S nodejs npm" [dev]="needs a package.json with a \"dev\" script"
+)
+NO_HOST_FLAG=" docsify "    # services that cannot be told which address to bind to
+
+svc_icon() { g "${ICONHEX[$1]}"; }
+group_color() { case "${GROUP[$1]}" in files) printf '%s' "$BLUE" ;; live) printf '%s' "$PEACH" ;; site) printf '%s' "$TEAL" ;; *) printf '%s' "$MAUVE" ;; esac; }
+group_label() { case "${GROUP[$1]}" in files) printf 'files' ;; live) printf 'live reload' ;; site) printf 'site / docs' ;; *) printf 'project' ;; esac; }
+
+pkg_manager() {   # package manager of the project in $1 (by lock file)
+    local d="$1"
+    if   [[ -f "$d/bun.lock" || -f "$d/bun.lockb" ]]; then echo bun
+    elif [[ -f "$d/pnpm-lock.yaml" ]]; then echo pnpm
+    elif [[ -f "$d/yarn.lock" ]]; then echo yarn
+    else echo npm; fi
+}
+
+svc_bin() {   # the program that must exist for this service
+    case "$1" in
+        node|npm|vite|live-server|docsify) echo npx ;;
+        bun)      echo bunx ;;
+        python)   echo python3 ;;
+        mkdocs)   command -v mkdocs >/dev/null 2>&1 && echo mkdocs || echo uv ;;
+        dev)      pkg_manager "${RDIR:-.}" ;;
+        *)        echo "$1" ;;
+    esac
+}
+svc_ready() { command -v "$(svc_bin "$1")" >/dev/null 2>&1; }
+
+# ── Settings (command line first, then .serverrc, then these defaults) ─────
+SERVICE=""; PORT="$DEFAULT_PORT"; HOST="$DEFAULT_HOST"; DIR="."
+PORT_SET=0; HOST_SET=0; DIR_SET=0; OPEN_SET=0
+OPEN=0; BROWSE=1; REVEAL=1; NO_UI=0; DRY=0; AUTO_PORT=0; ASSUME_YES=0; COPY=0; QR=0; PICK=0
+EXTRA=()
+RDIR=""; DETECT_LABEL=""; DETECT_SUGGEST=""; SENS=""
+CMD=(); CMD_CWD=""
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+die()  { printf '\n  %s%s %s%s %s\n\n' "$RED" "$I_WARN" "$BOLD" "$*" "$RST" >&2; exit 1; }
+visible_len() {   # printable width of a string that contains color codes
+    local s n; s="$(printf '%s' "$1" | sed -E 's/\x1b\[[0-9;]*m//g')"
+    n="$(printf '%s' "$s" | LC_ALL=C.UTF-8 wc -m 2>/dev/null)"
+    printf '%d' "${n:-${#s}}"
+}
+repeat() { local n="$1" ch="$2" out=""; (( n > 0 )) || return 0; printf -v out '%*s' "$n" ''; printf '%s' "${out// /$ch}"; }
+trunc_end() { local s="$1" n="$2"; if (( ${#s} > n )); then s="${s:0:$(( n - 1 ))}…"; fi; printf '%s' "$s"; }
+trunc()  { local s="$1" n="$2"; if (( ${#s} > n )); then s="…${s: -$(( n - 1 ))}"; fi; printf '%s' "$s"; }
+short_path() { local p="$1"; [[ "$p" == "$HOME"* ]] && p="~${p#"$HOME"}"; printf '%s' "$p"; }
+
+WATCHER_PID=""
+cleanup() {
+    [[ -n "$WATCHER_PID" ]] && kill "$WATCHER_PID" 2>/dev/null
+    [[ -t 1 ]] && { tput cnorm 2>/dev/null; stty sane 2>/dev/null; }
+    return 0
+}
+trap cleanup EXIT
+
+pill() {   # pill COLOR BGCOLOR "text"
+    printf '%s%s%s%s %s %s%s%s%s' "$1" "$CAP_L" "$RST" "$2$CRUST$BOLD" "$3" "$RST" "$1" "$CAP_R" "$RST"
+}
+pill_mauve()  { pill "$MAUVE"  "$BG_MAUVE"  "$1"; }
+pill_green()  { pill "$GREEN"  "$BG_GREEN"  "$1"; }
+pill_red()    { pill "$RED"    "$BG_RED"    "$1"; }
+pill_yellow() { pill "$YELLOW" "$BG_YELLOW" "$1"; }
+pill_blue()   { pill "$BLUE"   "$BG_BLUE"   "$1"; }
+pill_teal()   { pill "$TEAL"   "$BG_TEAL"   "$1"; }
+
+# gum helpers, each with a plain fallback -----------------------------------
+toast() {   # toast ok|err|info|warn "text" [seconds]
+    local kind="$1" txt="$2" col icon hex
+    case "$kind" in ok) col="$GREEN"; icon="$I_CHECK"; hex="#a6da95" ;; err) col="$RED"; icon="$I_WARN"; hex="#ed8796" ;;
+                    warn) col="$YELLOW"; icon="$I_WARN"; hex="#eed49f" ;; *) col="$MAUVE"; icon="$I_BOLT"; hex="#c6a0f6" ;; esac
+    if [[ -n "$GUM_BIN" ]]; then
+        printf '\n' >&2
+        "$GUM_BIN" style --foreground "$hex" --border rounded --border-foreground "$hex" --padding "0 2" --margin "0 2" "$icon  $txt" >&2
+    else
+        printf '\n  %s%s  %s%s\n' "$col" "$icon" "$txt" "$RST" >&2
+    fi
+    [[ -t 1 ]] && sleep "${3:-1.4}"
+}
+
+confirm() {   # confirm "question" "Yes label"
+    local q="$1" yes="${2:-Yes}"
+    if [[ -n "$GUM_BIN" ]]; then
+        printf '\n' >&2
+        "$GUM_BIN" confirm "$q" --affirmative "$yes" --negative "Cancel" --default=false \
+            --prompt.foreground "#eed49f" --prompt.margin "0 2" \
+            --selected.background "#c6a0f6" --selected.foreground "#181926" \
+            --unselected.background "#363a4f" --unselected.foreground "#a5adcb" </dev/tty >/dev/tty 2>/dev/tty
+    else
+        local a
+        printf '\n  %s%s%s %s[y/N]%s ' "$YELLOW" "$q" "$RST" "$DIM" "$RST" >&2
+        read -r -n1 a </dev/tty || return 1
+        printf '\n' >&2
+        [[ "$a" == [yY] ]]
+    fi
+}
+
+ask() {   # ask "header" [initial] [placeholder]  ->  text on stdout, nonzero if cancelled/empty
+    local out
+    if [[ -n "$GUM_BIN" ]]; then
+        out="$("$GUM_BIN" input --header "  $1" --header.foreground "#c6a0f6" --prompt "  " \
+              --prompt.foreground "#8bd5ca" --cursor.foreground "#c6a0f6" --placeholder "${3:-type here…}" \
+              --value "${2:-}" --width 42 --char-limit 64 </dev/tty 2>/dev/tty)" || return 1
+    else
+        read -r -e -p "  $1 ❯ " -i "${2:-}" out </dev/tty || return 1
+    fi
+    out="${out#"${out%%[![:space:]]*}"}"; out="${out%"${out##*[![:space:]]}"}"
+    [[ -n "$out" ]] && printf '%s' "$out"
+}
+
+# ── Network helpers ────────────────────────────────────────────────────────
+# port_info PORT: succeeds when something listens; prints "process pid" when ss can tell
+port_info() {
+    local out
+    if command -v ss >/dev/null 2>&1; then
+        out="$(timeout 3 ss -H -ltnp "sport = :$1" 2>/dev/null)"
+        [[ -z "$out" ]] && return 1
+        sed -nE 's/.*users:\(\("([^"]+)",pid=([0-9]+).*/\1 \2/p' <<<"$out" | head -n1
+        return 0
+    fi
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+port_in_use() { port_info "$1" >/dev/null 2>&1; }
+next_free_port() { local p=$(( $1 + 1 )); while (( p < 65535 )) && port_in_use "$p"; do p=$(( p + 1 )); done; printf '%d' "$p"; }
+
+is_open_host() { [[ "$HOST" == 0.0.0.0 || "$HOST" == :: || "$HOST" == "*" ]]; }
+is_loopback()  { [[ "$HOST" == 127.* || "$HOST" == localhost || "$HOST" == ::1 ]]; }
+
+hp() { if [[ "$HOST" == *:* ]]; then printf '[%s]:%s' "$HOST" "$PORT"; else printf '%s:%s' "$HOST" "$PORT"; fi; }
+local_url() {
+    local h="$HOST"; is_open_host && h="localhost"; [[ "$h" == *:* ]] && h="[$h]"
+    printf 'http://%s:%s' "$h" "$PORT"
+}
+lan_ip() {
+    local ip
+    ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}')"
+    [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    printf '%s' "$ip"
+}
+lan_url() { is_open_host || return 0; local ip; ip="$(lan_ip)"; [[ -n "$ip" ]] && printf 'http://%s:%s' "$ip" "$PORT"; }
+
+open_browser() {
+    if   command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1 &
+    elif command -v open     >/dev/null 2>&1; then open "$1" >/dev/null 2>&1 &
+    else return 1; fi
+}
+copy_text() {
+    if   command -v wl-copy >/dev/null 2>&1; then printf '%s' "$1" | wl-copy
+    elif command -v xclip   >/dev/null 2>&1; then printf '%s' "$1" | xclip -selection clipboard
+    elif command -v xsel    >/dev/null 2>&1; then printf '%s' "$1" | xsel --clipboard --input
+    else return 1; fi
+}
+
+# ── The folder: validation, detection, secrets ─────────────────────────────
+# Reads .serverrc as plain "key = value" lines. It is never sourced, so it cannot run code.
+load_rc() {
+    local f="$RDIR/.serverrc" k v
+    [[ -f "$f" ]] || return 1
+    while IFS='=' read -r k v; do
+        k="${k//[[:space:]]/}"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; v="${v%\"}"; v="${v#\"}"
+        [[ -z "$k" || "$k" == \#* ]] && continue
+        case "$k" in
+            service) [[ -z "$SERVICE" && -n "${DESC[$v]:-}" ]] && { SERVICE="$v"; RC_SERVICE=1; } ;;
+            port)    (( PORT_SET )) || { [[ "$v" =~ ^[0-9]+$ ]] && PORT="$v"; } ;;
+            host)    (( HOST_SET )) || { [[ "$v" =~ ^[A-Za-z0-9.:*-]+$ ]] && HOST="$v"; } ;;
+            open)    (( OPEN_SET )) || { [[ "$v" == true || "$v" == yes || "$v" == 1 ]] && OPEN=1; } ;;
+            browse)  [[ "$v" == false || "$v" == no || "$v" == 0 ]] && BROWSE=0 ;;
+        esac
+    done < "$f"
+    return 0
+}
+RC_SERVICE=0
+
+has_dep() { grep -q "\"$1\"" "$RDIR/package.json" 2>/dev/null; }
+
+detect_project() {   # sets DETECT_LABEL (text) and DETECT_SUGGEST (space separated service ids, best first)
+    local d="$RDIR" labels=() sug=()
+    if [[ -f "$d/hugo.toml" || -f "$d/hugo.yaml" || -f "$d/hugo.json" || ( -f "$d/config.toml" && -d "$d/content" ) ]]; then labels+=("Hugo site"); sug+=(hugo); fi
+    if [[ -f "$d/mkdocs.yml" || -f "$d/mkdocs.yaml" ]]; then labels+=("MkDocs project"); sug+=(mkdocs); fi
+    if [[ -f "$d/_config.yml" && ( -f "$d/Gemfile" || -d "$d/_posts" || -d "$d/_layouts" ) ]]; then labels+=("Jekyll site"); sug+=(jekyll); fi
+    if [[ -f "$d/package.json" ]]; then
+        if has_dep vite || ls "$d"/vite.config.* >/dev/null 2>&1; then labels+=("Vite project"); sug+=(vite dev)
+        elif grep -q '"dev"[[:space:]]*:' "$d/package.json" 2>/dev/null; then labels+=("Node project with a dev script"); sug+=(dev)
+        else labels+=("Node project"); fi
+    fi
+    if [[ -f "$d/composer.json" || -f "$d/index.php" ]]; then labels+=("PHP project"); sug+=(php); fi
+    if [[ -f "$d/deno.json" || -f "$d/deno.jsonc" ]]; then labels+=("Deno project"); sug+=(deno); fi
+    if [[ -f "$d/index.html" || -d "$d/dist" && -f "$d/dist/index.html" ]]; then labels+=("Static site"); sug+=(caddy python); fi
+    DETECT_LABEL=""
+    local l; for l in "${labels[@]}"; do DETECT_LABEL+="${DETECT_LABEL:+ · }$l"; done
+    DETECT_SUGGEST=" ${sug[*]:-} "
+}
+is_suggested() { [[ "$DETECT_SUGGEST" == *" $1 "* ]]; }
+
+# Files that look like secrets in the folder (two levels deep). One path per line.
+scan_sensitive() {
+    local d="$1" pat
+    local -a names=()
+    for pat in .env '.env.*' '*.pem' '*.key' id_rsa id_ed25519 .npmrc .pypirc credentials.json secrets.yaml secrets.yml; do names+=(-o -name "$pat"); done
+    timeout 4 find "$d" -maxdepth 2 \( -name node_modules -o -name .venv -o -name target \) -prune -o \
+        -type f \( -false "${names[@]}" \) ! -name '*.example' ! -name '*.sample' ! -name '*.template' -print 2>/dev/null \
+        | head -n 8 | sed "s|^$d/||"
+    [[ -d "$d/.git" ]] && printf '.git/   (the whole repository history)\n'
+    return 0
+}
+
+# ── Building the command ───────────────────────────────────────────────────
+build_cmd() {   # build_cmd SERVICE  -> fills CMD and CMD_CWD from RDIR / HOST / PORT / BROWSE / REVEAL
+    local s="$1" d="$RDIR" pm
+    CMD=(); CMD_CWD=""
+    case "$s" in
+        caddy)      CMD=(caddy file-server --listen "$(hp)" --root "$d")
+                    (( BROWSE )) && CMD+=(--browse); (( REVEAL )) && CMD+=(--reveal-symlinks) ;;
+        node)       CMD=(npx http-server "$d" -p "$PORT" -a "$HOST"); (( BROWSE )) || CMD+=(-d false) ;;
+        npm)        CMD=(npx serve "$d" -l "tcp://$HOST:$PORT") ;;
+        bun)        CMD=(bunx serve "$d" -l "tcp://$HOST:$PORT") ;;
+        python)     CMD=(python3 -m http.server "$PORT" --bind "$HOST" --directory "$d") ;;
+        uv)         CMD=(uv run python -m http.server "$PORT" --bind "$HOST" --directory "$d") ;;
+        php)        CMD=(php -S "$(hp)" -t "$d") ;;
+        deno)       CMD=(deno run --allow-net --allow-read jsr:@std/http/file-server --port "$PORT" --host "$HOST" "$d") ;;
+        ruby)       CMD=(ruby -run -e httpd "$d" -p "$PORT" -b "$HOST") ;;
+        miniserve)  CMD=(miniserve -p "$PORT" -i "$HOST" "$d") ;;
+        darkhttpd)  CMD=(darkhttpd "$d" --port "$PORT" --addr "$HOST") ;;
+        vite)       CMD=(npx vite "$d" --host "$HOST" --port "$PORT" --strictPort) ;;
+        live-server) CMD=(npx live-server "$d" --port="$PORT" --host="$HOST" --no-browser) ;;
+        hugo)       CMD=(hugo server --source "$d" --port "$PORT" --bind "$HOST" --disableLiveReload) ;;
+        mkdocs)     CMD_CWD="$d"
+                    if command -v mkdocs >/dev/null 2>&1; then CMD=(mkdocs serve --dirtyreload --dev-addr "$(hp)")
+                    else CMD=(uv run mkdocs serve --dirtyreload --dev-addr "$(hp)"); fi ;;
+        jekyll)     CMD=(jekyll serve --source "$d" --port "$PORT" --host "$HOST" --livereload) ;;
+        docsify)    CMD=(npx docsify-cli serve "$d" -p "$PORT") ;;
+        dev)        pm="$(pkg_manager "$d")"; CMD_CWD="$d"
+                    if [[ "$pm" == npm ]]; then CMD=(env PORT="$PORT" HOST="$HOST" npm run dev -- --host "$HOST" --port "$PORT")
+                    else CMD=(env PORT="$PORT" HOST="$HOST" "$pm" run dev --host "$HOST" --port "$PORT"); fi ;;
+    esac
+    (( ${#EXTRA[@]} )) && CMD+=("${EXTRA[@]}")
+    return 0
+}
+
+cmd_string() {   # the command as one readable line (with a cd in front when it needs one)
+    local out="" a
+    if [[ -n "$CMD_CWD" ]]; then
+        if [[ "$CMD_CWD" == "$HOME"/* ]]; then out="cd ~/$(printf '%q' "${CMD_CWD#"$HOME"/}") && "; else out="cd $(printf '%q' "$CMD_CWD") && "; fi
+    fi
+    for a in "${CMD[@]}"; do out+="$(printf '%q' "$a") "; done
+    printf '%s' "${out% }"
+}
+
+show_cmd() {   # colored command (bat when we have it)
+    local s; s="$(cmd_string)"
+    if [[ -n "$BAT_BIN" ]]; then printf '%s\n' "$s" | "$BAT_BIN" --color=always --style=plain --paging=never --language=bash 2>/dev/null || printf '%s\n' "$s"
+    else printf '%s%s%s\n' "$TEAL" "$s" "$RST"; fi
+}
+
+# ── Boxes and sections ─────────────────────────────────────────────────────
+box() {   # box WIDTH line...   (lines may contain colors; a line of one space is a spacer)
+    local w="$1" l pad inner=$(( $1 - 4 )); shift
+    printf '  %s╭%s╮%s\n' "$LINE" "$(repeat $((w - 2)) ─)" "$RST"
+    for l in "$@"; do
+        pad=$(( inner - $(visible_len "$l") )); (( pad < 0 )) && pad=0
+        printf '  %s│%s  %s%*s%s│%s\n' "$LINE" "$RST" "$l" "$pad" "" "$LINE" "$RST"
+    done
+    printf '  %s╰%s╯%s\n' "$LINE" "$(repeat $((w - 2)) ─)" "$RST"
+}
+section() {   # section "TITLE" width
+    local t="$1" w="$2" n
+    n=$(( w - ${#t} - 5 )); (( n < 4 )) && n=4
+    printf '\n  %s──%s %s%s%s%s %s%s%s\n' "$LINE" "$RST" "$MAUVE" "$BOLD" "$t" "$RST" "$LINE" "$(repeat "$n" ─)" "$RST"
+}
+kv() { printf '%s%s%s  %s%-8s%s %s' "$BLUE" "$1" "$RST" "$SUB" "$2" "$RST" "$3"; }   # icon label value
+
+folder_tree() {   # folder_tree DIR  -> eza tree (or ls) of the folder
+    local dir="$1"
+    if [[ -n "$EZA_BIN" ]]; then
+        "$EZA_BIN" --tree --level=1 --icons=always --color=always --git --group-directories-first \
+            -I '.git|node_modules|target|__pycache__|.cache|.venv' "$dir" 2>/dev/null | sed -n '2,13p' | sed 's/^/  /'
+    else
+        ls -A --color=always "$dir" 2>/dev/null | head -12 | sed 's/^/  /'
+    fi
+}
+
+git_line() {
+    local dir="$1" br n dirty
+    command -v git >/dev/null 2>&1 && git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    br="$(git -C "$dir" branch --show-current 2>/dev/null)"; [[ -z "$br" ]] && br="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"
+    n="$(git -C "$dir" status --porcelain 2>/dev/null | wc -l)"
+    if (( n > 0 )); then dirty="${YELLOW}${n} changed${RST}"; else dirty="${GREEN}clean${RST}"; fi
+    printf '  %s%s%s %s%s%s  %s\n' "$GREEN" "$I_GIT" "$RST" "$TEXT" "$br" "$RST" "$dirty"
+}
+
+port_status_line() {   # one colored line about PORT
+    local info proc pid next
+    if info="$(port_info "$PORT")"; then
+        proc="${info% *}"; pid="${info#* }"
+        [[ -z "$info" ]] && proc="something"
+        next="$(next_free_port "$PORT")"
+        printf '%s%s  port %s is busy%s%s%s %s(next free: %s)%s' "$RED" "$I_CROSS" "$PORT" "$RST" \
+            "$([[ -n "$info" ]] && printf ' %sby %s%s' "$DIM" "$proc" "$RST")" "" "$DIM" "$next" "$RST"
+    else
+        printf '%s%s  port %s is free%s' "$GREEN" "$I_CHECK" "$PORT" "$RST"
+    fi
+}
+
+
+# ── Preview (fzf calls:  server __preview ID, state travels in _SRV_* variables) ──
+load_preview_env() {
+    PORT="${_SRV_PORT:-$PORT}"; HOST="${_SRV_HOST:-$HOST}"; RDIR="${_SRV_DIR:-$RDIR}"
+    BROWSE="${_SRV_BROWSE:-$BROWSE}"; REVEAL="${_SRV_REVEAL:-$REVEAL}"
+    DETECT_LABEL="${_SRV_DETECT:-}"; DETECT_SUGGEST="${_SRV_SUGGEST:- }"; SENS="${_SRV_SENS:-}"
+}
+
+preview_service() {   # preview_service ID
+    local s="$1" w cols="${FZF_PREVIEW_COLUMNS:-70}" bin ver badges l1 l2 l3 lu
+    load_preview_env
+    w=$(( cols - 4 )); (( w > 76 )) && w=76; (( w < 34 )) && w=34
+    [[ -z "$s" || -z "${DESC[$s]:-}" ]] && { printf '\n  %sNothing selected%s\n' "$DIM" "$RST"; return; }
+    bin="$(svc_bin "$s")"
+    badges=""
+    is_suggested "$s" && badges+=" $(pill_mauve suggested)"
+    if svc_ready "$s"; then
+        ver="$(timeout 2 "$bin" --version 2>/dev/null | head -n1 | cut -c1-40)"
+    else badges+=" $(pill_red "not installed")"; fi
+    l1="$(group_color "$s")$(svc_icon "$s")${RST}  ${BOLD}${TEXT}${s}${RST}${badges}"
+    l2="${SUB}${DESC[$s]}${RST}"
+    l3="${DIM}$(group_label "$s") · ${bin}${ver:+ · $ver}${RST}"
+    printf '\n'; box "$w" "$l1" "$l2" "$l3"
+
+    section "COMMAND" "$w"
+    build_cmd "$s"
+    printf '\n'; show_cmd | sed 's/^/  /'
+    [[ "$NO_HOST_FLAG" == *" $s "* ]] && ! is_loopback && printf '  %s%s  %s cannot choose an address, it binds its own default.%s\n' "$YELLOW" "$I_WARN" "$s" "$RST"
+    if ! svc_ready "$s"; then
+        printf '\n  %s%s  install:%s %s%s%s\n' "$YELLOW" "$I_WARN" "$RST" "$TEAL" "${HINT[$s]}" "$RST"
+    fi
+
+    section "ADDRESS" "$w"
+    printf '\n  %s%s%s  %s%s%s%s\n' "$BLUE" "$I_URL" "$RST" "$TEAL" "$UNDER" "$(local_url)" "$RST"
+    lu="$(lan_url)"; [[ -n "$lu" ]] && printf '  %s%s%s  %s%s%s  %s(reachable by other devices)%s\n' "$PEACH" "$I_WIFI" "$RST" "$TEAL" "$lu" "$RST" "$DIM" "$RST"
+    printf '  %s\n' "$(port_status_line)"
+
+    section "FOLDER" "$w"
+    printf '\n  %s%s%s %s%s%s\n' "$PEACH" "$I_DIR" "$RST" "$SUB" "$(short_path "$RDIR")" "$RST"
+    [[ -n "$DETECT_LABEL" ]] && printf '  %s%s%s %s%s%s\n' "$MAUVE" "$I_BOLT" "$RST" "$TEXT" "$DETECT_LABEL" "$RST"
+    git_line "$RDIR"
+    if [[ -n "$SENS" ]]; then
+        printf '  %s%s  possible secrets here (%s):%s\n' "$YELLOW" "$I_LOCK" "$(printf '%s\n' "$SENS" | wc -l)" "$RST"
+        printf '%s\n' "$SENS" | head -n 3 | sed "s/^/      ${YELLOW}/; s/\$/${RST}/"
+    fi
+    printf '\n'; folder_tree "$RDIR"
+    printf '\n  %s⏎ start   ^P port   ^D folder   ^H host   ^O open%s\n' "$DIM" "$RST"
+}
+
+preview_raw() {   # the full command, colored
+    load_preview_env; build_cmd "$1"
+    printf '\n  %s%s  command%s\n\n' "$MAUVE" "$I_TERM" "$RST"
+    show_cmd | sed 's/^/  /'
+}
+preview_secrets() {
+    load_preview_env
+    printf '\n  %s%s  secret scan of %s%s\n\n' "$MAUVE" "$I_LOCK" "$(short_path "$RDIR")" "$RST"
+    if [[ -z "$SENS" ]]; then printf '  %s%s  nothing suspicious in the first two levels%s\n' "$GREEN" "$I_CHECK" "$RST"
+    else printf '%s\n' "$SENS" | sed "s/^/  ${YELLOW}${I_LOCK}${RST}  /"; fi
+    printf '\n  %sA name check, not a guarantee. Anything inside the served folder is public to whoever can reach the port.%s\n' "$DIM" "$RST"
+}
+preview_help() {
+    local w=$(( ${FZF_PREVIEW_COLUMNS:-70} - 4 ))
+    k() { printf '    %s%-11s%s %s%s%s\n' "$MAUVE$BOLD" "$1" "$RST" "$SUB" "$2" "$RST"; }
+    printf '\n  %s%s  Keys%s\n' "$MAUVE$BOLD" "$I_HELP" "$RST"
+    section "RUN" "$w"
+    k "Enter"   "start the selected server"
+    k "Ctrl-P"  "change the port"
+    k "Ctrl-D"  "choose another folder"
+    k "Ctrl-H"  "switch 127.0.0.1 (only me) / 0.0.0.0 (whole network)"
+    k "Ctrl-O"  "open the browser when it is ready"
+    k "Ctrl-B"  "directory listing on / off (caddy, node)"
+    section "LOOK" "$w"
+    k "Alt-O"   "overview"
+    k "Alt-V"   "the full command"
+    k "Alt-S"   "secret scan of the folder"
+    k "F1"      "this help"
+    k "Ctrl-/"  "hide / show the preview"
+    k "Shift-Up/Dn" "scroll the preview"
+    k "Esc"     "quit"
+}
+
+# ── Picker ─────────────────────────────────────────────────────────────────
+FZF_COLORS="bg:-1,bg+:#363a4f,fg:#a5adcb,fg+:#cad3f5,hl:#c6a0f6,hl+:#f5bde6,border:#494d64,label:#c6a0f6,\
+prompt:#8bd5ca,pointer:#c6a0f6,marker:#8bd5ca,spinner:#c6a0f6,info:#6e738d,header:#8087a2,\
+preview-border:#494d64,gutter:-1,query:#cad3f5,disabled:#6e738d"
+
+fzf_menu() {   # fzf_menu "prompt icon" [extra fzf args]  (items on stdin)
+    "$FZF_BIN" --ansi --layout=reverse --border=rounded --margin=1,2 --padding=1,2 --info=inline \
+        --prompt="  $1  " --pointer='▌' --no-scrollbar --cycle --color="$FZF_COLORS" "${@:2}"
+}
+
+# Rows: ID<TAB>display (two lines + spacer, NUL separated). Suggested first, then installed, then missing.
+service_rows() {
+    local pass s badges l1 l2 col last=""
+    [[ -r "$HISTORY_FILE" ]] && last="$(tail -n1 "$HISTORY_FILE" | cut -f2)"
+    for pass in 1 2 3; do
+        for s in "${SERVICE_ORDER[@]}"; do
+            case "$pass" in
+                1) is_suggested "$s" && svc_ready "$s" || continue ;;
+                2) is_suggested "$s" && svc_ready "$s" && continue; svc_ready "$s" || continue ;;
+                3) svc_ready "$s" && continue ;;
+            esac
+            badges=""
+            is_suggested "$s" && badges+=" $(pill_mauve suggested)"
+            [[ "$s" == "$last" ]] && badges+=" $(pill_blue "last used")"
+            svc_ready "$s" || badges+=" $(pill_red "not installed")"
+            if svc_ready "$s"; then col="$(group_color "$s")"; else col="$DIM"; fi
+            l1="  ${col}$(svc_icon "$s")${RST}  ${TEXT}${BOLD}${s}${RST}${badges}"
+            l2="${DIM}$(group_label "$s")  ·  ${DESC[$s]}${RST}"
+            printf '%s\t%s\n     %s\n \0' "$s" "$l1" "$l2"
+        done
+    done
+}
+
+fzf_version() { "$FZF_BIN" --version 2>/dev/null | awk '{print $1}'; }
+version_ge() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]; }
+
+pick_dir() {
+    { if command -v zoxide >/dev/null 2>&1; then zoxide query -l 2>/dev/null
+      elif command -v fd >/dev/null 2>&1; then fd --type d --max-depth 3 . "$HOME" 2>/dev/null
+      else find "$HOME" -maxdepth 3 -type d -not -path '*/.*' 2>/dev/null; fi; } \
+        | sed "s|^$HOME|~|" \
+        | fzf_menu "$I_DIR" --border-label=' choose the folder to serve ' \
+            --preview="ls -A --color=always {} 2>/dev/null | head -40" --preview-window='right,45%,border-left,wrap' \
+        | sed "s|^~|$HOME|"
+}
+
+export_state() {   # hand the picker's state to the preview processes
+    export _SRV_PORT="$PORT" _SRV_HOST="$HOST" _SRV_DIR="$RDIR" _SRV_BROWSE="$BROWSE" _SRV_REVEAL="$REVEAL"
+    export _SRV_DETECT="$DETECT_LABEL" _SRV_SUGGEST="$DETECT_SUGGEST" _SRV_SENS="$SENS"
+}
+
+picker() {   # sets SERVICE (and maybe PORT / HOST / RDIR / OPEN / BROWSE); returns 1 on cancel
+    [[ -t 0 && -t 1 ]] || die "the picker needs a terminal (pass a service name instead)"
+    [[ -n "$FZF_BIN" ]] || die "fzf is not installed"
+    local out rc query key sel hdr errf fv id newp newd selfq
+    local -a fancy=()
+    printf -v selfq '%q' "$SELF"
+    fv="$(fzf_version)"
+    [[ -n "$fv" ]] && version_ge "$fv" "0.58" && fancy=(--ghost='type to filter servers' --highlight-line)
+    errf="$(mktemp)"; query=""
+    while true; do
+        export_state
+        hdr="${BLUE}${I_PORT}${RST} ${TEXT}${PORT}${RST}   ${BLUE}${I_HOST}${RST} ${TEXT}${HOST}${RST}   ${PEACH}${I_DIR}${RST} ${TEXT}$(short_path "$RDIR")${RST}   ${MAUVE}${I_EYE}${RST} ${TEXT}open $([[ $OPEN == 1 ]] && echo on || echo off)${RST}"
+        hdr+=$'\n'"${MAUVE}⏎${RST} ${SUB}start${RST}    ${MAUVE}^P${RST} ${SUB}port${RST}    ${MAUVE}^D${RST} ${SUB}folder${RST}    ${MAUVE}^H${RST} ${SUB}host${RST}    ${MAUVE}^O${RST} ${SUB}open${RST}    ${MAUVE}F1${RST} ${SUB}all keys${RST}"
+        out="$(service_rows | "$FZF_BIN" --read0 --ansi --delimiter=$'\t' --with-nth=2 "${fancy[@]}" \
+            --layout=reverse --border=rounded --margin=1,2 --padding=1,2 --info=inline --no-multi --cycle --no-scrollbar \
+            --prompt=" $I_TERM  " --pointer='▌' --query="$query" \
+            --border-label=" $I_SERVER  server · local servers " --border-label-pos=4 \
+            --header="$hdr" --header-first --color="$FZF_COLORS" \
+            --preview="$selfq __preview {1:q}" --preview-window='right,56%,border-rounded,wrap' --preview-label=' overview ' \
+            --bind="alt-o:change-preview($selfq __preview {1:q})+change-preview-label( overview )" \
+            --bind="alt-v:change-preview($selfq __raw {1:q})+change-preview-label( command )" \
+            --bind="alt-s:change-preview($selfq __secrets)+change-preview-label( secret scan )" \
+            --bind="f1:change-preview($selfq __help)+change-preview-label( keys )" \
+            --bind='ctrl-/:toggle-preview,shift-down:preview-half-page-down,shift-up:preview-half-page-up' \
+            --print-query --expect=ctrl-p,ctrl-d,ctrl-h,ctrl-o,ctrl-b 2>"$errf")"
+        rc=$?
+        if (( rc == 2 )); then
+            if (( ${#fancy[@]} )); then fancy=(); continue; fi
+            printf '\n  %s%s  fzf could not start:%s\n  %s%s%s\n\n' "$RED" "$I_WARN" "$RST" "$DIM" "$(head -n3 "$errf")" "$RST" >&2
+            rm -f "$errf"; return 1
+        fi
+        (( rc == 130 || rc == 1 )) && { rm -f "$errf"; return 1; }
+        { IFS= read -r query; IFS= read -r key; IFS= read -r sel; } <<<"$out"
+        id="${sel%%$'\t'*}"; [[ -z "$sel" ]] && id=""
+        case "$key" in
+            ctrl-p) newp="$(ask "port to listen on" "$PORT" "1 - 65535")" || continue
+                    if [[ "$newp" =~ ^[0-9]+$ ]] && (( 10#$newp >= 1 && 10#$newp <= 65535 )); then PORT=$((10#$newp)); PORT_SET=1
+                    else toast err "\"$newp\" is not a valid port"; fi; continue ;;
+            ctrl-d) newd="$(pick_dir)" || continue
+                    [[ -d "$newd" ]] && { DIR="$newd"; resolve_dir; DIR_SET=1; refresh_folder; }; continue ;;
+            ctrl-h) if is_open_host; then HOST="127.0.0.1"; else HOST="0.0.0.0"; fi; HOST_SET=1; continue ;;
+            ctrl-o) OPEN=$(( 1 - OPEN )); OPEN_SET=1; continue ;;
+            ctrl-b) BROWSE=$(( 1 - BROWSE )); continue ;;
+        esac
+        [[ -z "$id" ]] && continue
+        if ! svc_ready "$id"; then toast err "$id is not installed. Try: ${HINT[$id]}" 3; continue; fi
+        SERVICE="$id"; rm -f "$errf"; return 0
+    done
+}
+
+# ── Folder state ───────────────────────────────────────────────────────────
+resolve_dir() {
+    [[ -d "$DIR" ]] || die "Folder not found: $DIR"
+    RDIR="$(cd "$DIR" && pwd -P)"
+}
+refresh_folder() { detect_project; SENS="$(scan_sensitive "$RDIR")"; }
+
+# ── History ────────────────────────────────────────────────────────────────
+record_history() {
+    mkdir -p "$STATE_DIR" 2>/dev/null || return 0
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$SERVICE" "$PORT" "$HOST" "$RDIR" >> "$HISTORY_FILE" 2>/dev/null
+    tail -n 60 "$HISTORY_FILE" > "$HISTORY_FILE.tmp" 2>/dev/null && mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
+}
+apply_history_line() {   # epoch service port host dir
+    local _e s p h d
+    IFS=$'\t' read -r _e s p h d <<<"$1"
+    [[ -z "$SERVICE" ]] && SERVICE="$s"
+    (( PORT_SET )) || PORT="$p"; (( HOST_SET )) || HOST="$h"
+    if (( ! DIR_SET )); then DIR="$d"; fi
+}
+history_rows() {
+    [[ -r "$HISTORY_FILE" ]] || return 0
+    tac "$HISTORY_FILE" | awk -F'\t' '!seen[$2 FS $3 FS $4 FS $5]++' | while IFS=$'\t' read -r e s p h d; do
+        [[ -n "${DESC[$s]:-}" ]] || continue
+        printf '%s\t%s\t%s\t%s\t%s\t  %s%s%s  %s%-9s%s %s%s:%s%s  %s%s%s  %s%s ago%s\n' "$e" "$s" "$p" "$h" "$d" \
+            "$(group_color "$s")" "$(svc_icon "$s")" "$RST" "$TEXT$BOLD" "$s" "$RST" "$TEAL" "$h" "$p" "$RST" "$PEACH" "$(short_path "$d")" "$RST" "$DIM" "$(ago "$e")" "$RST"
+    done
+}
+ago() { local s=$(( $(date +%s) - $1 )); if (( s < 3600 )); then printf '%dm' $(( s / 60 )); elif (( s < 86400 )); then printf '%dh' $(( s / 3600 )); else printf '%dd' $(( s / 86400 )); fi; }
+
+pick_history() {   # prints the chosen raw history line
+    [[ -r "$HISTORY_FILE" ]] || die "no history yet. Run a server first."
+    history_rows | fzf_menu "$I_CLOCK" --delimiter=$'\t' --with-nth=6 --border-label=' recent servers ' \
+        | awk -F'\t' '{ print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $5 }'
+}
+
+# ── Ports ──────────────────────────────────────────────────────────────────
+cmd_ports() {
+    command -v ss >/dev/null 2>&1 || die "ss is not installed (package iproute2)"
+    printf '\n  %s%s  Listening on this machine%s\n\n' "$MAUVE$BOLD" "$I_PORT" "$RST"
+    printf '  %s%-7s %-22s %-18s %s%s\n' "$DIM" "PORT" "ADDRESS" "PROCESS" "PID" "$RST"
+    timeout 4 ss -H -ltnp 2>/dev/null | awk '{
+        n = split($4, a, ":"); port = a[n]; addr = substr($4, 1, length($4) - length(port) - 1)
+        proc = "-"; pid = "-"
+        if (match($0, /users:\(\("[^"]+",pid=[0-9]+/)) { s = substr($0, RSTART, RLENGTH); sub(/^users:\(\("/, "", s); split(s, b, "\",pid="); proc = b[1]; pid = b[2] }
+        printf "%s\t%s\t%s\t%s\n", port, addr, proc, pid }' | sort -n -u | while IFS=$'\t' read -r port addr proc pid; do
+        local col="$SUB"; (( port >= 3000 && port <= 9999 )) && col="$TEAL"
+        printf '  %s%-7s%s %s%-22s%s %s%-18s%s %s%s%s\n' "$col" "$port" "$RST" "$SUB" "$addr" "$RST" "$TEXT" "$proc" "$RST" "$DIM" "$pid" "$RST"
+    done
+    printf '\n  %sStop one with:  server stop PORT%s\n\n' "$DIM" "$RST"
+}
+cmd_stop() {
+    local p="${1:-}" info proc pid
+    [[ "$p" =~ ^[0-9]+$ ]] || die "usage: server stop PORT"
+    info="$(port_info "$p")" || die "nothing is listening on port $p"
+    proc="${info% *}"; pid="${info#* }"
+    [[ "$pid" =~ ^[0-9]+$ ]] || die "port $p is in use, but the process is not visible to you (try sudo)"
+    confirm "$I_STOP  Stop $proc (pid $pid) on port $p?" "Stop" || exit 0
+    if kill "$pid" 2>/dev/null; then toast ok "sent TERM to $proc ($pid)"; else toast err "could not stop $pid"; fi
+}
+
+# ── List and help ──────────────────────────────────────────────────────────
+cmd_list() {
+    local s st
+    printf '\n  %s%s  Servers%s\n\n' "$MAUVE$BOLD" "$I_SERVER" "$RST"
+    for s in "${SERVICE_ORDER[@]}"; do
+        if svc_ready "$s"; then st="${GREEN}${I_CHECK}${RST}"; else st="${RED}${I_CROSS}${RST}"; fi
+        printf '  %s  %s%s%s  %s%-12s%s %s%-12s%s %s%s%s\n' "$st" "$(group_color "$s")" "$(svc_icon "$s")" "$RST" "$TEXT$BOLD" "$s" "$RST" "$DIM" "$(group_label "$s")" "$RST" "$SUB" "${DESC[$s]}" "$RST"
+    done
+    printf '\n  %s%s installed, %s not installed%s\n\n' "$DIM" "$I_CHECK" "$I_CROSS" "$RST"
+}
+
+usage() {
+    cat <<EOF
+
+  ${MAUVE}${I_SERVER}${RST}  ${TEXT}${BOLD}server${RST} ${DIM}v${VERSION}${RST}
+
+  ${SUB}Usage${RST}
+    server                         open the picker
+    server SERVICE [PORT|PATH] [PATH]
+    server -                       run the last server again
+    server history | ls | ports | stop PORT
+
+  ${SUB}Options${RST}
+    -p, --port PORT        port (default $DEFAULT_PORT)
+    -H, --host HOST        address to bind (default $DEFAULT_HOST)
+    -d, --dir, --path DIR  folder to serve (default .)
+    -L, --lan              same as --host 0.0.0.0 (other devices can connect)
+    -o, --open             open the browser when the server is up
+    -c, --copy             copy the URL to the clipboard
+    -q, --qr               show a QR code of the LAN address (needs qrencode)
+    -a, --auto-port        use the next free port if the port is busy
+    -n, --dry-run          show the command, start nothing
+    -y, --yes              do not ask questions
+    -i, --pick             always show the picker (even with a .serverrc)
+        --no-ui            never show the picker
+        --no-browse        no directory listing (caddy, node)
+        --no-reveal        do not follow symlinks (caddy)
+    -l, --list             list services          -h, --help   -v, --version
+    --  ARGS…              everything after -- is added to the server command
+
+  ${SUB}Examples${RST}
+    server caddy -p 9999 -d ./public
+    server python 8080
+    server vite -p 5173 -o
+    server miniserve -L -q
+    server hugo -n
+
+EOF
+}
+
+# ── Arguments ──────────────────────────────────────────────────────────────
+POSITIONAL=()
+case "${1:-}" in
+    __preview) preview_service "${2:-}"; exit 0 ;;
+    __raw)     preview_raw "${2:-}"; exit 0 ;;
+    __secrets) preview_secrets; exit 0 ;;
+    __help)    preview_help; exit 0 ;;
+esac
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p|--port)  [[ -n "${2:-}" ]] || die "Option $1 needs a value"; PORT="$2"; PORT_SET=1; shift 2 ;;
+        -H|--host)  [[ -n "${2:-}" ]] || die "Option $1 needs a value"; HOST="$2"; HOST_SET=1; shift 2 ;;
+        -d|--dir|--path) [[ -n "${2:-}" ]] || die "Option $1 needs a value"; DIR="$2"; DIR_SET=1; shift 2 ;;
+        -L|--lan)   HOST="0.0.0.0"; HOST_SET=1; shift ;;
+        -o|--open)  OPEN=1; OPEN_SET=1; shift ;;
+        -c|--copy)  COPY=1; shift ;;
+        -q|--qr)    QR=1; shift ;;
+        -a|--auto-port) AUTO_PORT=1; shift ;;
+        -n|--dry-run)   DRY=1; shift ;;
+        -y|--yes)   ASSUME_YES=1; shift ;;
+        -i|--pick)  PICK=1; shift ;;
+        --no-ui)    NO_UI=1; shift ;;
+        --no-browse) BROWSE=0; shift ;;
+        --no-reveal) REVEAL=0; shift ;;
+        -l|--list)  cmd_list; exit 0 ;;
+        -h|--help)  usage; exit 0 ;;
+        -v|--version) printf 'server %s\n' "$VERSION"; exit 0 ;;
+        --)         shift; EXTRA=("$@"); break ;;
+        -)          POSITIONAL+=("-"); shift ;;
+        -*)         die "Unknown option: $1 (try server --help)" ;;
+        *)          POSITIONAL+=("$1"); shift ;;
+    esac
+done
+
+if (( ${#POSITIONAL[@]} >= 1 )); then
+    case "${POSITIONAL[0]}" in
+        ls|list)  cmd_list; exit 0 ;;
+        ports)    cmd_ports; exit 0 ;;
+        stop)     cmd_stop "${POSITIONAL[1]:-}"; exit 0 ;;
+        history)  line="$(pick_history)" || exit 0; [[ -n "$line" ]] || exit 0; apply_history_line "$line" ;;
+        -|last)   [[ -r "$HISTORY_FILE" ]] || die "no previous server recorded yet"; apply_history_line "$(tail -n1 "$HISTORY_FILE")" ;;
+        *)        SERVICE="${POSITIONAL[0]}" ;;
+    esac
+    if (( ${#POSITIONAL[@]} >= 2 )) && [[ "${POSITIONAL[0]}" != stop ]]; then
+        if [[ "${POSITIONAL[1]}" =~ ^[0-9]+$ ]]; then PORT="${POSITIONAL[1]}"; PORT_SET=1; else DIR="${POSITIONAL[1]}"; DIR_SET=1; fi
+    fi
+    (( ${#POSITIONAL[@]} >= 3 )) && { DIR="${POSITIONAL[2]}"; DIR_SET=1; }
+fi
+
+# ── Validate ───────────────────────────────────────────────────────────────
+resolve_dir
+load_rc
+[[ "$PORT" =~ ^[0-9]+$ ]] || die "Invalid port: $PORT"
+(( 10#$PORT >= 1 && 10#$PORT <= 65535 )) || die "Port must be between 1 and 65535"
+PORT=$((10#$PORT))
+refresh_folder
+
+# ── Choose the service ─────────────────────────────────────────────────────
+if [[ -z "$SERVICE" || $PICK == 1 ]]; then
+    (( NO_UI == 0 )) || die "Name a service when using --no-ui"
+    picker || exit 0
+fi
+[[ -n "${DESC[$SERVICE]:-}" ]] || die "Unknown service: $SERVICE (server ls shows them all)"
+if ! svc_ready "$SERVICE"; then
+    (( DRY )) || die "$(svc_bin "$SERVICE") is not installed (needed for $SERVICE). Try: ${HINT[$SERVICE]}"
+fi
+[[ "$NO_HOST_FLAG" == *" $SERVICE "* && "$HOST_SET" == 1 ]] && ! is_loopback && toast warn "$SERVICE cannot choose an address; --host is ignored" 2
+
+# ── Port ───────────────────────────────────────────────────────────────────
+if info="$(port_info "$PORT")"; then
+    next="$(next_free_port "$PORT")"
+    if (( AUTO_PORT )); then PORT="$next"
+    elif (( DRY )); then :
+    elif [[ -t 0 && -t 1 && $NO_UI == 0 && $ASSUME_YES == 0 ]]; then
+        confirm "$I_WARN  Port $PORT is busy${info:+ ($info)}. Use $next instead?" "Use $next" && PORT="$next" || exit 0
+    else
+        die "Port $PORT is already in use${info:+ by ${info% *}}. Use -a to take the next free port ($next)."
+    fi
+fi
+
+# ── Secrets warning ────────────────────────────────────────────────────────
+if [[ -n "$SENS" && $DRY == 0 && "$SERVICE" != dev && "$SERVICE" != hugo && "$SERVICE" != mkdocs && "$SERVICE" != jekyll ]]; then
+    printf '\n  %s%s  %sPossible secrets in the folder you are about to serve:%s\n' "$YELLOW" "$I_LOCK" "$BOLD" "$RST"
+    printf '%s\n' "$SENS" | head -n 6 | sed "s/^/      ${YELLOW}/; s/\$/${RST}/"
+    printf '  %sA name check, not a guarantee. Consider serving a public/ or dist/ folder.%s\n' "$DIM" "$RST"
+    if ! is_loopback && [[ -t 0 && $ASSUME_YES == 0 ]]; then
+        confirm "$I_LOCK  This server is reachable from the network. Serve anyway?" "Serve" || exit 0
+    fi
+fi
+
+# ── The run screen ─────────────────────────────────────────────────────────
+build_cmd "$SERVICE"
+URL="$(local_url)"; LURL="$(lan_url)"
+w=$(( $(tput cols 2>/dev/null || echo 80) - 4 )); (( w > 78 )) && w=78; (( w < 50 )) && w=50
+lines=("$(group_color "$SERVICE")$(svc_icon "$SERVICE")${RST}  ${BOLD}${TEXT}${SERVICE}${RST}  $(pill_green "$(is_open_host && echo network || echo local)")" "${DIM}$(trunc_end "${DESC[$SERVICE]}" $(( w - 6 )))${RST}"
+       "$(kv "$I_DIR" folder "${SUB}$(trunc "$(short_path "$RDIR")" $(( w - 18 )))${RST}")"
+       "$(kv "$I_HOST" address "${SUB}${HOST}:${PORT}${RST}")"
+       "$(kv "$I_URL" url "${TEAL}${UNDER}${URL}${RST}")")
+[[ -n "$LURL" ]] && lines+=("$(kv "$I_WIFI" network "${TEAL}${UNDER}${LURL}${RST}")")
+[[ -n "$DETECT_LABEL" ]] && lines+=("$(kv "$I_BOLT" project "${SUB}$(trunc "$DETECT_LABEL" $(( w - 18 )))${RST}")")
+lines+=("$(kv "$I_TERM" command "${DIM}$(trunc_end "$(cmd_string)" $(( w - 18 )))${RST}")")
+(( RC_SERVICE )) && lines+=("$(kv "$I_CHECK" config "${DIM}.serverrc${RST}")")
+[[ -t 1 && $DRY == 0 ]] && clear
+printf '\n'; box "$w" "${lines[@]}"
+
+if (( DRY )); then
+    printf '\n  %s%s  dry run, nothing started:%s\n\n' "$YELLOW" "$I_EYE" "$RST"; show_cmd | sed 's/^/  /'; printf '\n'
+    exit 0
+fi
+
+# ── Run ────────────────────────────────────────────────────────────────────
+record_history
+INTERRUPTED=0
+trap 'INTERRUPTED=1' INT TERM
+START=$SECONDS
+
+watch_ready() {   # waits (up to 30 s) until the port answers, then opens / copies / prints
+    local i
+    for i in $(seq 1 300); do port_in_use "$PORT" && break; sleep 0.1; done
+    port_in_use "$PORT" || exit 0
+    printf '\n  %s %s%s%s\n' "$(pill_green listening)" "$TEAL" "$URL" "$RST"
+    (( OPEN )) && open_browser "$URL"
+    (( COPY )) && copy_text "${LURL:-$URL}" && printf '  %s%s  copied to the clipboard%s\n' "$DIM" "$I_COPY" "$RST"
+    if (( QR )) && [[ -n "$LURL" ]]; then
+        if command -v qrencode >/dev/null 2>&1; then qrencode -t UTF8 -m 1 "$LURL" | sed 's/^/  /'
+        else printf '  %s(install qrencode to see a QR code)%s\n' "$DIM" "$RST"; fi
+    fi
+    exit 0
+}
+printf '\n  %s%s  Ctrl+C to stop%s\n\n' "$YELLOW" "$I_STOP" "$RST"
+watch_ready & WATCHER_PID=$!
+
+STATUS=0
+if [[ -n "$CMD_CWD" ]]; then ( cd "$CMD_CWD" && "${CMD[@]}" ) || STATUS=$?
+else "${CMD[@]}" || STATUS=$?; fi
+
+kill "$WATCHER_PID" 2>/dev/null; WATCHER_PID=""
+dur=$(( SECONDS - START )); durs="$(printf '%dm %02ds' $(( dur / 60 )) $(( dur % 60 )))"
+printf '\n'
+if (( INTERRUPTED )); then printf '  %s %s%s%s%s%s\n\n' "$(pill_green stopped)" "$DIM" "after " "$durs" "$RST"; exit 0
+elif (( STATUS == 0 )); then printf '  %s %sexited after %s%s\n\n' "$(pill_green exited)" "$DIM" "$durs" "$RST"
+else printf '  %s %sexit code %s after %s%s\n\n' "$(pill_red failed)" "$DIM" "$STATUS" "$durs" "$RST"; fi
+exit "$STATUS"

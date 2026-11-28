@@ -28,6 +28,7 @@ flowchart LR
     V --> FS[User files]
     V --> HY[Hyprland symlinks]
     V --> SC[Script symlinks and execute bits]
+    V --> SF[Secret file with 0600 permissions]
     O --> S[sudo commands]
     PM --> P[sudo pacman / yay]
     PL --> Q[omarchy plugin add / bash patch]
@@ -43,6 +44,8 @@ flowchart LR
 | Hyprland configuration replacement | Bundled files are linked only after one explicit confirmation; matching files are replaced **without** backups, and correct links are left alone. |
 | PATH entry replacement | Bundled scripts are linked only after one explicit confirmation; matching `~/.local/bin/` entries are replaced **without** backups, and correct links are left alone. |
 | Dotfile replacement | Bundled dotfiles are linked only after per-catalog confirmation; existing destinations are backed up and restored if linking fails. |
+| Secret disclosure | Zsh API key prompts are masked, rendered secrets are written as `~/.secrets.zsh` with mode `0600`, and private values are never printed or logged. |
+| Generated shell command injection | fzf field and `$SELF` placeholders are shell-escaped, and the hastebin config file is parsed from an allowlist instead of being sourced. Some helpers still use `eval` for generated actions and should be reviewed before use. |
 | Key overwrite | Existing SSH and GPG private keys are reused, never regenerated, and private key contents are never printed or logged. |
 | Accidental removal | Explicit selection, separate category lists, final confirmation. |
 | Non-interactive guessing | Interactive steps skip when no TTY is available. |
@@ -70,7 +73,8 @@ dotfile backups and key handling, [Bat Dotfiles](bat.md) for config linking and 
 [Superfile Dotfiles](superfile.md) for file-manager config linking and external command
 scope, [Tmux Dotfiles](tmux.md) for multiplexer config linking, helper script scope, and TPM
 auto-install behavior, [Zellij Dotfiles](zellij.md) for multiplexer config linking and WASM
-plugin scope,
+plugin scope, [Zsh Dotfiles](zsh.md) for secret handling, shell escaping, and helper script
+scope,
 [Hyprland](hypr.md) for the configuration link workflow
 and its no-backup policy, and [Bundled Scripts](scripts.md) for the PATH link workflow.
 

@@ -518,6 +518,7 @@ destination paths inside the home directory.
 - [Lazygit Dotfiles](lazygit.md)
 - [Tig Dotfiles](tig.md)
 - [Tmux Dotfiles](tmux.md)
+- [Zsh Dotfiles](zsh.md)
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
 - [Commands](commands.md)

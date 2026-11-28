@@ -107,6 +107,11 @@ OMARCHY_TWEAKER_SCRIPTS_DIR=~/Documents/Github/My-Scripts omarchy-tweaker script
 Override the home directory used for `~/.local/bin/` only in tests through the
 `home` argument of `run_scripts_step()`; the CLI always uses `Path.home()`.
 
+!!! note "Other `~/.local/bin/` links"
+    The Zsh dotfile catalog links its own helpers (`_hastebin`, `_ltx`, `_lzj`, `_pal`,
+    `_server`, and `startup.py`) into `~/.local/bin/` separately from this command. See
+    **[Zsh Dotfiles](zsh.md)** for those helpers and their aliases.
+
 ## Verify the result
 
 ```bash
@@ -119,5 +124,6 @@ command -v create-vm
 
 - [Commands](commands.md)
 - [Getting Started](getting-started.md)
+- [Zsh Dotfiles](zsh.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

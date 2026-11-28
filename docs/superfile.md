@@ -326,6 +326,7 @@ the catalog at new sources or maintain a separate Superfile config directory. Ke
 - [Tmux Dotfiles](tmux.md)
 - [Starship Dotfiles](starship.md)
 - [Zellij Dotfiles](zellij.md)
+- [Zsh Dotfiles](zsh.md)
 - [Commands](commands.md)
 - [Getting Started](getting-started.md)
 - [Security](security.md)

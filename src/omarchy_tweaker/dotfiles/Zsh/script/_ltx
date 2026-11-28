@@ -1,0 +1,719 @@
+#!/usr/bin/env bash
+# ╭────────────────────────────────────────────────────────────────────────╮
+# │  ltx · Lazy Tmux · session manager · Catppuccin Macchiato              │
+# ╰────────────────────────────────────────────────────────────────────────╯
+#
+#  ltx                  open the picker
+#  ltx NAME             attach to NAME, or create it
+#  ltx -                attach to the session you used last
+#  ltx ls               plain list (for scripts)
+#  ltx kill NAME        kill a session
+#  ltx -h | -v          help | version
+#
+#  Needs:    tmux, fzf
+#  Used when present (all optional, each one falls back gracefully):
+#            gum   styled prompts, confirmations, spinners
+#            bat   syntax-colored layouts (raw view, layout picker)
+#            eza   icon + git folder trees in the preview and project picker
+#            zoxide / fd   project picker      git   branch + changes in the preview
+#
+#  Layouts are plain shell scripts in  ~/.config/ltx/layouts/NAME.sh
+#  They run after the session is created (detached) and before it is attached.
+#  Available to them:  $LTX_SESSION (session name)  $LTX_DIR (start directory)
+#  Example:
+#      tmux rename-window -t "$LTX_SESSION" editor
+#      tmux split-window  -h -t "$LTX_SESSION" -c "$LTX_DIR"
+#      tmux new-window    -t "$LTX_SESSION" -n logs -c "$LTX_DIR"
+#
+#  Environment: LTX_TIMEOUT (seconds per tmux call, default 4)
+#               LTX_RICH=0  skip the per-session details in the list (faster)
+#               LTX_CONFIG_DIR  LTX_PATH_LENGTH  LTX_TMUX_BIN
+
+set -uo pipefail
+
+VERSION="1.0.0"
+
+# ── Configuration ──────────────────────────────────────────────────────────
+TMUX_BIN="${LTX_TMUX_BIN:-$(command -v tmux || true)}"
+FZF_BIN="${FZF_BIN:-$(command -v fzf || true)}"
+GUM_BIN="${GUM_BIN:-$(command -v gum || true)}"
+BAT_BIN="${BAT_BIN:-$(command -v bat || true)}"
+EZA_BIN="${EZA_BIN:-$(command -v eza || true)}"
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+CONFIG_DIR="${LTX_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ltx}"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ltx"
+LAST_FILE="$STATE_DIR/last"
+TM_TIMEOUT="${LTX_TIMEOUT:-4}"
+LIST_TIMEOUT="1.5"                      # per-session limit while building the list
+RICH="${LTX_RICH:-1}"
+LTX_PATH_LENGTH="${LTX_PATH_LENGTH:-32}"
+LAYOUT_DIR="$CONFIG_DIR/layouts"
+TAB=$'\t'
+
+# Name of the session this shell lives in (empty when not inside tmux).
+INSIDE=""
+if [[ -n "${TMUX:-}" && -n "$TMUX_BIN" ]]; then
+    INSIDE="$("$TMUX_BIN" display-message -p '#S' 2>/dev/null || true)"
+fi
+
+# ── Colors (Catppuccin Macchiato) ──────────────────────────────────────────
+RST=$'\033[0m'; BOLD=$'\033[1m'; ITAL=$'\033[3m'
+fgc() { printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3"; }
+bgc() { printf '\033[48;2;%d;%d;%dm' "$1" "$2" "$3"; }
+MAUVE="$(fgc 198 160 246)"; TEAL="$(fgc 139 213 202)"; GREEN="$(fgc 166 218 149)"
+RED="$(fgc 237 135 150)";   YELLOW="$(fgc 238 212 159)"; PEACH="$(fgc 245 169 127)"
+BLUE="$(fgc 138 173 244)";  TEXT="$(fgc 202 211 245)"
+SUB="$(fgc 165 173 203)";   DIM="$(fgc 110 115 141)";    LINE="$(fgc 73 77 100)"
+CRUST="$(fgc 24 25 38)"
+BG_MAUVE="$(bgc 198 160 246)"; BG_GREEN="$(bgc 166 218 149)"; BG_RED="$(bgc 237 135 150)"
+BG_YELLOW="$(bgc 238 212 159)"
+
+# Glyphs are built from codepoints (UTF-8 bytes) so no editor or locale can strip them.
+u8() {
+    local cp=$((16#$1)) b1 b2 b3
+    if (( cp < 0x800 )); then
+        b1=$(( 0xC0 | (cp >> 6) )); b2=$(( 0x80 | (cp & 0x3F) ))
+        printf '\\x%02x\\x%02x' "$b1" "$b2"
+    else
+        b1=$(( 0xE0 | (cp >> 12) )); b2=$(( 0x80 | ((cp >> 6) & 0x3F) )); b3=$(( 0x80 | (cp & 0x3F) ))
+        printf '\\x%02x\\x%02x\\x%02x' "$b1" "$b2" "$b3"
+    fi
+}
+g() { printf "$(u8 "$1")"; }
+I_CUR="$(g f192)"; I_RUN="$(g f111)"; I_DET="$(g f10c)"; I_TAB="$(g f24d)"; I_PANE="$(g f2d0)"
+I_DIR="$(g f07b)"; I_TERM="$(g f120)"; I_CLOCK="$(g f017)"
+I_GIT="$(g e725)"; I_WARN="$(g f071)"; I_CHECK="$(g f00c)"; I_PLUS="$(g f067)"
+I_TRASH="$(g f1f8)"; I_BOLT="$(g f0e7)"; I_HELP="$(g f059)"; I_TMUX="$(g f2d0)"
+CAP_L="$(g e0b6)"; CAP_R="$(g e0b4)"
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+die()  { printf '\n  %s%s %s%s %s\n\n' "$RED" "$I_WARN" "$BOLD" "$*" "$RST" >&2; exit 1; }
+tm()   { timeout "$TM_TIMEOUT" "$TMUX_BIN" "$@"; }
+visible_len() { local s; s="$(printf '%s' "$1" | sed -E 's/\x1b\[[0-9;]*m//g')"; printf '%d' "${#s}"; }
+repeat() { local n="$1" ch="$2" out=""; (( n > 0 )) || return 0; printf -v out '%*s' "$n" ''; printf '%s' "${out// /$ch}"; }
+
+restore_tty() { [[ -t 1 ]] && { tput cnorm 2>/dev/null; stty sane 2>/dev/null; } || true; }
+trap restore_tty EXIT
+
+# Rounded colored badges: round cap, text on a colored background, round cap.
+badge_current()  { printf '%s%s%s%s current %s%s%s%s'  "$MAUVE"  "$CAP_L" "$RST" "$BG_MAUVE$CRUST$BOLD"  "$RST" "$MAUVE"  "$CAP_R" "$RST"; }
+badge_attached() { printf '%s%s%s%s attached %s%s%s%s' "$GREEN"  "$CAP_L" "$RST" "$BG_GREEN$CRUST$BOLD"  "$RST" "$GREEN"  "$CAP_R" "$RST"; }
+badge_detached() { printf '%s%s%s%s detached %s%s%s%s' "$YELLOW" "$CAP_L" "$RST" "$BG_YELLOW$CRUST$BOLD" "$RST" "$YELLOW" "$CAP_R" "$RST"; }
+badge_stuck()    { printf '%s%s%s%s stuck %s%s%s%s'    "$RED"    "$CAP_L" "$RST" "$BG_RED$CRUST$BOLD"    "$RST" "$RED"    "$CAP_R" "$RST"; }
+
+# gum helpers, each with a plain fallback -----------------------------------
+toast() {   # toast ok|err|info "text"
+    local kind="$1" txt="$2" col icon hex
+    case "$kind" in ok) col="$GREEN"; icon="$I_CHECK"; hex="#a6da95" ;; err) col="$RED"; icon="$I_WARN"; hex="#ed8796" ;; *) col="$MAUVE"; icon="$I_BOLT"; hex="#c6a0f6" ;; esac
+    if [[ -n "$GUM_BIN" ]]; then
+        printf '\n' >&2
+        "$GUM_BIN" style --foreground "$hex" --border rounded --border-foreground "$hex" --padding "0 2" --margin "0 2" "$icon  $txt" >&2
+    else
+        printf '\n  %s%s  %s%s\n' "$col" "$icon" "$txt" "$RST" >&2
+    fi
+    sleep 1.1
+}
+
+confirm() {   # confirm "question" "Yes label"
+    local q="$1" yes="${2:-Yes}"
+    if [[ -n "$GUM_BIN" ]]; then
+        printf '\n' >&2
+        "$GUM_BIN" confirm "$q" --affirmative "$yes" --negative "Cancel" --default=false \
+            --prompt.foreground "#eed49f" --prompt.margin "0 2" \
+            --selected.background "#c6a0f6" --selected.foreground "#181926" \
+            --unselected.background "#363a4f" --unselected.foreground "#a5adcb" </dev/tty >/dev/tty 2>/dev/tty
+    else
+        local a
+        printf '\n  %s%s%s %s[y/N]%s ' "$YELLOW" "$q" "$RST" "$DIM" "$RST" >&2
+        read -r -n1 a </dev/tty || return 1
+        printf '\n' >&2
+        [[ "$a" == [yY] ]]
+    fi
+}
+
+spin() {   # spin "title" cmd args...   (gum spinner, else just run it)
+    local title="$1"; shift
+    if [[ -n "$GUM_BIN" ]]; then
+        "$GUM_BIN" spin --spinner dot --title "  $title" --spinner.foreground "#c6a0f6" --title.foreground "#cad3f5" -- "$@" </dev/tty >/dev/tty 2>/dev/tty
+    else
+        "$@"
+    fi
+}
+
+ask() {   # ask "header" [initial]  ->  text on stdout, nonzero if cancelled/empty
+    local out
+    if [[ -n "$GUM_BIN" ]]; then
+        out="$("$GUM_BIN" input --header "  $1" --header.foreground "#c6a0f6" --prompt "  " \
+              --prompt.foreground "#8bd5ca" --cursor.foreground "#c6a0f6" --placeholder "type a name…" \
+              --value "${2:-}" --width 42 --char-limit 48 </dev/tty 2>/dev/tty)" || return 1
+    else
+        read -r -e -p "  $1 ❯ " -i "${2:-}" out || return 1
+    fi
+    out="${out#"${out%%[![:space:]]*}"}"; out="${out%"${out##*[![:space:]]}"}"
+    [[ -n "$out" ]] && printf '%s' "$out"
+}
+
+# tmux silently turns "." and ":" in session names into "_"; do it up front.
+safe_name() { local n="$1"; printf '%s' "${n//[.:]/_}"; }
+
+human_age() {   # human_age EPOCH
+    local s=$(( $(date +%s) - $1 )) d h m
+    (( s < 0 )) && s=0
+    d=$(( s / 86400 )); h=$(( s % 86400 / 3600 )); m=$(( s % 3600 / 60 ))
+    if   (( d > 0 )); then printf '%dd %dh' "$d" "$h"
+    elif (( h > 0 )); then printf '%dh %dm' "$h" "$m"
+    elif (( m > 0 )); then printf '%dm' "$m"
+    else printf '%ds' "$s"; fi
+}
+
+# ── Session data ───────────────────────────────────────────────────────────
+# state<TAB>name<TAB>age      state = current|attached|detached
+parse_sessions() {
+    local name created attached state
+    while IFS=$'\t' read -r name created attached; do
+        [[ -z "$name" ]] && continue
+        if [[ -n "$INSIDE" && "$name" == "$INSIDE" ]]; then state=current
+        elif (( ${attached:-0} > 0 )); then state=attached
+        else state=detached; fi
+        printf '%s\t%s\t%s\n' "$state" "$name" "$(human_age "${created:-0}")"
+    done < <(tm list-sessions -F "#{session_name}${TAB}#{session_created}${TAB}#{session_attached}" 2>/dev/null || true)
+}
+
+session_exists() { tm has-session -t "=$1" 2>/dev/null; }
+
+session_age() { parse_sessions | awk -F'\t' -v n="$1" '$2 == n { print $3; exit }'; }
+
+# Session layout as records:
+#   T<TAB>window name<TAB>focus
+#   P<TAB>name<TAB>cmd<TAB>cwd<TAB>focus<TAB>float<TAB>kind
+session_records() {   # session_records NAME
+    tm list-panes -s -t "=$1" -F "#{window_index}${TAB}#{window_name}${TAB}#{window_active}${TAB}#{pane_active}${TAB}#{pane_current_command}${TAB}#{pane_current_path}" 2>/dev/null |
+    awk -F'\t' '
+    { if ($1 != last) { printf "T\t%s\t%d\n", ($2 == "" ? "window " $1 : $2), $3; last = $1 }
+      cmd = $5
+      if (cmd ~ /^-?(bash|zsh|fish|sh|dash|ksh|tcsh|nu|xonsh)$/) cmd = ""
+      printf "P\t\t%s\t%s\t%d\t0\t%s\n", cmd, $6, ($3 == 1 && $4 == 1), (cmd != "" ? "cmd" : "shell") }'
+}
+
+# records -> one line of facts: windows<TAB>panes<TAB>focus-cwd<TAB>window names
+layout_facts() {
+    awk -F'\t' '
+    $1 == "T" { tabs++; names = names (names == "" ? "" : ", ") $2 }
+    $1 == "P" { panes++
+                if (cwd == "" && $4 != "") cwd = $4
+                if ($5 == 1 && !got) { fcwd = $4; got = 1 } }
+    END { if (fcwd == "") fcwd = cwd
+          printf "%d\t%d\t%s\t%s\n", tabs, panes, fcwd, names }'
+}
+
+short_path() {
+    local path="$1"
+    local max="${2:-48}"
+    local home="${HOME%/}"
+
+    [[ -z "$path" ]] && return
+
+    # Replace home with ~
+    if [[ "$path" == "$home" ]]; then
+        path="~"
+    elif [[ "$path" == "$home/"* ]]; then
+        path="~${path#"$home"}"
+    fi
+
+    # Already short enough
+    (( ${#path} <= max )) && {
+        printf '%s' "$path"
+        return
+    }
+
+    # Preserve the final directory components
+    local suffix="${path##*/}"
+    local parent="${path%/*}"
+
+    if [[ "$parent" == "$path" ]]; then
+        printf '…%s' "${path: -$((max - 1))}"
+        return
+    fi
+
+    local result="…/$suffix"
+
+    if (( ${#result} <= max )); then
+        printf '%s' "$result"
+        return
+    fi
+
+    # Truncate exceptionally long directory names
+    printf '…%s' "${suffix: -$((max - 1))}"
+}
+
+# ── The list (rows for fzf, NUL separated: two text lines + a spacer each) ──
+# Row = state<TAB>name<TAB>display   (display holds embedded newlines)
+list_rows() {
+    local tmp i=0 state name age
+    local -a states=() names=() ages=()
+    while IFS=$'\t' read -r state name age; do states+=("$state"); names+=("$name"); ages+=("$age"); done < <(parse_sessions)
+    (( ${#names[@]} )) || return 0
+
+    tmp="$(mktemp -d)"
+    if [[ "$RICH" == 1 ]]; then      # ask every session for its layout, in parallel
+        for i in "${!names[@]}"; do
+            ( TM_TIMEOUT="$LIST_TIMEOUT" session_records "${names[$i]}" | layout_facts > "$tmp/$i" ) 2>/dev/null &
+        done
+        wait
+    fi
+
+    local s idx tabs panes fcwd tnames badge icon l1 l2 col
+    for s in current attached detached; do
+        for idx in "${!names[@]}"; do
+            [[ "${states[$idx]}" == "$s" ]] || continue
+            name="${names[$idx]}"; age="${ages[$idx]}"
+            case "$s" in
+                current)  icon="${MAUVE}${I_CUR}";  badge="$(badge_current)";  col="$TEXT" ;;
+                attached) icon="${GREEN}${I_RUN}";  badge="$(badge_attached)"; col="$TEXT" ;;
+                detached) icon="${YELLOW}${I_DET}"; badge="$(badge_detached)"; col="$SUB" ;;
+            esac
+            l2="${DIM}${I_CLOCK} ${age:-?}${RST}"
+            if [[ -s "$tmp/$idx" ]]; then
+                IFS=$'\t' read -r tabs panes fcwd tnames < "$tmp/$idx"
+                if (( ${tabs:-0} > 0 )); then
+                    l2+="   ${MAUVE}${I_TAB}${RST} ${SUB}${tabs}${RST}   ${BLUE}${I_PANE}${RST} ${SUB}${panes}${RST}"
+                    [[ -n "$fcwd" ]] && l2+="   ${PEACH}${I_DIR}${RST} ${SUB}$(short_path "$fcwd")${RST}"
+                fi
+            elif [[ "$RICH" == 1 ]]; then
+                l2+="   $(badge_stuck) ${DIM}not answering${RST}"
+            fi
+            l1="  ${icon}${RST}  ${col}${BOLD}${name}${RST}  ${badge}"
+            printf '%s\t%s\t%s\n     %s\n \0' "$s" "$name" "$l1" "$l2"
+        done
+    done
+    rm -rf "$tmp"
+}
+
+# ── Preview (fzf calls:  ltx __preview STATE NAME) ─────────────────────────
+section() {   # section "TITLE" width
+    local t="$1" w="$2" n
+    n=$(( w - ${#t} - 5 )); (( n < 4 )) && n=4
+    printf '\n  %s──%s %s%s%s%s %s%s%s\n' "$LINE" "$RST" "$MAUVE" "$BOLD" "$t" "$RST" "$LINE" "$(repeat "$n" ─)" "$RST"
+}
+
+card() {   # card WIDTH ICON NAME BADGE SUBLINE
+    local w="$1" icon="$2" name="$3" badge="$4" sub="$5" inner l1 pad1 pad2
+    inner=$(( w - 4 ))
+    l1="${icon}${RST}  ${BOLD}${TEXT}${name}${RST}  ${badge}"
+    pad1=$(( inner - $(visible_len "$l1") )); (( pad1 < 0 )) && pad1=0
+    pad2=$(( inner - $(visible_len "$sub") )); (( pad2 < 0 )) && pad2=0
+    printf '  %s╭%s╮%s\n' "$LINE" "$(repeat $((w - 2)) ─)" "$RST"
+    printf '  %s│%s  %s%*s%s│%s\n' "$LINE" "$RST" "$l1" "$pad1" "" "$LINE" "$RST"
+    printf '  %s│%s  %s%*s%s│%s\n' "$LINE" "$RST" "$sub" "$pad2" "" "$LINE" "$RST"
+    printf '  %s╰%s╯%s\n' "$LINE" "$(repeat $((w - 2)) ─)" "$RST"
+}
+
+render_tree() {   # records on stdin -> windows with branch connectors
+    awk -F'\t' -v home="$HOME" -v maxlen="$LTX_PATH_LENGTH" -v RST="$RST" -v BOLD="$BOLD" -v MAUVE="$MAUVE" -v YELLOW="$YELLOW" \
+        -v BLUE="$BLUE" -v TEXT="$TEXT" -v SUB="$SUB" -v DIM="$DIM" -v LINE="$LINE" \
+        -v I_TAB="$I_TAB" -v I_PANE="$I_PANE" '
+    function short(p, suffix) {
+        if (home != "" && index(p, home) == 1)
+            p = "~" substr(p, length(home) + 1)
+        if (length(p) <= maxlen) return p
+        suffix = p
+        sub(/^.*\//, "", suffix)
+        if (length(suffix) >= maxlen)
+            return "…" substr(suffix, length(suffix) - maxlen + 2)
+        return "…/" suffix
+    }
+    function finish(   k, br, label, col, ln) {
+        if (!intab) return
+        printf "\n  %s%s%s %s%s%s%s\n", MAUVE, I_TAB, RST, BOLD TEXT, tname, RST, (tfocus ? "  " YELLOW "●" RST DIM " focused" RST : "")
+        for (k = 1; k <= np; k++) {
+            br = (k == np) ? "└─" : "├─"
+            label = pn[k]; col = TEXT
+            if (pn[k] == "" && pc[k] != "") label = pc[k]
+            else if (pn[k] == "") { label = "shell"; col = SUB }
+            else if (pc[k] != "") label = pn[k] DIM " · " pc[k]
+            ln = "    " LINE br RST " " BLUE I_PANE RST " " (pfo[k] ? BOLD col : col) label RST
+            if (pfo[k]) ln = ln " " YELLOW "●" RST
+            if (pd[k] != "") ln = ln "  " DIM short(pd[k]) RST
+            print ln
+        }
+        np = 0
+    }
+    $1 == "T" { finish(); intab = 1; tname = $2; tfocus = $3; ntabs++; next }
+    $1 == "P" { np++; pn[np] = $2; pc[np] = $3; pd[np] = $4; pfo[np] = $5; next }
+    END { finish(); if (!ntabs) print "\n  " DIM "(no windows found in this session)" RST }'
+}
+
+project_info() {   # project_info DIR WIDTH  -> git line + eza tree
+    local dir="$1" w="$2" br dirty n
+    [[ -d "$dir" ]] || return 0
+    section "PROJECT" "$w"
+    printf '  %s%s%s %s%s%s\n' \
+        "$PEACH" "$I_DIR" "$RST" \
+        "$SUB" "$(short_path "$dir" "$LTX_PATH_LENGTH")" "$RST"
+    if command -v git >/dev/null 2>&1 && git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        br="$(git -C "$dir" branch --show-current 2>/dev/null)"; [[ -z "$br" ]] && br="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"
+        n="$(git -C "$dir" status --porcelain 2>/dev/null | wc -l)"
+        if (( n > 0 )); then dirty="${YELLOW}${n} changed${RST}"; else dirty="${GREEN}clean${RST}"; fi
+        printf '  %s%s%s %s%s%s  %s\n' "$GREEN" "$I_GIT" "$RST" "$TEXT" "$br" "$RST" "$dirty"
+    fi
+    printf '\n'
+    if [[ -n "$EZA_BIN" ]]; then
+        "$EZA_BIN" --tree --level=1 --icons=always --color=always --git --group-directories-first \
+            -I '.git|node_modules|target|__pycache__|.cache' "$dir" 2>/dev/null | sed -n '2,14p' | sed 's/^/  /'
+    else
+        ls -A --color=always "$dir" 2>/dev/null | head -12 | sed 's/^/  /'
+    fi
+}
+
+preview() {   # preview STATE NAME
+    local state="$1" name="$2" age recs facts tabs panes fcwd tnames w icon badge sub
+    local cols="${FZF_PREVIEW_COLUMNS:-72}"; w=$(( cols - 4 )); (( w > 74 )) && w=74; (( w < 30 )) && w=30
+    if [[ -z "$name" ]]; then
+        printf '\n  %s%s  Nothing selected%s\n\n  %sType a name and press Enter to create a session.%s\n' "$MAUVE" "$I_PLUS" "$RST" "$DIM" "$RST"
+        return
+    fi
+    age="$(session_age "$name")"
+    case "$state" in
+        current)  icon="${MAUVE}${I_CUR}";  badge="$(badge_current)" ;;
+        attached) icon="${GREEN}${I_RUN}";  badge="$(badge_attached)" ;;
+        *)        icon="${YELLOW}${I_DET}"; badge="$(badge_detached)" ;;
+    esac
+    sub="${DIM}${I_CLOCK} created ${age:-?} ago${RST}"
+    recs="$(session_records "$name")"
+    printf '\n'
+    if [[ -z "$recs" ]]; then
+        card "$w" "$icon" "$name" "$badge" "$sub"
+        printf '\n  %s%s  No answer from this session within %ss.%s\n  %sIt may be gone or stuck. Ctrl-X kills it.%s\n' "$YELLOW" "$I_WARN" "$TM_TIMEOUT" "$RST" "$DIM" "$RST"
+        return
+    fi
+    facts="$(printf '%s\n' "$recs" | layout_facts)"
+    IFS=$'\t' read -r tabs panes fcwd tnames <<<"$facts"
+    sub+="   ${MAUVE}${I_TAB}${RST} ${SUB}${tabs} window$([[ $tabs == 1 ]] || printf s)${RST}   ${BLUE}${I_PANE}${RST} ${SUB}${panes} pane$([[ $panes == 1 ]] || printf s)${RST}"
+    card "$w" "$icon" "$name" "$badge" "$sub"
+    section "LAYOUT" "$w"
+    printf '%s\n' "$recs" | render_tree
+    project_info "$fcwd" "$w"
+    printf '\n  %s⏎ attach   ^X kill   Alt-R rename   Alt-D detach clients%s\n' "$DIM" "$RST"
+}
+
+preview_raw() {   # the layout exactly as tmux reports it
+    local out
+    out="$(
+        tm list-windows -t "=$2" -F '#{window_index}: #{window_name}  #{window_flags}
+    layout  #{window_layout}' 2>/dev/null
+        printf '\n'
+        tm list-panes -s -t "=$2" -F '#{window_index}.#{pane_index}  #{pane_id}  #{pane_width}x#{pane_height}  #{pane_current_command}  #{pane_current_path}' 2>/dev/null
+    )"
+    [[ -z "${out//[[:space:]]/}" ]] && { printf '\n  %s(no layout available)%s\n' "$DIM" "$RST"; return; }
+    if [[ -n "$BAT_BIN" ]]; then
+        printf '%s\n' "$out" | "$BAT_BIN" --color=always --style=numbers,grid --paging=never --language=yaml 2>/dev/null \
+            || printf '%s\n' "$out"
+    else
+        printf '%s\n' "$out"
+    fi
+}
+
+preview_help() {
+    local w=$(( ${FZF_PREVIEW_COLUMNS:-72} - 4 ))
+    k() { printf '    %s%-9s%s %s%s%s\n' "$MAUVE$BOLD" "$1" "$RST" "$SUB" "$2" "$RST"; }
+    printf '\n  %s%s  Keys%s\n' "$MAUVE$BOLD" "$I_HELP" "$RST"
+    section "SESSIONS" "$w"
+    k "Enter"   "attach (switches client when inside tmux)"
+    k "type+⏎"  "create a session with the name you typed"
+    k "Ctrl-N"  "new session"
+    k "Ctrl-L"  "new session from a layout"
+    k "Ctrl-P"  "new session from a project folder"
+    section "MANAGE" "$w"
+    k "Ctrl-X"  "kill the selected session"
+    k "Alt-D"   "detach every client from the session"
+    k "Alt-R"   "rename"
+    k "Ctrl-R"  "refresh the list"
+    section "PREVIEW" "$w"
+    k "Alt-O"   "overview"
+    k "Alt-V"   "raw layout"
+    k "F1"      "this help"
+    k "Ctrl-/"  "hide / show the preview"
+    k "Shift-↑↓" "scroll the preview"
+    k "Esc"     "quit"
+}
+
+preview_layout_file() {
+    local name="$1"
+    local file="$LAYOUT_DIR/$name.sh"
+
+    if [[ "$name" == "default" && ! -f "$file" ]]; then
+        printf '\n  %sBuilt-in default: one window, one shell.%s\n' "$SUB" "$RST"
+        return
+    fi
+
+    if [[ ! -f "$file" ]]; then
+        printf '\n  %s%s Layout not found: %s%s\n' \
+            "$RED" "$I_WARN" "$name" "$RST"
+        return
+    fi
+
+    printf '\n  %s%s %s%s\n' "$MAUVE" "$I_TAB" "$name" "$RST"
+    printf '  %s%s%s\n\n' "$DIM" "$(short_path "$file" 55)" "$RST"
+
+    if [[ -n "$BAT_BIN" ]]; then
+        "$BAT_BIN" \
+            --color=always \
+            --style=numbers,grid \
+            --paging=never \
+            --language=bash \
+            "$file" 2>/dev/null || cat "$file"
+    else
+        cat "$file"
+    fi
+}
+
+preview_dir() {   # ltx __dirprev DIR      (project picker preview)
+    local d="${1/#\~/$HOME}"
+    [[ -d "$d" ]] || return 0
+    project_info "$d" $(( ${FZF_PREVIEW_COLUMNS:-60} - 4 ))
+}
+
+# ── Actions ────────────────────────────────────────────────────────────────
+remember() { mkdir -p "$STATE_DIR" 2>/dev/null; printf '%s' "$1" > "$LAST_FILE" 2>/dev/null || true; }
+
+attach() {
+    session_exists "$1" || { toast err "session \"$1\" no longer exists"; return 1; }
+    remember "$1"
+    restore_tty
+    if [[ -n "${LTX_ATTACH_FILE:-}" ]]; then
+        printf '%s\n' "$1" > "$LTX_ATTACH_FILE"
+        return 0
+    fi
+    if [[ -n "${TMUX:-}" ]]; then
+        "$TMUX_BIN" switch-client -t "=$1"
+    else
+        exec "$TMUX_BIN" attach-session -t "=$1"
+    fi
+}
+
+create() {   # create NAME [LAYOUT_NAME_OR_PATH] [DIR]
+    local name layout="${2:-}" dir="${3:-}"
+    name="$(safe_name "$1")"
+    if session_exists "$name"; then attach "$name"; return; fi
+    [[ -n "$dir" && -d "$dir" ]] || dir="$PWD"
+
+    if [[ -n "$layout" && "$layout" != default ]]; then
+        [[ -f "$layout" ]] || layout="$LAYOUT_DIR/$layout.sh"
+        [[ -f "$layout" ]] || die "layout not found: ${2}"
+    else
+        layout=""
+    fi
+
+    "$TMUX_BIN" new-session -d -s "$name" -c "$dir" || die "could not create session \"$name\""
+    if [[ -n "$layout" ]]; then
+        ( cd "$dir" && LTX_SESSION="$name" LTX_DIR="$dir" bash "$layout" ) \
+            || toast err "layout script reported an error"
+    fi
+    attach "$name"
+}
+
+FZF_COLORS="bg:-1,bg+:#363a4f,fg:#a5adcb,fg+:#cad3f5,hl:#c6a0f6,hl+:#f5bde6,border:#494d64,label:#c6a0f6,\
+prompt:#8bd5ca,pointer:#c6a0f6,marker:#8bd5ca,spinner:#c6a0f6,info:#6e738d,header:#8087a2,\
+preview-border:#494d64,gutter:-1,query:#cad3f5,disabled:#6e738d"
+
+fzf_menu() {   # fzf_menu "prompt icon" [extra fzf args]  (items on stdin)
+    "$FZF_BIN" --ansi --layout=reverse --border=rounded --margin=1,2 --padding=1,2 --info=inline \
+        --prompt="  $1  " --pointer='▌' --no-scrollbar --cycle --color="$FZF_COLORS" "${@:2}"
+}
+
+pick_layout() {
+    local selfq
+    local f
+    local -a items=("default")
+
+    printf -v selfq '%q' "$SELF"
+
+    if [[ -d "$LAYOUT_DIR" ]]; then
+        while IFS= read -r -d '' f; do
+            items+=("$(basename "${f%.sh}")")
+        done < <(
+            find -L "$LAYOUT_DIR" \
+                -maxdepth 1 \
+                -type f \
+                -name '*.sh' \
+                -print0 2>/dev/null |
+                sort -z
+        )
+    fi
+
+    printf '%s\n' "${items[@]}" |
+        fzf_menu "$I_TAB" \
+            --border-label=' pick a layout ' \
+            --preview="$selfq __layoutprev {}" \
+            --preview-window='right,60%,border-left,wrap'
+}
+
+pick_dir() {
+    local selfq; printf -v selfq '%q' "$SELF"
+    { if command -v zoxide >/dev/null 2>&1; then zoxide query -l 2>/dev/null
+      elif command -v fd >/dev/null 2>&1; then fd --type d --max-depth 3 . "$HOME" 2>/dev/null
+      else find "$HOME" -maxdepth 3 -type d -not -path '*/.*' 2>/dev/null; fi; } \
+        | sed "s|^$HOME|~|" \
+        | fzf_menu "$I_DIR" --border-label=' pick a project folder · the session is named after it ' \
+            --preview="$selfq __dirprev {}" --preview-window='right,50%,border-left,wrap' \
+        | sed "s|^~|$HOME|"
+}
+
+clean_name() { local n="${1%/}"; n="${n##*/}"; n="${n//[^A-Za-z0-9_-]/-}"; printf '%s' "${n:-session}"; }
+
+act_project() {
+    local d name
+    d="$(pick_dir)" || return 0
+    [[ -n "$d" ]] || return 0
+    name="$(clean_name "$d")"
+    create "$name" "" "$d"
+}
+
+act_layout() {   # act_layout [NAME]
+    local name="${1:-}" layout
+    [[ -n "$name" ]] || name="$(ask "name the new session")" || return 0
+    layout="$(pick_layout)" || return 0
+    create "$name" "$layout"
+}
+
+# fzf-side actions (terminal handed over by fzf `execute`, then it reloads)
+do_kill() {   # ltx __kill STATE NAME
+    local name="$2"
+    [[ -z "$name" ]] && return 0
+    confirm "$I_TRASH  Kill session \"$name\"?" "Kill" || return 0
+    if spin "killing $name…" timeout "$TM_TIMEOUT" "$TMUX_BIN" kill-session -t "=$name"; then toast ok "killed $name"; else toast err "could not kill $name"; fi
+}
+do_detach() {
+    local state="$1" name="$2"
+    [[ -z "$name" ]] && return 0
+    if [[ "$state" == detached ]]; then toast info "\"$name\" has no attached clients"; return 0; fi
+    confirm "$I_TRASH  Detach all clients from \"$name\"?" "Detach" || return 0
+    if timeout "$TM_TIMEOUT" "$TMUX_BIN" detach-client -s "=$name" 2>/dev/null; then toast ok "detached $name"; else toast err "could not detach $name"; fi
+}
+do_rename() {
+    local name="$2" new
+    [[ -z "$name" ]] && return 0
+    new="$(ask "rename \"$name\" to" "$name")" || return 0
+    new="$(safe_name "$new")"
+    [[ "$new" == "$name" ]] && return 0
+    if spin "renaming…" timeout "$TM_TIMEOUT" "$TMUX_BIN" rename-session -t "=$name" "$new"; then toast ok "renamed to $new"; else toast err "rename failed"; fi
+}
+
+# ── The picker ─────────────────────────────────────────────────────────────
+fzf_version() { "$FZF_BIN" --version 2>/dev/null | awk '{print $1}'; }
+version_ge() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]; }
+
+picker() {
+    [[ -t 0 && -t 1 ]] || die "ltx needs a terminal"
+    local selfq out rc query key sel state name hdr errf fv
+    local -a fancy=()
+    printf -v selfq '%q' "$SELF"
+
+    # Newer fzf gets extra polish. If fzf rejects any of it, we retry without (see below).
+    fv="$(fzf_version)"
+    if [[ -n "$fv" ]] && version_ge "$fv" "0.58"; then
+        fancy=(--ghost='type to filter, or a new session name' --highlight-line)
+    fi
+
+    hdr="${MAUVE}⏎${RST} ${SUB}attach${RST}    ${MAUVE}^N${RST} ${SUB}new${RST}    ${MAUVE}^L${RST} ${SUB}layout${RST}    ${MAUVE}^P${RST} ${SUB}project${RST}    ${MAUVE}^X${RST} ${SUB}kill${RST}    ${MAUVE}F1${RST} ${SUB}all keys${RST}"
+    [[ -n "$INSIDE" ]] && hdr+=$'\n'"${YELLOW}${I_WARN} inside tmux (${INSIDE}): attaching switches this client to the chosen session${RST}"
+    errf="$(mktemp)"
+
+    while true; do
+        out="$(list_rows | "$FZF_BIN" --read0 --ansi --delimiter=$'\t' --with-nth=3 "${fancy[@]}" \
+            --layout=reverse --border=rounded --margin=1,2 --padding=1,2 --info=inline --no-multi --cycle --no-scrollbar \
+            --prompt=" $I_TERM  " --pointer='▌' --marker='┃' \
+            --border-label=" $I_TMUX  ltx · tmux sessions " --border-label-pos=4 \
+            --header="$hdr" --header-first --color="$FZF_COLORS" \
+            --preview="$selfq __preview {1:q} {2:q}" --preview-window='right,56%,border-rounded,wrap' \
+            --preview-label=' overview ' \
+            --bind="ctrl-r:reload($selfq __list)" \
+            --bind="ctrl-x:execute($selfq __kill {1:q} {2:q})+reload($selfq __list)" \
+            --bind="alt-d:execute($selfq __detach {1:q} {2:q})+reload($selfq __list)" \
+            --bind="alt-r:execute($selfq __rename {1:q} {2:q})+reload($selfq __list)" \
+            --bind="alt-v:change-preview($selfq __raw {1:q} {2:q})+change-preview-label( raw layout )" \
+            --bind="alt-o:change-preview($selfq __preview {1:q} {2:q})+change-preview-label( overview )" \
+            --bind="f1:change-preview($selfq __help)+change-preview-label( keys )" \
+            --bind='ctrl-/:toggle-preview,shift-down:preview-half-page-down,shift-up:preview-half-page-up' \
+            --print-query --expect=ctrl-n,ctrl-l,ctrl-p 2>"$errf")"
+        rc=$?
+        if (( rc == 2 )); then
+            if (( ${#fancy[@]} )); then fancy=(); continue; fi   # retry once without the extras
+            printf '\n  %s%s  fzf could not start:%s\n  %s%s%s\n\n' "$RED" "$I_WARN" "$RST" "$DIM" "$(head -n3 "$errf")" "$RST" >&2
+            rm -f "$errf"; return 1
+        fi
+        (( rc == 130 )) && break                           # Esc / Ctrl-C
+
+        { IFS= read -r query; IFS= read -r key; IFS= read -r sel; } <<<"$out"
+        state="${sel%%$'\t'*}"; name="${sel#*$'\t'}"; name="${name%%$'\t'*}"
+        [[ -z "$sel" ]] && { state=""; name=""; }
+
+        case "$key" in
+            ctrl-n)  name="${query:-$(ask "name the new session")}" || continue
+                     [[ -n "$name" ]] && create "$name"; continue ;;
+            ctrl-l)  act_layout "$query"; continue ;;
+            ctrl-p)  act_project; continue ;;
+        esac
+        if [[ -n "$name" ]]; then
+            attach "$name" || continue
+            [[ -n "${LTX_ATTACH_FILE:-}" && -s "${LTX_ATTACH_FILE}" ]] && break
+        elif [[ -n "$query" ]]; then
+            create "$query" || continue       # no match: Enter creates it
+            [[ -n "${LTX_ATTACH_FILE:-}" && -s "${LTX_ATTACH_FILE}" ]] && break
+        else
+            break
+        fi
+    done
+    rm -f "$errf"
+}
+
+# ── CLI ────────────────────────────────────────────────────────────────────
+usage() {
+    cat <<EOF
+ltx $VERSION · Lazy Tmux
+
+  ltx               open the session picker
+  ltx NAME          attach to NAME (created if it does not exist)
+  ltx -             attach to the last session you used
+  ltx ls            list sessions (plain text)
+  ltx kill NAME     kill a session
+
+Layouts: shell scripts in $LAYOUT_DIR/NAME.sh
+         (run with \$LTX_SESSION and \$LTX_DIR set)
+
+Picker keys
+  Enter        attach                     type + Enter   create a session with that name
+  Ctrl-N       new (uses what you typed)  Ctrl-L  new with a layout
+  Ctrl-P       new from a project folder  Ctrl-X  kill        Alt-D  detach clients
+  Alt-R        rename
+  Ctrl-/       toggle preview             Alt-V   raw layout    Alt-O  overview
+  F1           all keys                   Shift-Up/Down scroll preview     Esc  quit
+EOF
+}
+
+case "${1:-}" in
+    __list)        list_rows; exit 0 ;;
+    __preview)     preview "${2:-}" "${3:-}"; exit 0 ;;
+    __raw)         preview_raw "${2:-}" "${3:-}"; exit 0 ;;
+    __help)        preview_help; exit 0 ;;
+    __layoutprev)  preview_layout_file "${2:-}"; exit 0 ;;
+    __dirprev)     preview_dir "${2:-}"; exit 0 ;;
+    __kill)        do_kill "${2:-}" "${3:-}"; exit 0 ;;
+    __detach)      do_detach "${2:-}" "${3:-}"; exit 0 ;;
+    __rename)      do_rename "${2:-}" "${3:-}"; exit 0 ;;
+    -v|--version)  printf 'ltx %s\n' "$VERSION"; exit 0 ;;
+    -h|--help)     usage; exit 0 ;;
+esac
+
+[[ -n "$TMUX_BIN" && -x "$TMUX_BIN" ]] || die "tmux is not installed"
+
+case "${1:-}" in
+    "")    [[ -n "$FZF_BIN" && -x "$FZF_BIN" ]] || die "fzf is not installed"; picker ;;
+    ls)    tm list-sessions 2>/dev/null || true ;;
+    -)     [[ -r "$LAST_FILE" ]] || die "no previous session recorded yet"
+           attach "$(cat "$LAST_FILE")" ;;
+    kill)  [[ -n "${2:-}" ]] || die "usage: ltx kill NAME"; tm kill-session -t "=$2" ;;
+    -*)    die "unknown option: $1 (try ltx --help)" ;;
+    *)     create "$1" ;;
+esac

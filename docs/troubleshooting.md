@@ -48,6 +48,7 @@ flowchart TD
 | Package installation fails | `sudo`, `yay`, network, package state, or package-manager lock | Run the underlying `pacman` or `yay` command directly. |
 | Plugin installation fails | `omarchy`, `git`, network, validation, or an existing plugin ID | Run `omarchy plugin add` directly and inspect its output. |
 | Plugin patch fails | Missing patch file, `bash`, `gum`, or an unexpected plugin version | Run the patch script directly or inspect the plugin file. |
+| Zsh aliases or helpers are missing | `~/.config/zsh/`, `~/.local/bin/`, or `~/.zshrc` links are missing, or `~/.zshrc` is not sourced | Check the linked paths and open a new interactive shell. |
 | Icons are missing | Terminal lacks a Nerd Font | Install and configure a Nerd Font. |
 | Docs build fails | Generated files or broken links | See [Development](development.md#troubleshooting). |
 
@@ -487,6 +488,29 @@ Common causes:
 See **[Tmux Dotfiles](tmux.md)** for keybindings, helper scripts, plugin scope, and
 customization notes.
 
+### Zsh config issues
+
+Check the entrypoint, linked directories, helper links, and secrets file:
+
+```bash
+ls -l ~/.zshrc ~/.secrets.zsh
+ls -l ~/.config/zsh/lib ~/.config/zsh/functions
+ls -l ~/.local/bin/_hastebin ~/.local/bin/_ltx ~/.local/bin/_lzj ~/.local/bin/_pal ~/.local/bin/_server ~/.local/bin/startup.py
+zsh -n ~/.zshrc ~/.config/zsh/lib/*.zsh ~/.config/zsh/functions/*.zsh
+```
+
+Common causes:
+
+- The shell is not interactive; `~/.zshrc` intentionally returns immediately in scripts.
+- `XDG_CONFIG_HOME` points Zsh at a different config directory than the catalog used.
+- `~/.local/bin` is not on `PATH`; the bundled `~/.zshrc` prepends it, but only when sourced.
+- A library or function file was edited in place and no longer passes `zsh -n`.
+- `~/.secrets.zsh` is missing, unreadable, or contains unquoted values; it must be mode `0600`.
+- A helper script's dependency is missing; see the requirements in **[Zsh Dotfiles](zsh.md)**.
+- `hastebin` config must be plain `KEY=VALUE`; it is no longer sourced as shell code.
+
+See **[Zsh Dotfiles](zsh.md)** for layout, aliases, helper scripts, and the function audit.
+
 ---
 
 ## Hyprland configuration fails
@@ -596,5 +620,6 @@ Report bugs at [GitHub Issues](https://github.com/Armoghans-Organization/Omarchy
 - [Directories](directories.md)
 - [Packages](packages.md)
 - [Plugins](plugins.md)
+- [Zsh Dotfiles](zsh.md)
 - [Hyprland](hypr.md)
 - [Development](development.md)

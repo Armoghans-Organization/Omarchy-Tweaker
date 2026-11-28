@@ -11,10 +11,11 @@ This page explains what the `dotfiles` feature currently is, how it discovers ca
 how it applies them, and what safety behavior it provides.
 
 For day-to-day usage of the bundled Bat, Foot, Git, Lazygit, Tig, Tmux, Starship, Superfile,
-and Zellij setups, see **[Bat Dotfiles](bat.md)**, **[Foot Dotfiles](foot.md)**,
+Zellij, and Zsh setups, see **[Bat Dotfiles](bat.md)**, **[Foot Dotfiles](foot.md)**,
 **[Git Dotfiles](git.md)**, **[Lazygit Dotfiles](lazygit.md)**, **[Tig Dotfiles](tig.md)**,
 **[Tmux Dotfiles](tmux.md)**, **[Starship Dotfiles](starship.md)**,
-**[Superfile Dotfiles](superfile.md)**, and **[Zellij Dotfiles](zellij.md)**.
+**[Superfile Dotfiles](superfile.md)**, **[Zellij Dotfiles](zellij.md)**, and
+**[Zsh Dotfiles](zsh.md)**.
 
 !!! note "Current scope"
     The dotfile system is a bundled-catalog installer, not a general-purpose dotfile
@@ -130,8 +131,8 @@ template-file = "~/.config/example/rendered-file"
 | `[keys]` | Defines SSH/GPG paths and generation options. | No |
 
 A catalog can use any combination of these sections. The Git catalog currently uses all
-four. The Bat, Foot, Lazygit, Tig, Tmux, Starship, Superfile, and Zellij catalogs use only
-`[symlink]`.
+four. The Zsh catalog uses `[symlink]`, `[ask]`, and `[create]`. The Bat, Foot, Lazygit,
+Tig, Tmux, Starship, Superfile, and Zellij catalogs use only `[symlink]`.
 
 Quoted `[symlink]` keys can include a source subdirectory, such as `"layouts/custom.kdl"`
 or `"script/extract"`. This lets a catalog keep files organized in subdirectories while
@@ -186,6 +187,7 @@ Templates can use:
 | Starship | `src/omarchy_tweaker/dotfiles/starship/` | Catppuccin Mocha prompt configuration for Starship. |
 | Superfile | `src/omarchy_tweaker/dotfiles/Superfile/` | Catppuccin Frappe terminal file manager configuration with custom hotkeys, previews, plugins, and theme colors. |
 | Zellij | `src/omarchy_tweaker/dotfiles/Zellij/` | Catppuccin Macchiato terminal multiplexer configuration with keybindings, plugins, layouts, and zextract settings. |
+| Zsh | `src/omarchy_tweaker/dotfiles/Zsh/` | Zsh entrypoint, XDG libraries and functions, private API key template, aliases, and five helper scripts linked into `~/.local/bin/`. |
 
 Each catalog defines its destinations and options in its own `config.toml`:
 
@@ -199,12 +201,14 @@ src/omarchy_tweaker/dotfiles/Tmux/config.toml
 src/omarchy_tweaker/dotfiles/starship/config.toml
 src/omarchy_tweaker/dotfiles/Superfile/config.toml
 src/omarchy_tweaker/dotfiles/Zellij/config.toml
+src/omarchy_tweaker/dotfiles/Zsh/config.toml
 ```
 
 See **[Bat Dotfiles](bat.md)**, **[Foot Dotfiles](foot.md)**, **[Git Dotfiles](git.md)**,
 **[Lazygit Dotfiles](lazygit.md)**, **[Tig Dotfiles](tig.md)**, **[Tmux Dotfiles](tmux.md)**,
-**[Starship Dotfiles](starship.md)**, **[Superfile Dotfiles](superfile.md)**, and
-**[Zellij Dotfiles](zellij.md)** for what these custom configurations do and how to use them.
+**[Starship Dotfiles](starship.md)**, **[Superfile Dotfiles](superfile.md)**,
+**[Zellij Dotfiles](zellij.md)**, and **[Zsh Dotfiles](zsh.md)** for what these custom
+configurations do and how to use them.
 
 ---
 
@@ -322,7 +326,8 @@ The CLI itself always uses `Path.home()` and the packaged catalog directory.
 - `tmux`, plus `fzf`, Python 3, `nvim`, `wl-copy`, and a Nerd Font, for the features used by its linked config.
 - `superfile`, plus `bat`, `nvim`, `exiftool`, `md5sum`, and `zoxide`, for the features used by its linked config.
 - `zellij`, plus a Nerd Font, `zsh`, `nvim`, and `wl-copy`, for the features used by its linked config.
-- A Nerd Font, when you want Foot, Starship, lazygit, Tmux, Superfile, or Zellij icons to render correctly.
+- `zsh`, plus `fzf`, `bash`, and Python 3, for the bundled shell entrypoint and helper scripts. The individual helpers have additional optional tools documented in [Zsh Dotfiles](zsh.md).
+- A Nerd Font, when you want Foot, Starship, lazygit, Tmux, Superfile, Zellij, or Zsh icons to render correctly.
 
 ---
 
@@ -337,6 +342,7 @@ The CLI itself always uses `Path.home()` and the packaged catalog directory.
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
 - [Zellij Dotfiles](zellij.md)
+- [Zsh Dotfiles](zsh.md)
 - [Commands](commands.md)
 - [Getting Started](getting-started.md)
 - [Security](security.md)

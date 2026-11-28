@@ -274,6 +274,7 @@ bat --paging=never --color=never --map-syntax "*.md:Markdown" example.md > /dev/
 - [Tmux Dotfiles](tmux.md)
 - [Starship Dotfiles](starship.md)
 - [Zellij Dotfiles](zellij.md)
+- [Zsh Dotfiles](zsh.md)
 - [Commands](commands.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

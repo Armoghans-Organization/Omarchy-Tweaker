@@ -514,16 +514,20 @@ links a Catppuccin Macchiato `tmux.conf` and five helper scripts into `~/.config
 configuration to `~/.config/starship.toml`. The bundled Superfile catalog links the main
 configuration, custom hotkeys, and Catppuccin Frappe theme into `~/.config/superfile/`. The
 bundled Zellij catalog links the Catppuccin Macchiato configuration, zextract configuration,
-and four layout files into `~/.config/zellij/` and `~/.config/zellij/layouts/`.
- See **[Dotfiles](dotfiles.md)** for the workflow,
+and four layout files into `~/.config/zellij/` and `~/.config/zellij/layouts/`. The bundled
+Zsh catalog links `~/.zshrc`, `~/.config/zsh/functions/`, `~/.config/zsh/lib/`, five helper
+scripts into `~/.local/bin/`, and renders `~/.secrets.zsh` from masked API key prompts.
+
+See **[Dotfiles](dotfiles.md)** for the workflow,
 **[Bat Dotfiles](bat.md)** for syntax-highlighting usage and options,
 **[Foot Dotfiles](foot.md)** for terminal usage and key bindings,
 **[Git Dotfiles](git.md)** for Git usage and cheat sheets, **[Lazygit Dotfiles](lazygit.md)**
 for TUI usage and keybindings, **[Tig Dotfiles](tig.md)** for Tig usage and keybindings,
 **[Tmux Dotfiles](tmux.md)** for multiplexer usage and keybindings,
 **[Starship Dotfiles](starship.md)** for prompt usage and cheat sheets,
-**[Superfile Dotfiles](superfile.md)** for file-manager usage and keybindings, and
-**[Zellij Dotfiles](zellij.md)** for terminal multiplexer usage and layout details.
+**[Superfile Dotfiles](superfile.md)** for file-manager usage and keybindings,
+**[Zellij Dotfiles](zellij.md)** for terminal multiplexer usage and layout details, and
+**[Zsh Dotfiles](zsh.md)** for shell layout, secrets, aliases, and helper scripts.
 
 ### Non-interactive use
 
@@ -546,6 +550,7 @@ any catalog failed. Declining confirmation is a safe skip and exits with code `0
 - `tmux`, `fzf`, Python 3, `nvim`, `wl-copy`, and a Nerd Font are needed for the features used by the bundled Tmux config.
 - `superfile`, `bat`, `nvim`, `exiftool`, `md5sum`, `zoxide`, and a Nerd Font are needed for the features used by the bundled Superfile config.
 - `zellij`, a Nerd Font, `zsh`, `nvim`, and `wl-copy` are needed for the features used by the bundled Zellij config.
+- `zsh`, `bash`, `fzf`, and Python 3 are needed for the bundled Zsh config and helper scripts. Individual helper requirements are documented in [Zsh Dotfiles](zsh.md).
 - The user home directory must be writable.
 - The bundled files in `src/omarchy_tweaker/dotfiles/` must be present.
 
@@ -710,5 +715,6 @@ omarchy-tweaker --help
 - [Starship Dotfiles](starship.md)
 - [Superfile Dotfiles](superfile.md)
 - [Zellij Dotfiles](zellij.md)
+- [Zsh Dotfiles](zsh.md)
 - [Bundled Scripts](scripts.md)
 - [Troubleshooting](troubleshooting.md)

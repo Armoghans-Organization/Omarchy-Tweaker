@@ -140,6 +140,7 @@ def test_discover_bundled_dotfile_catalogs_includes_expected_catalogs(
         "Tig",
         "Tmux",
         "Zellij",
+        "Zsh",
         "git",
         "lazygit",
         "starship",
@@ -203,6 +204,48 @@ def test_bundled_foot_catalog_exposes_expected_symlink(
     assert "urgent=yes" in config_text
     assert "notify=yes" in config_text
     assert "command=yes" not in config_text
+
+
+def test_bundled_zsh_catalog_exposes_expected_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OMARCHY_TWEAKER_DOTFILES_DIR", raising=False)
+    source = get_dotfiles_source_directory()
+    home = Path("/home/test")
+
+    bundle = load_dotfile_bundle(source / "Zsh", home)
+
+    assert bundle.symlinks == (
+        ("zshrc", home / ".zshrc"),
+        ("functions", home / ".config" / "zsh" / "functions"),
+        ("lib", home / ".config" / "zsh" / "lib"),
+        ("script/_hastebin", home / ".local" / "bin" / "_hastebin"),
+        ("script/_ltx", home / ".local" / "bin" / "_ltx"),
+        ("script/_lzj", home / ".local" / "bin" / "_lzj"),
+        ("script/_pal", home / ".local" / "bin" / "_pal"),
+        ("script/_server", home / ".local" / "bin" / "_server"),
+        ("script/startup.py", home / ".local" / "bin" / "startup.py"),
+    )
+    assert bundle.create == (("secrets", home / ".secrets.zsh"),)
+    assert [key for key, _ in bundle.questions] == [
+        "openrouter_api_key",
+        "openrouter_management_key",
+        "omniroute_api_key",
+        "omniroute_management_key",
+        "omniroute_claude_api_key",
+        "omniroute_opencode_api_key",
+        "omniroute_atuin_api_key",
+    ]
+
+    zshrc_text = (source / "Zsh" / "zshrc").read_text(encoding="utf-8")
+    assert "${XDG_CONFIG_HOME:-$HOME/.config}/zsh" in zshrc_text
+    assert 'export PATH="$HOME/.local/bin:$PATH"' in zshrc_text
+    assert "Armoghans-Organization/Omarchy-Tweaker" not in zshrc_text
+
+    secrets_text = (source / "Zsh" / "secrets").read_text(encoding="utf-8")
+    assert "{openrouter_api_key}" in secrets_text
+    assert "{omniroute_atuin_api_key}" in secrets_text
+    assert "{OPENROUTER_API_KEY}" not in secrets_text
 
 
 def test_bundled_superfile_catalog_exposes_expected_symlinks(
@@ -557,6 +600,57 @@ def test_run_dotfiles_step_applies_bundle_and_generates_keys(
     assert (home / ".ssh" / "id_ed25519.pub").is_file()
     assert (home / ".config" / "git" / "gpg-public-key.asc").is_file()
     assert any("--quick-generate-key" in command for command in calls)
+
+
+def test_run_dotfiles_step_masks_secret_answers_and_restricts_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "dotfiles"
+    bundle = root / "Zsh"
+    bundle.mkdir(parents=True)
+    (bundle / "config.toml").write_text(
+        """
+[ask]
+API_KEY = "What is your API key?"
+Name = "What is your name?"
+
+[create]
+secrets = "~/.secrets.zsh"
+""",
+        encoding="utf-8",
+    )
+    (bundle / "secrets").write_text(
+        'export API_KEY="{api_key}"\nexport NAME="{name}"\n',
+        encoding="utf-8",
+    )
+    home = tmp_path / "home"
+    password_calls: list[str] = []
+    prompt_calls: list[str] = []
+
+    def fake_password(message: str, **kwargs: object) -> str:
+        password_calls.append(message)
+        return "super-secret"
+
+    def fake_prompt(message: str, **kwargs: object) -> str:
+        prompt_calls.append(message)
+        return "Armoghan"
+
+    monkeypatch.setattr(ui, "is_interactive", lambda: True)
+    monkeypatch.setattr(ui, "confirm", lambda *args, **kwargs: True)
+    monkeypatch.setattr(ui, "prompt_text", fake_prompt)
+    monkeypatch.setattr(ui, "password", fake_password)
+
+    result = dotfiles_module.run_dotfiles_step(home=home, source=root)
+
+    assert result is DotfileResult.COMPLETED
+    assert password_calls == ["What is your API key?"]
+    assert prompt_calls == ["What is your name?"]
+    secrets_path = home / ".secrets.zsh"
+    assert secrets_path.read_text(encoding="utf-8") == (
+        'export API_KEY="super-secret"\nexport NAME="Armoghan"\n'
+    )
+    assert stat.S_IMODE(secrets_path.stat().st_mode) == 0o600
 
 
 def test_run_dotfiles_step_reports_failure(

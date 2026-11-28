@@ -20,6 +20,13 @@ from omarchy_tweaker.functions.logger import get_session
 DOTFILES_DIRECTORY_ENV_VAR: Final = "OMARCHY_TWEAKER_DOTFILES_DIR"
 BACKUP_TIMESTAMP_FORMAT: Final = "%Y%m%d-%H%M%S"
 COMMAND_TIMEOUT_SECONDS: Final = 120
+_SECRET_KEY_MARKERS: Final[tuple[str, ...]] = (
+    "key",
+    "token",
+    "secret",
+    "password",
+    "passphrase",
+)
 
 
 class DotfileResult(StrEnum):
@@ -556,6 +563,12 @@ def setup_keys(
     return KeySetup(ssh=ssh, gpg=gpg)
 
 
+def _is_secret_key(key: str) -> bool:
+    """Return whether a configured key represents a secret value."""
+    normalized = key.lower()
+    return any(marker in normalized for marker in _SECRET_KEY_MARKERS)
+
+
 def _validate_required(value: str, message: str) -> bool | str:
     return True if value.strip() else message
 
@@ -568,13 +581,17 @@ def _validate_email(value: str) -> bool | str:
 
 
 def _ask_questions(questions: tuple[tuple[str, str], ...]) -> dict[str, str]:
+    """Collect configured answers, hiding secret-like values."""
     validators: dict[str, Callable[[str], bool | str]] = {
         "name": lambda value: _validate_required(value, "Name is required."),
         "email": _validate_email,
     }
     answers: dict[str, str] = {}
     for key, message in questions:
-        answers[key] = ui.prompt_text(message, validator=validators.get(key))
+        if _is_secret_key(key):
+            answers[key] = ui.password(message)
+        else:
+            answers[key] = ui.prompt_text(message, validator=validators.get(key))
     return answers
 
 
@@ -707,6 +724,8 @@ def run_dotfiles_step(
                 values["signing_key"] = key_setup.gpg.fingerprint
             for name, destination in bundle.create:
                 changed = create_from_template(bundle.source / name, destination, values)
+                if _is_secret_key(name):
+                    destination.chmod(0o600)
                 if changed:
                     _log_info("Created dotfile %s", destination)
                     ui.success(f"Created {destination}")

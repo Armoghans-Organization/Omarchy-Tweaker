@@ -1,0 +1,106 @@
+# ╭──────────────────────────────────────────────────────────────────────────╮
+# │                         ZSH CONFIGURATION                                │
+# │                                                                          │
+# │  Main Configuration : ~/.zshrc                                           │
+# │  Helper Scripts     : ~/.local/bin/                                      │
+# │  Library Files      : ~/.config/zsh/lib/                                 │
+# │  Function Files     : ~/.config/zsh/functions/                           │
+# │  Secret Variables   : ~/.secrets.zsh                                     │
+# │                                                                          │
+# │  This file is responsible for initializing your interactive Zsh          │
+# │  environment, loading reusable libraries, sourcing helper scripts,       │
+# │  and importing private environment variables and credentials.            │
+# ╰──────────────────────────────────────────────────────────────────────────╯
+
+# ───────────────────────────────────────────────────────────────────────────
+# 1. INTERACTIVE SHELL CHECK
+# ───────────────────────────────────────────────────────────────────────────
+
+# Check whether the current Zsh session is interactive.
+#
+# $- contains the current shell's option flags.
+# The "i" flag is present when Zsh is running interactively.
+#
+# [[ $- != *i* ]] means:
+#   - If the "i" flag is NOT present, the shell is non-interactive.
+#   - Execute "return" to stop processing this configuration file.
+#
+# This prevents interactive configuration, scripts, prompts, and
+# other shell customizations from running in non-interactive sessions.
+#
+# Examples of non-interactive shells:
+#   - Shell scripts
+#   - Some automated commands
+#   - Background shell processes
+
+[[ $- != *i* ]] && return
+
+# ───────────────────────────────────────────────────────────────────────────
+# 2. XDG DIRECTORY CONFIGURATION
+# ───────────────────────────────────────────────────────────────────────────
+
+# Define the directory paths used by your custom Zsh configuration.
+#
+# XDG_CONFIG_HOME is the XDG Base Directory environment variable
+# that specifies where user-specific configuration files are stored.
+#
+# By default, XDG_CONFIG_HOME is usually:
+#   ~/.config
+#
+# Therefore, the following paths resolve to:
+#   ZSH_CONFIG_DIR    = ~/.config/zsh
+#   ZSH_LIB_DIR       = ~/.config/zsh/lib
+#   ZSH_FUNCTIONS_DIR = ~/.config/zsh/functions
+#   ZSH_SCRIPT_DIR    = ~/.local/bin
+
+typeset -g ZSH_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
+typeset -g ZSH_LIB_DIR="$ZSH_CONFIG_DIR/lib"
+typeset -g ZSH_FUNCTIONS_DIR="$ZSH_CONFIG_DIR/functions"
+typeset -g ZSH_SCRIPT_DIR="$HOME/.local/bin"
+
+export PATH="$HOME/.local/bin:$PATH"
+
+# ───────────────────────────────────────────────────────────────────────────
+# 3. LOAD LIBRARIES + FUNCTIONS
+# ───────────────────────────────────────────────────────────────────────────
+
+if [[ -d "$ZSH_LIB_DIR" ]]; then
+    for file in "$ZSH_LIB_DIR"/<->*.zsh(N); do
+        source "$file"
+    done
+else
+    print -u2 "󰅙 Directory not found: $ZSH_LIB_DIR"
+fi
+
+if [[ -d "$ZSH_FUNCTIONS_DIR" ]]; then
+    for file in "$ZSH_FUNCTIONS_DIR"/<->*.zsh(N); do
+        source "$file"
+    done
+else
+    print -u2 "󰅙 Directory not found: $ZSH_FUNCTIONS_DIR"
+fi
+
+# ───────────────────────────────────────────────────────────────────────────
+# 5. LOAD PRIVATE SECRETS
+# ───────────────────────────────────────────────────────────────────────────
+
+# Check whether the private secrets file exists.
+#
+# The file is expected at:
+#   ~/.secrets.zsh
+#
+# It can contain sensitive environment variables and credentials,
+# such as:
+#   - API keys
+#   - Access tokens
+#   - Private environment variables
+#   - Application credentials
+#
+# Keep this file private and never commit it to a public repository.
+#
+# [[ -f PATH ]] checks whether PATH exists as a regular file.
+#
+# && executes the command on the right only when the condition
+# on the left evaluates to true.
+
+[[ -f "$HOME/.secrets.zsh" ]] && source "$HOME/.secrets.zsh"

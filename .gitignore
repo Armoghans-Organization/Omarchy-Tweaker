@@ -543,3 +543,4 @@ CHANGELOG.md
 changelog.md
 release-notes.md
 compose.agents.yaml
+!src/omarchy_tweaker/dotfiles/Zsh/lib

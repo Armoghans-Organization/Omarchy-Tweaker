@@ -1,0 +1,757 @@
+#!/usr/bin/env bash
+# ╭────────────────────────────────────────────────────────────────────────╮
+# │  lzj · Lazy Zellij · session manager · Catppuccin Macchiato            │
+# ╰────────────────────────────────────────────────────────────────────────╯
+#
+#  lzj                  open the picker
+#  lzj NAME             attach to NAME, or create it
+#  lzj -                attach to the session you used last
+#  lzj ls               plain list (for scripts)
+#  lzj kill NAME        kill a session        lzj prune   delete all exited ones
+#  lzj -h | -v          help | version
+#
+#  Needs:    zellij, fzf
+#  Used when present (all optional, each one falls back gracefully):
+#            gum   styled prompts, confirmations, spinners
+#            bat   syntax-colored layouts (raw view, layout picker)
+#            eza   icon + git folder trees in the preview and project picker
+#            zoxide / fd   project picker      git   branch + changes in the preview
+#
+#  Environment: LZJ_TIMEOUT (seconds per zellij call, default 4)
+#               LZJ_RICH=0  skip the per-session details in the list (faster)
+
+set -uo pipefail
+
+VERSION="5.0.0"
+
+# ── Configuration ──────────────────────────────────────────────────────────
+ZJ_BIN="${ZELLIJ_BIN_PATH:-$(command -v zellij || true)}"
+FZF_BIN="${FZF_BIN:-$(command -v fzf || true)}"
+GUM_BIN="${GUM_BIN:-$(command -v gum || true)}"
+BAT_BIN="${BAT_BIN:-$(command -v bat || true)}"
+EZA_BIN="${EZA_BIN:-$(command -v eza || true)}"
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+CONFIG_DIR="${ZELLIJ_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zellij}"
+CONFIG_FILE="$CONFIG_DIR/config.kdl"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/zellij"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/lzj"
+LAST_FILE="$STATE_DIR/last"
+ZJ_TIMEOUT="${LZJ_TIMEOUT:-4}"
+LIST_TIMEOUT="1.5"                      # per-session limit while building the list
+RICH="${LZJ_RICH:-1}"
+LZJ_PATH_LENGTH="${LZJ_PATH_LENGTH:-32}"
+
+LAYOUT_DIR="$CONFIG_DIR/layouts"
+if [[ -f "$CONFIG_FILE" ]]; then
+    _ld="$(sed -nE 's/^[[:space:]]*layout_dir[[:space:]]+"([^"]+)".*/\1/p' "$CONFIG_FILE" | head -n1)"
+    if [[ -n "$_ld" ]]; then _ld="${_ld/#\~/$HOME}"; _ld="${_ld//\$HOME/$HOME}"; LAYOUT_DIR="$_ld"; fi
+fi
+
+INSIDE="${ZELLIJ_SESSION_NAME:-}"       # set by zellij inside its panes
+
+# ── Colors (Catppuccin Macchiato) ──────────────────────────────────────────
+RST=$'\033[0m'; BOLD=$'\033[1m'; ITAL=$'\033[3m'
+fgc() { printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3"; }
+bgc() { printf '\033[48;2;%d;%d;%dm' "$1" "$2" "$3"; }
+MAUVE="$(fgc 198 160 246)"; TEAL="$(fgc 139 213 202)"; GREEN="$(fgc 166 218 149)"
+RED="$(fgc 237 135 150)";   YELLOW="$(fgc 238 212 159)"; PEACH="$(fgc 245 169 127)"
+BLUE="$(fgc 138 173 244)";  TEXT="$(fgc 202 211 245)"
+SUB="$(fgc 165 173 203)";   DIM="$(fgc 110 115 141)";    LINE="$(fgc 73 77 100)"
+CRUST="$(fgc 24 25 38)"
+BG_MAUVE="$(bgc 198 160 246)"; BG_GREEN="$(bgc 166 218 149)"; BG_RED="$(bgc 237 135 150)"
+BG_YELLOW="$(bgc 238 212 159)"
+
+# Glyphs are built from codepoints (UTF-8 bytes) so no editor or locale can strip them.
+u8() {
+    local cp=$((16#$1)) b1 b2 b3
+    if (( cp < 0x800 )); then
+        b1=$(( 0xC0 | (cp >> 6) )); b2=$(( 0x80 | (cp & 0x3F) ))
+        printf '\\x%02x\\x%02x' "$b1" "$b2"
+    else
+        b1=$(( 0xE0 | (cp >> 12) )); b2=$(( 0x80 | ((cp >> 6) & 0x3F) )); b3=$(( 0x80 | (cp & 0x3F) ))
+        printf '\\x%02x\\x%02x\\x%02x' "$b1" "$b2" "$b3"
+    fi
+}
+g() { printf "$(u8 "$1")"; }
+I_CUR="$(g f192)"; I_RUN="$(g f111)"; I_DEAD="$(g f00d)"; I_TAB="$(g f24d)"; I_PANE="$(g f2d0)"
+I_FLOAT="$(g f2d2)"; I_DIR="$(g f07b)"; I_PLUG="$(g f12e)"; I_TERM="$(g f120)"; I_CLOCK="$(g f017)"
+I_GIT="$(g e725)"; I_WARN="$(g f071)"; I_CHECK="$(g f00c)"; I_PLUS="$(g f067)"
+I_TRASH="$(g f1f8)"; I_BOLT="$(g f0e7)"; I_HELP="$(g f059)"; I_ZJ="$(g f2d0)"
+CAP_L="$(g e0b6)"; CAP_R="$(g e0b4)"
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+die()  { printf '\n  %s%s %s%s %s\n\n' "$RED" "$I_WARN" "$BOLD" "$*" "$RST" >&2; exit 1; }
+zj()   { timeout "$ZJ_TIMEOUT" "$ZJ_BIN" "$@"; }
+visible_len() { local s; s="$(printf '%s' "$1" | sed -E 's/\x1b\[[0-9;]*m//g')"; printf '%d' "${#s}"; }
+repeat() { local n="$1" ch="$2" out=""; (( n > 0 )) || return 0; printf -v out '%*s' "$n" ''; printf '%s' "${out// /$ch}"; }
+
+restore_tty() { [[ -t 1 ]] && { tput cnorm 2>/dev/null; stty sane 2>/dev/null; } || true; }
+trap restore_tty EXIT
+
+# Rounded colored badges: round cap, text on a colored background, round cap.
+badge_current() { printf '%s%s%s%s current %s%s%s%s' "$MAUVE" "$CAP_L" "$RST" "$BG_MAUVE$CRUST$BOLD" "$RST" "$MAUVE" "$CAP_R" "$RST"; }
+badge_running() { printf '%s%s%s%s running %s%s%s%s' "$GREEN" "$CAP_L" "$RST" "$BG_GREEN$CRUST$BOLD" "$RST" "$GREEN" "$CAP_R" "$RST"; }
+badge_exited()  { printf '%s%s%s%s exited %s%s%s%s' "$YELLOW" "$CAP_L" "$RST" "$BG_YELLOW$CRUST$BOLD" "$RST" "$YELLOW" "$CAP_R" "$RST"; }
+badge_stuck()   { printf '%s%s%s%s stuck %s%s%s%s' "$RED" "$CAP_L" "$RST" "$BG_RED$CRUST$BOLD" "$RST" "$RED" "$CAP_R" "$RST"; }
+
+# gum helpers, each with a plain fallback -----------------------------------
+toast() {   # toast ok|err|info "text"
+    local kind="$1" txt="$2" col icon hex
+    case "$kind" in ok) col="$GREEN"; icon="$I_CHECK"; hex="#a6da95" ;; err) col="$RED"; icon="$I_WARN"; hex="#ed8796" ;; *) col="$MAUVE"; icon="$I_BOLT"; hex="#c6a0f6" ;; esac
+    if [[ -n "$GUM_BIN" ]]; then
+        printf '\n' >&2
+        "$GUM_BIN" style --foreground "$hex" --border rounded --border-foreground "$hex" --padding "0 2" --margin "0 2" "$icon  $txt" >&2
+    else
+        printf '\n  %s%s  %s%s\n' "$col" "$icon" "$txt" "$RST" >&2
+    fi
+    sleep 1.1
+}
+
+confirm() {   # confirm "question" "Yes label"
+    local q="$1" yes="${2:-Yes}"
+    if [[ -n "$GUM_BIN" ]]; then
+        printf '\n' >&2
+        "$GUM_BIN" confirm "$q" --affirmative "$yes" --negative "Cancel" --default=false \
+            --prompt.foreground "#eed49f" --prompt.margin "0 2" \
+            --selected.background "#c6a0f6" --selected.foreground "#181926" \
+            --unselected.background "#363a4f" --unselected.foreground "#a5adcb" </dev/tty >/dev/tty 2>/dev/tty
+    else
+        local a
+        printf '\n  %s%s%s %s[y/N]%s ' "$YELLOW" "$q" "$RST" "$DIM" "$RST" >&2
+        read -r -n1 a </dev/tty || return 1
+        printf '\n' >&2
+        [[ "$a" == [yY] ]]
+    fi
+}
+
+spin() {   # spin "title" cmd args...   (gum spinner, else just run it)
+    local title="$1"; shift
+    if [[ -n "$GUM_BIN" ]]; then
+        "$GUM_BIN" spin --spinner dot --title "  $title" --spinner.foreground "#c6a0f6" --title.foreground "#cad3f5" -- "$@" </dev/tty >/dev/tty 2>/dev/tty
+    else
+        "$@"
+    fi
+}
+
+ask() {   # ask "header" [initial]  ->  text on stdout, nonzero if cancelled/empty
+    local out
+    if [[ -n "$GUM_BIN" ]]; then
+        out="$("$GUM_BIN" input --header "  $1" --header.foreground "#c6a0f6" --prompt "  " \
+              --prompt.foreground "#8bd5ca" --cursor.foreground "#c6a0f6" --placeholder "type a name…" \
+              --value "${2:-}" --width 42 --char-limit 48 </dev/tty 2>/dev/tty)" || return 1
+    else
+        read -r -e -p "  $1 ❯ " -i "${2:-}" out || return 1
+    fi
+    out="${out#"${out%%[![:space:]]*}"}"; out="${out%"${out##*[![:space:]]}"}"
+    [[ -n "$out" ]] && printf '%s' "$out"
+}
+
+# ── Session data ───────────────────────────────────────────────────────────
+# state<TAB>name<TAB>age      state = current|alive|dead
+parse_sessions() {
+    local line name age rest state
+    local re='^(.*) \[Created (.*) ago\](.*)$'
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" == *"No active zellij sessions"* ]] && continue
+        if [[ "$line" =~ $re ]]; then name="${BASH_REMATCH[1]}"; age="${BASH_REMATCH[2]}"; rest="${BASH_REMATCH[3]}"
+        else name="${line%% *}"; age=""; rest=" ${line#"$name"}"; fi
+        state=alive
+        if [[ "$rest" == *EXITED* ]]; then state=dead
+        elif [[ "$rest" == *current* || ( -n "$INSIDE" && "$name" == "$INSIDE" ) ]]; then state=current; fi
+        printf '%s\t%s\t%s\n' "$state" "$name" "$age"
+    done < <(zj list-sessions --no-formatting 2>/dev/null || true)
+}
+
+session_exists() { zj list-sessions --short 2>/dev/null | grep -Fxq -- "$1"; }
+
+session_age() { parse_sessions | awk -F'\t' -v n="$1" '$2 == n { print $3; exit }'; }
+
+# Layout text of a session: live (dump-layout) or the saved copy of an exited one.
+session_layout() {   # session_layout STATE NAME
+    local f
+    if [[ "$1" == dead ]]; then
+        f="$(find "$CACHE_DIR" -type f -path "*/session_info/$2/session-layout.kdl" -printf '%T@ %p\n' 2>/dev/null \
+             | sort -rn | head -n1 | cut -d' ' -f2-)"
+        [[ -n "$f" && -r "$f" ]] && cat "$f"
+    else
+        zj --session "$2" action dump-layout 2>/dev/null
+    fi
+}
+
+# KDL layout -> records:  R<TAB>cwd | T<TAB>name<TAB>focus | P<TAB>name<TAB>cmd<TAB>cwd<TAB>focus<TAB>float<TAB>kind
+parse_layout() {
+    awk '
+    function attr(s, k,   re, v) {
+        re = "(^|[ \t])" k "=\"[^\"]*\""
+        if (match(s, re)) { v = substr(s, RSTART, RLENGTH); sub(/^[ \t]*[^=]*="/, "", v); sub(/"$/, "", v); return v }
+        return ""
+    }
+    function flush(   cw) {
+        if (!pend) return
+        cw = pcwd
+        if (cw != "" && substr(cw, 1, 1) != "/" && rootcwd != "") cw = rootcwd "/" cw
+        if (cw == "") cw = rootcwd
+        printf "P\t%s\t%s\t%s\t%d\t%d\t%s\n", pname, pcmd, cw, pfocus, pfloat, pkind
+        pend = 0
+    }
+    /^[ \t]*(new_tab_template|swap_tiled_layout|swap_floating_layout)/ { flush(); done = 1 }
+    done { next }
+    /^[ \t]*cwd[ \t]+"/ && !tabs { match($0, /"[^"]*"/); rootcwd = substr($0, RSTART + 1, RLENGTH - 2); print "R\t" rootcwd; next }
+    /^[ \t]*tab([ \t]|$)/ {
+        flush(); pfloat = 0; tabs++
+        tn = attr($0, "name"); if (tn == "") tn = "Tab #" tabs
+        printf "T\t%s\t%d\n", tn, ($0 ~ /focus=true/)
+        next
+    }
+    /^[ \t]*floating_panes/ { flush(); pfloat = 1; next }
+    /^[ \t]*pane([ \t]|$)/ {
+        flush()
+        if ($0 ~ /split_direction=/ || $0 ~ /stacked=true/) { pend = 0; next }
+        pend = 1; pname = attr($0, "name"); pcmd = attr($0, "command"); pcwd = attr($0, "cwd")
+        pfocus = ($0 ~ /focus=true/); pkind = (pcmd != "" ? "cmd" : "shell"); next
+    }
+    /^[ \t]*plugin[ \t]/ {
+        loc = attr($0, "location")
+        if (loc ~ /(tab-bar|status-bar|compact-bar|zjstatus|zjhints|zjstatus-hints)/) { pend = 0; next }
+        sub(/^.*[\/:]/, "", loc); sub(/\.wasm$/, "", loc)
+        pkind = "plugin"; pcmd = ""; pname = loc; next
+    }
+    END { flush() }'
+}
+
+# records -> one line of facts: tabs<TAB>panes<TAB>floating<TAB>focus-cwd<TAB>tab names
+layout_facts() {
+    awk -F'\t' '
+    $1 == "R" { root = $2 }
+    $1 == "T" { tabs++; names = names (names == "" ? "" : ", ") $2 }
+    $1 == "P" { panes++; if ($6 == 1) fl++
+                if (cwd == "" && $4 != "") cwd = $4
+                if ($5 == 1 && !got) { fcwd = $4; got = 1 } }
+    END { if (fcwd == "") fcwd = (cwd != "" ? cwd : root)
+          printf "%d\t%d\t%d\t%s\t%s\n", tabs, panes, fl, fcwd, names }'
+}
+
+short_path() {
+    local path="$1"
+    local max="${2:-48}"
+    local home="${HOME%/}"
+
+    [[ -z "$path" ]] && return
+
+    # Replace home with ~
+    if [[ "$path" == "$home" ]]; then
+        path="~"
+    elif [[ "$path" == "$home/"* ]]; then
+        path="~${path#"$home"}"
+    fi
+
+    # Already short enough
+    (( ${#path} <= max )) && {
+        printf '%s' "$path"
+        return
+    }
+
+    # Preserve the final directory components
+    local suffix="${path##*/}"
+    local parent="${path%/*}"
+
+    if [[ "$parent" == "$path" ]]; then
+        printf '…%s' "${path: -$((max - 1))}"
+        return
+    fi
+
+    local result="…/$suffix"
+
+    if (( ${#result} <= max )); then
+        printf '%s' "$result"
+        return
+    fi
+
+    # Truncate exceptionally long directory names
+    printf '…%s' "${suffix: -$((max - 1))}"
+}
+
+# ── The list (rows for fzf, NUL separated: two text lines + a spacer each) ──
+# Row = state<TAB>name<TAB>display   (display holds embedded newlines)
+list_rows() {
+    local tmp i=0 state name age
+    local -a states=() names=() ages=()
+    while IFS=$'\t' read -r state name age; do states+=("$state"); names+=("$name"); ages+=("$age"); done < <(parse_sessions)
+    (( ${#names[@]} )) || return 0
+
+    tmp="$(mktemp -d)"
+    if [[ "$RICH" == 1 ]]; then      # ask every live session for its layout, in parallel
+        for i in "${!names[@]}"; do
+            [[ "${states[$i]}" == dead ]] && continue
+            ( ZJ_TIMEOUT="$LIST_TIMEOUT" session_layout alive "${names[$i]}" | parse_layout | layout_facts > "$tmp/$i" ) 2>/dev/null &
+        done
+        wait
+    fi
+
+    local s idx tabs panes fl fcwd tnames badge icon l1 l2 col
+    for s in current alive dead; do
+        for idx in "${!names[@]}"; do
+            [[ "${states[$idx]}" == "$s" ]] || continue
+            name="${names[$idx]}"; age="${ages[$idx]}"
+            case "$s" in
+                current) icon="${MAUVE}${I_CUR}"; badge="$(badge_current)"; col="$TEXT" ;;
+                alive)   icon="${GREEN}${I_RUN}"; badge="$(badge_running)"; col="$TEXT" ;;
+                dead)    icon="${RED}${I_DEAD}";  badge="$(badge_exited)";  col="$SUB" ;;
+            esac
+            l2="${DIM}${I_CLOCK} ${age:-?}${RST}"
+            if [[ "$s" == dead ]]; then
+                l2+="   ${DIM}${ITAL}Enter resurrects it${RST}"
+            elif [[ -s "$tmp/$idx" ]]; then
+                IFS=$'\t' read -r tabs panes fl fcwd tnames < "$tmp/$idx"
+                if (( tabs > 0 )); then
+                    l2+="   ${MAUVE}${I_TAB}${RST} ${SUB}${tabs}${RST}   ${BLUE}${I_PANE}${RST} ${SUB}${panes}${RST}"
+                    [[ -n "$fcwd" ]] && l2+="   ${PEACH}${I_DIR}${RST} ${SUB}$(short_path "$fcwd")${RST}"
+                fi
+            elif [[ "$RICH" == 1 ]]; then
+                l2+="   $(badge_stuck) ${DIM}not answering${RST}"
+            fi
+            l1="  ${icon}${RST}  ${col}${BOLD}${name}${RST}  ${badge}"
+            printf '%s\t%s\t%s\n     %s\n \0' "$s" "$name" "$l1" "$l2"
+        done
+    done
+    rm -rf "$tmp"
+}
+
+# ── Preview (fzf calls:  lzj __preview STATE NAME) ─────────────────────────
+section() {   # section "TITLE" width
+    local t="$1" w="$2" n
+    n=$(( w - ${#t} - 5 )); (( n < 4 )) && n=4
+    printf '\n  %s──%s %s%s%s%s %s%s%s\n' "$LINE" "$RST" "$MAUVE" "$BOLD" "$t" "$RST" "$LINE" "$(repeat "$n" ─)" "$RST"
+}
+
+card() {   # card WIDTH ICON NAME BADGE SUBLINE
+    local w="$1" icon="$2" name="$3" badge="$4" sub="$5" inner l1 pad1 pad2
+    inner=$(( w - 4 ))
+    l1="${icon}${RST}  ${BOLD}${TEXT}${name}${RST}  ${badge}"
+    pad1=$(( inner - $(visible_len "$l1") )); (( pad1 < 0 )) && pad1=0
+    pad2=$(( inner - $(visible_len "$sub") )); (( pad2 < 0 )) && pad2=0
+    printf '  %s╭%s╮%s\n' "$LINE" "$(repeat $((w - 2)) ─)" "$RST"
+    printf '  %s│%s  %s%*s%s│%s\n' "$LINE" "$RST" "$l1" "$pad1" "" "$LINE" "$RST"
+    printf '  %s│%s  %s%*s%s│%s\n' "$LINE" "$RST" "$sub" "$pad2" "" "$LINE" "$RST"
+    printf '  %s╰%s╯%s\n' "$LINE" "$(repeat $((w - 2)) ─)" "$RST"
+}
+
+render_tree() {   # records on stdin -> tabs with branch connectors
+    awk -F'\t' -v home="$HOME" -v RST="$RST" -v BOLD="$BOLD" -v MAUVE="$MAUVE" -v YELLOW="$YELLOW" \
+        -v PEACH="$PEACH" -v BLUE="$BLUE" -v TEXT="$TEXT" -v SUB="$SUB" -v DIM="$DIM" -v LINE="$LINE" -v TEAL="$TEAL" \
+        -v I_TAB="$I_TAB" -v I_PANE="$I_PANE" -v I_FLOAT="$I_FLOAT" -v I_PLUG="$I_PLUG" '
+    function short(p, max, suffix) {
+        if (home != "" && index(p, home) == 1)
+            p = "~" substr(p, length(home) + 1)
+
+        max = 32
+        if (length(p) <= max) return p
+
+        suffix = p
+        sub(/^.*\//, "", suffix)
+
+        if (length(suffix) >= max)
+            return "…" substr(suffix, length(suffix) - max + 2)
+
+        return "…/" suffix
+    }
+    function finish(   k, br, label, col, ln) {
+        if (!intab) return
+        printf "\n  %s%s%s %s%s%s%s\n", MAUVE, I_TAB, RST, BOLD TEXT, tname, RST, (tfocus ? "  " YELLOW "●" RST DIM " focused" RST : "")
+        for (k = 1; k <= np; k++) {
+            br = (k == np) ? "└─" : "├─"
+            label = pn[k]; col = TEXT
+            if (pk[k] == "plugin") { label = I_PLUG " " pn[k]; col = TEAL }
+            else if (pn[k] == "" && pc[k] != "") label = pc[k]
+            else if (pn[k] == "") { label = "shell"; col = SUB }
+            else if (pc[k] != "") label = pn[k] DIM " · " pc[k]
+            ln = "    " LINE br RST " " BLUE (pf[k] ? I_FLOAT : I_PANE) RST " " (pfo[k] ? BOLD col : col) label RST
+            if (pfo[k]) ln = ln " " YELLOW "●" RST
+            if (pf[k]) ln = ln " " PEACH "float" RST
+            if (pd[k] != "") ln = ln "  " DIM short(pd[k]) RST
+            print ln
+        }
+        np = 0
+    }
+    $1 == "T" { finish(); intab = 1; tname = $2; tfocus = $3; ntabs++; next }
+    $1 == "P" { np++; pn[np] = $2; pc[np] = $3; pd[np] = $4; pfo[np] = $5; pf[np] = $6; pk[np] = $7; next }
+    END { finish(); if (!ntabs) print "\n  " DIM "(no tabs found in this layout)" RST }'
+}
+
+project_info() {   # project_info DIR WIDTH  -> git line + eza tree
+    local dir="$1" w="$2" br dirty n
+    [[ -d "$dir" ]] || return 0
+    section "PROJECT" "$w"
+    # printf '  %s%s%s %s%s%s\n' "$PEACH" "$I_DIR" "$RST" "$SUB" "$(short_path "$dir")" "$RST"
+    printf '  %s%s%s %s%s%s\n' \
+    "$PEACH" "$I_DIR" "$RST" \
+    "$SUB" "$(short_path "$dir" "$LZJ_PATH_LENGTH")" "$RST"
+    if command -v git >/dev/null 2>&1 && git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        br="$(git -C "$dir" branch --show-current 2>/dev/null)"; [[ -z "$br" ]] && br="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"
+        n="$(git -C "$dir" status --porcelain 2>/dev/null | wc -l)"
+        if (( n > 0 )); then dirty="${YELLOW}${n} changed${RST}"; else dirty="${GREEN}clean${RST}"; fi
+        printf '  %s%s%s %s%s%s  %s\n' "$GREEN" "$I_GIT" "$RST" "$TEXT" "$br" "$RST" "$dirty"
+    fi
+    printf '\n'
+    if [[ -n "$EZA_BIN" ]]; then
+        "$EZA_BIN" --tree --level=1 --icons=always --color=always --git --group-directories-first \
+            -I '.git|node_modules|target|__pycache__|.cache' "$dir" 2>/dev/null | sed -n '2,14p' | sed 's/^/  /'
+    else
+        ls -A --color=always "$dir" 2>/dev/null | head -12 | sed 's/^/  /'
+    fi
+}
+
+preview() {   # preview STATE NAME
+    local state="$1" name="$2" age lay recs facts tabs panes fl fcwd tnames w icon badge sub
+    local cols="${FZF_PREVIEW_COLUMNS:-72}"; w=$(( cols - 4 )); (( w > 74 )) && w=74; (( w < 30 )) && w=30
+    if [[ -z "$name" ]]; then
+        printf '\n  %s%s  Nothing selected%s\n\n  %sType a name and press Enter to create a session.%s\n' "$MAUVE" "$I_PLUS" "$RST" "$DIM" "$RST"
+        return
+    fi
+    age="$(session_age "$name")"
+    case "$state" in
+        current) icon="${MAUVE}${I_CUR}"; badge="$(badge_current)" ;;
+        alive)   icon="${GREEN}${I_RUN}"; badge="$(badge_running)" ;;
+        *)       icon="${RED}${I_DEAD}";  badge="$(badge_exited)" ;;
+    esac
+    sub="${DIM}${I_CLOCK} created ${age:-?} ago${RST}"
+    lay="$(session_layout "$state" "$name")"
+    printf '\n'
+    if [[ -z "$lay" ]]; then
+        card "$w" "$icon" "$name" "$badge" "$sub"
+        printf '\n'
+        if [[ "$state" == dead ]]; then printf '  %sNo saved layout found for this session.%s\n' "$DIM" "$RST"
+        else printf '  %s%s  No answer from this session within %ss.%s\n  %sIt may be stuck. Ctrl-X kills it.%s\n' "$YELLOW" "$I_WARN" "$ZJ_TIMEOUT" "$RST" "$DIM" "$RST"; fi
+        return
+    fi
+    recs="$(printf '%s' "$lay" | parse_layout)"
+    facts="$(printf '%s\n' "$recs" | layout_facts)"
+    IFS=$'\t' read -r tabs panes fl fcwd tnames <<<"$facts"
+    sub+="   ${MAUVE}${I_TAB}${RST} ${SUB}${tabs} tab$([[ $tabs == 1 ]] || printf s)${RST}   ${BLUE}${I_PANE}${RST} ${SUB}${panes} pane$([[ $panes == 1 ]] || printf s)${RST}"
+    (( fl > 0 )) && sub+="   ${PEACH}${I_FLOAT}${RST} ${SUB}${fl} floating${RST}"
+    card "$w" "$icon" "$name" "$badge" "$sub"
+    section "LAYOUT" "$w"
+    printf '%s\n' "$recs" | render_tree
+    project_info "$fcwd" "$w"
+    printf '\n  %s%s%s\n' "$DIM" "$( [[ $state == dead ]] && echo "⏎ resurrect   Alt-D delete" || echo "⏎ attach   ^X kill   Alt-R rename")" "$RST"
+}
+
+preview_raw() {   # the layout exactly as zellij reports it, colored by bat
+    local lay; lay="$(session_layout "$1" "$2")"
+    [[ -z "$lay" ]] && { printf '\n  %s(no layout available)%s\n' "$DIM" "$RST"; return; }
+    if [[ -n "$BAT_BIN" ]]; then
+        printf '%s\n' "$lay" | "$BAT_BIN" --color=always --style=numbers,grid --paging=never --language=kdl 2>/dev/null \
+            || printf '%s\n' "$lay" | "$BAT_BIN" --color=always --style=numbers,grid --paging=never 2>/dev/null \
+            || printf '%s\n' "$lay"
+    else
+        printf '%s\n' "$lay"
+    fi
+}
+
+preview_help() {
+    local w=$(( ${FZF_PREVIEW_COLUMNS:-72} - 4 ))
+    k() { printf '    %s%-9s%s %s%s%s\n' "$MAUVE$BOLD" "$1" "$RST" "$SUB" "$2" "$RST"; }
+    printf '\n  %s%s  Keys%s\n' "$MAUVE$BOLD" "$I_HELP" "$RST"
+    section "SESSIONS" "$w"
+    k "Enter"   "attach (or resurrect an exited session)"
+    k "type+⏎"  "create a session with the name you typed"
+    k "Ctrl-N"  "new session"
+    k "Ctrl-L"  "new session from a layout"
+    k "Ctrl-P"  "new session from a project folder"
+    section "MANAGE" "$w"
+    k "Ctrl-X"  "kill the selected session"
+    k "Alt-D"   "delete (not resurrectable afterwards)"
+    k "Alt-R"   "rename"
+    k "Alt-P"   "delete every exited session"
+    k "Ctrl-R"  "refresh the list"
+    section "PREVIEW" "$w"
+    k "Alt-O"   "overview"
+    k "Alt-V"   "raw layout"
+    k "F1"      "this help"
+    k "Ctrl-/"  "hide / show the preview"
+    k "Shift-↑↓" "scroll the preview"
+    k "Esc"     "quit"
+}
+
+preview_layout_file() {
+    local name="$1"
+    local file="$LAYOUT_DIR/$name.kdl"
+
+    if [[ "$name" == "default" && ! -f "$file" ]]; then
+        printf '\n  %sBuilt-in default layout.%s\n' "$SUB" "$RST"
+        return
+    fi
+
+    if [[ ! -f "$file" ]]; then
+        printf '\n  %s%s Layout not found: %s%s\n' \
+            "$RED" "$I_WARN" "$name" "$RST"
+        return
+    fi
+
+    printf '\n  %s%s %s%s\n' "$MAUVE" "$I_TAB" "$name" "$RST"
+    # printf '  %s%s%s\n\n' "$DIM" "$file" "$RST"
+    printf '  %s%s%s\n\n' "$DIM" "$(short_path "$file" 55)" "$RST"
+
+    if [[ -n "$BAT_BIN" ]]; then
+        "$BAT_BIN" \
+            --color=always \
+            --style=numbers,grid \
+            --paging=never \
+            --language=kdl \
+            "$file" 2>/dev/null || cat "$file"
+    else
+        cat "$file"
+    fi
+}
+
+preview_dir() {   # lzj __dirprev DIR      (project picker preview)
+    local d="${1/#\~/$HOME}"
+    [[ -d "$d" ]] || return 0
+    project_info "$d" $(( ${FZF_PREVIEW_COLUMNS:-60} - 4 ))
+}
+
+# ── Actions ────────────────────────────────────────────────────────────────
+remember() { mkdir -p "$STATE_DIR" 2>/dev/null; printf '%s' "$1" > "$LAST_FILE" 2>/dev/null || true; }
+
+guard_inside() {
+    [[ -z "$INSIDE" ]] && return 0
+    if [[ -n "$GUM_BIN" ]]; then
+        printf '\n' >&2
+        "$GUM_BIN" style --foreground "#eed49f" --border rounded --border-foreground "#eed49f" --padding "1 2" --margin "0 2" \
+            "$I_WARN  You are inside zellij session \"$INSIDE\"." "Zellij cannot attach from within a session." "Detach first (Ctrl o, d) or use Ctrl o, w." >&2
+    else
+        printf '\n  %s%s  You are inside zellij session "%s".%s\n  %sZellij cannot attach from within a session. Detach first (Ctrl o, d) or use Ctrl o, w.%s\n' \
+            "$YELLOW" "$I_WARN" "$INSIDE" "$RST" "$DIM" "$RST" >&2
+    fi
+    sleep 2.4
+    return 1
+}
+
+attach() {
+    guard_inside || return 1
+    remember "$1"; restore_tty
+    exec "$ZJ_BIN" attach "$1"
+}
+
+create() {   # create NAME [LAYOUT_NAME_OR_PATH] [DIR]
+    local name="$1" layout="${2:-}" dir="${3:-}"
+    guard_inside || return 1
+    if session_exists "$name"; then attach "$name"; return; fi
+    [[ -n "$dir" && -d "$dir" ]] && cd "$dir" || true
+    remember "$name"; restore_tty
+    if [[ -n "$layout" && "$layout" != default ]]; then
+        [[ -f "$layout" ]] || layout="$LAYOUT_DIR/$layout.kdl"
+        [[ -f "$layout" ]] || die "layout not found: ${2}"
+        exec "$ZJ_BIN" --session "$name" --new-session-with-layout "$layout"
+    fi
+    exec "$ZJ_BIN" attach --create "$name"
+}
+
+FZF_COLORS="bg:-1,bg+:#363a4f,fg:#a5adcb,fg+:#cad3f5,hl:#c6a0f6,hl+:#f5bde6,border:#494d64,label:#c6a0f6,\
+prompt:#8bd5ca,pointer:#c6a0f6,marker:#8bd5ca,spinner:#c6a0f6,info:#6e738d,header:#8087a2,\
+preview-border:#494d64,gutter:-1,query:#cad3f5,disabled:#6e738d"
+
+fzf_menu() {   # fzf_menu "prompt icon" [extra fzf args]  (items on stdin)
+    "$FZF_BIN" --ansi --layout=reverse --border=rounded --margin=1,2 --padding=1,2 --info=inline \
+        --prompt="  $1  " --pointer='▌' --no-scrollbar --cycle --color="$FZF_COLORS" "${@:2}"
+}
+
+pick_layout() {
+    local selfq
+    local f
+    local -a items=("default")
+
+    printf -v selfq '%q' "$SELF"
+
+    if [[ -d "$LAYOUT_DIR" ]]; then
+        while IFS= read -r -d '' f; do
+            items+=("$(basename "${f%.kdl}")")
+        done < <(
+            find -L "$LAYOUT_DIR" \
+                -maxdepth 1 \
+                -type f \
+                -name '*.kdl' \
+                -print0 2>/dev/null |
+                sort -z
+        )
+    fi
+
+    printf '%s\n' "${items[@]}" |
+        fzf_menu "$I_TAB" \
+            --border-label=' pick a layout ' \
+            --preview="$selfq __layoutprev {}" \
+            --preview-window='right,60%,border-left,wrap'
+}
+
+pick_dir() {
+    local selfq; printf -v selfq '%q' "$SELF"
+    { if command -v zoxide >/dev/null 2>&1; then zoxide query -l 2>/dev/null
+      elif command -v fd >/dev/null 2>&1; then fd --type d --max-depth 3 . "$HOME" 2>/dev/null
+      else find "$HOME" -maxdepth 3 -type d -not -path '*/.*' 2>/dev/null; fi; } \
+        | sed "s|^$HOME|~|" \
+        | fzf_menu "$I_DIR" --border-label=' pick a project folder · the session is named after it ' \
+            --preview="$selfq __dirprev {}" --preview-window='right,50%,border-left,wrap' \
+        | sed "s|^~|$HOME|"
+}
+
+clean_name() { local n="${1##*/}"; n="${n//[^A-Za-z0-9_-]/-}"; printf '%s' "${n:-session}"; }
+
+act_project() {
+    local d name
+    d="$(pick_dir)" || return 0
+    [[ -n "$d" ]] || return 0
+    name="$(clean_name "$d")"
+    create "$name" "" "$d"
+}
+
+act_layout() {   # act_layout [NAME]
+    local name="${1:-}" layout
+    [[ -n "$name" ]] || name="$(ask "name the new session")" || return 0
+    layout="$(pick_layout)" || return 0
+    create "$name" "$layout"
+}
+
+# fzf-side actions (terminal handed over by fzf `execute`, then it reloads)
+do_kill() {   # lzj __kill STATE NAME
+    local state="$1" name="$2"
+    [[ -z "$name" ]] && return 0
+    if [[ "$state" == dead ]]; then toast info "\"$name\" is already exited. Alt-D deletes it."; return 0; fi
+    confirm "$I_TRASH  Kill session \"$name\"?" "Kill" || return 0
+    if spin "killing $name…" timeout "$ZJ_TIMEOUT" "$ZJ_BIN" kill-session "$name"; then toast ok "killed $name"; else toast err "could not kill $name"; fi
+}
+do_delete() {
+    local name="$2"; [[ -z "$name" ]] && return 0
+    confirm "$I_TRASH  Delete \"$name\" for good? It will not be resurrectable." "Delete" || return 0
+    if spin "deleting $name…" timeout "$ZJ_TIMEOUT" "$ZJ_BIN" delete-session --force "$name"; then toast ok "deleted $name"; else toast err "could not delete $name"; fi
+}
+do_rename() {
+    local state="$1" name="$2" new
+    [[ -z "$name" ]] && return 0
+    [[ "$state" == dead ]] && { toast info "exited sessions cannot be renamed"; return 0; }
+    new="$(ask "rename \"$name\" to" "$name")" || return 0
+    [[ "$new" == "$name" ]] && return 0
+    if spin "renaming…" timeout "$ZJ_TIMEOUT" "$ZJ_BIN" --session "$name" action rename-session "$new"; then toast ok "renamed to $new"; else toast err "rename failed"; fi
+}
+do_prune() {
+    local n=0 state name age
+    local -a dead=()
+    while IFS=$'\t' read -r state name age; do [[ "$state" == dead ]] && dead+=("$name"); done < <(parse_sessions)
+    (( ${#dead[@]} )) || { toast info "no exited sessions"; return 0; }
+    confirm "$I_TRASH  Delete ${#dead[@]} exited session(s)?" "Delete all" || return 0
+    for name in "${dead[@]}"; do timeout "$ZJ_TIMEOUT" "$ZJ_BIN" delete-session --force "$name" >/dev/null 2>&1 && n=$((n + 1)); done
+    toast ok "deleted $n exited session(s)"
+}
+
+# ── The picker ─────────────────────────────────────────────────────────────
+fzf_version() { "$FZF_BIN" --version 2>/dev/null | awk '{print $1}'; }
+version_ge() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]; }
+
+picker() {
+    [[ -t 0 && -t 1 ]] || die "lzj needs a terminal"
+    local selfq out rc query key sel state name hdr errf fv
+    local -a fancy=()
+    printf -v selfq '%q' "$SELF"
+
+    # Newer fzf gets extra polish. If fzf rejects any of it, we retry without (see below).
+    fv="$(fzf_version)"
+    if [[ -n "$fv" ]] && version_ge "$fv" "0.58"; then
+        fancy=(--ghost='type to filter, or a new session name' --highlight-line)
+    fi
+
+    hdr="${MAUVE}⏎${RST} ${SUB}attach${RST}    ${MAUVE}^N${RST} ${SUB}new${RST}    ${MAUVE}^L${RST} ${SUB}layout${RST}    ${MAUVE}^P${RST} ${SUB}project${RST}    ${MAUVE}^X${RST} ${SUB}kill${RST}    ${MAUVE}F1${RST} ${SUB}all keys${RST}"
+    [[ -n "$INSIDE" ]] && hdr+=$'\n'"${YELLOW}${I_WARN} inside zellij (${INSIDE}): attaching is off here, the rest works${RST}"
+    errf="$(mktemp)"
+
+    while true; do
+        out="$(list_rows | "$FZF_BIN" --read0 --ansi --delimiter=$'\t' --with-nth=3 "${fancy[@]}" \
+            --layout=reverse --border=rounded --margin=1,2 --padding=1,2 --info=inline --no-multi --cycle --no-scrollbar \
+            --prompt=" $I_TERM  " --pointer='▌' --marker='┃' \
+            --border-label=" $I_ZJ  lzj · zellij sessions " --border-label-pos=4 \
+            --header="$hdr" --header-first --color="$FZF_COLORS" \
+            --preview="$selfq __preview {1:q} {2:q}" --preview-window='right,56%,border-rounded,wrap' \
+            --preview-label=' overview ' \
+            --bind="ctrl-r:reload($selfq __list)" \
+            --bind="ctrl-x:execute($selfq __kill {1:q} {2:q})+reload($selfq __list)" \
+            --bind="alt-d:execute($selfq __delete {1:q} {2:q})+reload($selfq __list)" \
+            --bind="alt-r:execute($selfq __rename {1:q} {2:q})+reload($selfq __list)" \
+            --bind="alt-p:execute($selfq __prune)+reload($selfq __list)" \
+            --bind="alt-v:change-preview($selfq __raw {1:q} {2:q})+change-preview-label( raw layout )" \
+            --bind="alt-o:change-preview($selfq __preview {1:q} {2:q})+change-preview-label( overview )" \
+            --bind="f1:change-preview($selfq __help)+change-preview-label( keys )" \
+            --bind='ctrl-/:toggle-preview,shift-down:preview-half-page-down,shift-up:preview-half-page-up' \
+            --print-query --expect=ctrl-n,ctrl-l,ctrl-p 2>"$errf")"
+        rc=$?
+        if (( rc == 2 )); then
+            if (( ${#fancy[@]} )); then fancy=(); continue; fi   # retry once without the extras
+            printf '\n  %s%s  fzf could not start:%s\n  %s%s%s\n\n' "$RED" "$I_WARN" "$RST" "$DIM" "$(head -n3 "$errf")" "$RST" >&2
+            rm -f "$errf"; return 1
+        fi
+        (( rc == 130 )) && break                           # Esc / Ctrl-C
+
+        { IFS= read -r query; IFS= read -r key; IFS= read -r sel; } <<<"$out"
+        state="${sel%%$'\t'*}"; name="${sel#*$'\t'}"; name="${name%%$'\t'*}"
+        [[ -z "$sel" ]] && { state=""; name=""; }
+
+        case "$key" in
+            ctrl-n)  name="${query:-$(ask "name the new session")}" || continue
+                     [[ -n "$name" ]] && create "$name"; continue ;;
+            ctrl-l)  act_layout "$query"; continue ;;
+            ctrl-p)  act_project; continue ;;
+        esac
+        if [[ -n "$name" ]]; then attach "$name" || continue
+        elif [[ -n "$query" ]]; then create "$query" || continue       # no match: Enter creates it
+        else break; fi
+    done
+    rm -f "$errf"
+}
+
+# ── CLI ────────────────────────────────────────────────────────────────────
+usage() {
+    cat <<EOF
+lzj $VERSION · Lazy Zellij
+
+  lzj               open the session picker
+  lzj NAME          attach to NAME (created if it does not exist)
+  lzj -             attach to the last session you used
+  lzj ls            list sessions (plain text)
+  lzj kill NAME     kill a session
+  lzj prune         delete every exited session
+
+Picker keys
+  Enter        attach / resurrect         type + Enter   create a session with that name
+  Ctrl-N       new (uses what you typed)  Ctrl-L  new with a layout
+  Ctrl-P       new from a project folder  Ctrl-X  kill        Alt-D  delete
+  Alt-R        rename                     Alt-P   delete all exited
+  Ctrl-/       toggle preview             Alt-V   raw layout    Alt-O  overview
+  F1           all keys                   Shift-Up/Down scroll preview     Esc  quit
+EOF
+}
+
+case "${1:-}" in
+    __list)        list_rows; exit 0 ;;
+    __preview)     preview "${2:-}" "${3:-}"; exit 0 ;;
+    __raw)         preview_raw "${2:-}" "${3:-}"; exit 0 ;;
+    __help)        preview_help; exit 0 ;;
+    __layoutprev)  preview_layout_file "${2:-}"; exit 0 ;;
+    __dirprev)     preview_dir "${2:-}"; exit 0 ;;
+    __kill)        do_kill "${2:-}" "${3:-}"; exit 0 ;;
+    __delete)      do_delete "${2:-}" "${3:-}"; exit 0 ;;
+    __rename)      do_rename "${2:-}" "${3:-}"; exit 0 ;;
+    __prune)       do_prune; exit 0 ;;
+    -v|--version)  printf 'lzj %s\n' "$VERSION"; exit 0 ;;
+    -h|--help)     usage; exit 0 ;;
+esac
+
+[[ -n "$ZJ_BIN" && -x "$ZJ_BIN" ]] || die "zellij is not installed"
+
+case "${1:-}" in
+    "")    [[ -n "$FZF_BIN" && -x "$FZF_BIN" ]] || die "fzf is not installed"; picker ;;
+    ls)    zj list-sessions --no-formatting ;;
+    -)     [[ -r "$LAST_FILE" ]] || die "no previous session recorded yet"
+           attach "$(cat "$LAST_FILE")" ;;
+    kill)  [[ -n "${2:-}" ]] || die "usage: lzj kill NAME"; zj kill-session "$2" ;;
+    prune) do_prune ;;
+    -*)    die "unknown option: $1 (try lzj --help)" ;;
+    *)     create "$1" ;;
+esac

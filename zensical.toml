@@ -36,7 +36,8 @@ nav = [
         {"Tmux" = "tmux.md"},
         {"Starship" = "starship.md"},
         {"Superfile" = "superfile.md"},
-        {"Zellij" = "zellij.md"}
+        {"Zellij" = "zellij.md"},
+        {"Zsh" = "zsh.md"}
     ]},
     {"Project" = [
         {"Architecture" = "architecture.md"},

@@ -1,0 +1,853 @@
+#!/usr/bin/env bash
+# ╭────────────────────────────────────────────────────────────────────────╮
+# │  pal · command palette · Catppuccin Macchiato                          │
+# │  Put at: ~/.local/bin/_pal  (alias: pal)                               │
+# │  Same look and keys as lzj, tij and server.                            │
+# ╰────────────────────────────────────────────────────────────────────────╯
+#
+#  Shows every zsh key binding (from `bindkey`) and every tmux key (from
+#  `tmux list-keys`), with icons, descriptions and a preview, and RUNS the one
+#  you pick.
+#
+#  pal                 browse the palette (zsh keys are shown, tmux keys can be run)
+#  pal ls [MODE]       plain list for scripts      MODE: all custom zsh tmux everything
+#  bindkey -L | pal --import      hand pal your zsh keys by hand
+#  pal -h | -v
+#
+#  The bundled Zsh config defines command-pallet-widget on Alt+Shift+P.
+#  That widget hands pal your LIVE `bindkey` table and then runs the widget you
+#  pick, exactly as if you had pressed its key. A program outside the shell
+#  cannot do that, which is why the widget is needed.
+#
+#  Needs:    fzf, python3 (decodes keys and builds the list)
+#  Used when present (all optional):
+#            gum   toasts     bat   the definition of a widget in your zsh files
+#            eza   folder tree for file widgets     wl-copy / xclip   copy a key
+#
+#  Your own descriptions: ~/.config/pal/descriptions, one per line:
+#       lazygit-widget = Open lazygit in this repo
+
+set -uo pipefail
+
+VERSION="1.0.0"
+
+FZF_BIN="${FZF_BIN:-$(command -v fzf || true)}"
+GUM_BIN="${GUM_BIN:-$(command -v gum || true)}"
+BAT_BIN="${BAT_BIN:-$(command -v bat || true)}"
+EZA_BIN="${EZA_BIN:-$(command -v eza || true)}"
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/pal"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/pal"
+CACHE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/pal/bindkey.txt"
+
+# ── Colors (Catppuccin Macchiato) ──────────────────────────────────────────
+RST=$'\033[0m'; BOLD=$'\033[1m'; ITAL=$'\033[3m'
+fgc() { printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3"; }
+bgc() { printf '\033[48;2;%d;%d;%dm' "$1" "$2" "$3"; }
+MAUVE="$(fgc 198 160 246)"; TEAL="$(fgc 139 213 202)"; GREEN="$(fgc 166 218 149)"
+RED="$(fgc 237 135 150)";   YELLOW="$(fgc 238 212 159)"; PEACH="$(fgc 245 169 127)"
+BLUE="$(fgc 138 173 244)";  TEXT="$(fgc 202 211 245)";   PINK="$(fgc 245 189 230)"
+SUB="$(fgc 165 173 203)";   DIM="$(fgc 110 115 141)";    LINE="$(fgc 73 77 100)"
+CRUST="$(fgc 24 25 38)"
+BG_MAUVE="$(bgc 198 160 246)"; BG_GREEN="$(bgc 166 218 149)"; BG_BLUE="$(bgc 138 173 244)"
+BG_PEACH="$(bgc 245 169 127)"; BG_TEAL="$(bgc 139 213 202)"; BG_SUB="$(bgc 165 173 203)"
+
+# Glyphs are built from codepoints (UTF-8 bytes) so no editor or locale can strip them.
+u8() {
+    local cp=$((16#$1)) b1 b2 b3 b4
+    if (( cp < 0x800 )); then
+        b1=$(( 0xC0 | (cp >> 6) )); b2=$(( 0x80 | (cp & 0x3F) )); printf '\\x%02x\\x%02x' "$b1" "$b2"
+    elif (( cp < 0x10000 )); then
+        b1=$(( 0xE0 | (cp >> 12) )); b2=$(( 0x80 | ((cp >> 6) & 0x3F) )); b3=$(( 0x80 | (cp & 0x3F) ))
+        printf '\\x%02x\\x%02x\\x%02x' "$b1" "$b2" "$b3"
+    else
+        b1=$(( 0xF0 | (cp >> 18) )); b2=$(( 0x80 | ((cp >> 12) & 0x3F) )); b3=$(( 0x80 | ((cp >> 6) & 0x3F) )); b4=$(( 0x80 | (cp & 0x3F) ))
+        printf '\\x%02x\\x%02x\\x%02x\\x%02x' "$b1" "$b2" "$b3" "$b4"
+    fi
+}
+g() { printf "$(u8 "$1")"; }
+I_KEY="$(g f11c)"; I_WARN="$(g f071)"; I_CHECK="$(g f00c)"; I_BOLT="$(g f0e7)"; I_HELP="$(g f059)"
+I_TERM="$(g f120)"; I_COPY="$(g f0c5)"; I_EYE="$(g f06e)"; I_FILE="$(g f15c)"; I_DIR="$(g f07b)"
+I_STAR="$(g f005)"; I_TOOL="$(g f0ad)"; I_PEN="$(g f040)"; I_EDIT="$(g f044)"
+CAP_L="$(g e0b6)"; CAP_R="$(g e0b4)"
+
+# ── The Python part: decodes keys, builds the rows ─────────────────────────
+PAL_PY=$(cat <<'PYEOF'
+import os, re, sys, signal
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)      # `pal ls | head` must not print a traceback
+
+# usage: rows MODE            -> fzf rows (tab separated, last field is the colored display)
+#        keysof WIDGET        -> key pills of every key bound to the widget
+#        decode RAWKEY        -> readable key text
+mode = sys.argv[1] if len(sys.argv) > 1 else "all"
+TABLE = None
+if mode == "table":                     # table MODE STYLE WIDTH  (STYLE: pretty | plain)
+    TABLE = (sys.argv[3] if len(sys.argv) > 3 else "pretty", int(sys.argv[4]) if len(sys.argv) > 4 else 100)
+    mode = sys.argv[2] if len(sys.argv) > 2 else "zsh"
+
+# ── colors (Catppuccin Macchiato) ──────────────────────────────────────────
+def fg(r, g, b): return "\033[38;2;%d;%d;%dm" % (r, g, b)
+def bg(r, g, b): return "\033[48;2;%d;%d;%dm" % (r, g, b)
+RST = "\033[0m"; BOLD = "\033[1m"
+MAUVE = fg(198, 160, 246); TEAL = fg(139, 213, 202); GREEN = fg(166, 218, 149); RED = fg(237, 135, 150)
+YELLOW = fg(238, 212, 159); PEACH = fg(245, 169, 127); BLUE = fg(138, 173, 244); PINK = fg(245, 189, 230)
+TEXT = fg(202, 211, 245); SUB = fg(165, 173, 203); DIM = fg(110, 115, 141)
+LINE = fg(73, 77, 100)
+SURF = (54, 58, 79)                                   # surface0, the keycap color
+CAP_L = chr(0xE0B6); CAP_R = chr(0xE0B4)
+
+def keycap(text):
+    return fg(*SURF) + CAP_L + RST + bg(*SURF) + TEXT + BOLD + " " + text + " " + RST + fg(*SURF) + CAP_R + RST
+
+def keycap_width(text): return len(text) + 4
+
+# category: (icon codepoint, color, label)
+CATS = {
+    "t": (0xF0AD, MAUVE,  "tools"),
+    "h": (0xF1DA, PEACH,  "history"),
+    "e": (0xF040, BLUE,   "editing"),
+    "c": (0xF0D0, TEAL,   "completion"),
+    "s": (0xF013, SUB,    "shell"),
+    "x": (0xF120, GREEN,  "tmux"),
+}
+CAT_ORDER = ["t", "h", "e", "c", "s", "x"]
+
+# widget | category | description
+ZSH_TABLE = """
+lazygit-widget|t|Open lazygit
+lazydocker-widget|t|Open lazydocker
+superfile-widget|t|Open the superfile file manager
+server-widget|t|Open the server launcher
+lzj-widget|t|Open the Zellij session manager (lzj)
+command-pallet-widget|t|Open the old command palette
+hastebin-widget|t|Hastebin (custom widget)
+hastebin-history-widget|t|Hastebin, history variant (custom widget)
+ltx-widget|t|ltx (custom widget)
+atuin-search|h|Search shell history with Atuin
+atuin-up-search|h|Atuin search, started with the Up key
+atuin-ai-widget|t|Atuin AI
+pal-widget|t|Open this palette
+fzf-file-widget|t|Pick files with fzf and paste the path
+fzf-cd-widget|t|cd into a folder (fzf)
+fzf_file_dir_picker|t|Pick a file or folder with fzf
+fzf_zoxide_jump|t|Jump to a frecent folder (zoxide + fzf)
+fzf_git_branch|t|Pick a git branch with fzf
+fzf_git_log_search|t|Search git log with fzf
+fzf_shell_variables|t|Pick a shell variable with fzf
+fzf-completion|c|Completion through fzf
+fzf-tab-debug|c|Debug fzf-tab
+edit-command-widget|e|Edit the current command in $EDITOR
+beginning-of-line|e|Go to the start of the line
+end-of-line|e|Go to the end of the line
+backward-char|e|Move one character left
+forward-char|e|Move one character right
+backward-word|e|Move one word left
+forward-word|e|Move one word right
+backward-delete-char|e|Delete the character before the cursor
+delete-char-or-list|c|Delete the character, or list completions at the end of line
+kill-line|e|Cut from the cursor to the end of the line
+kill-whole-line|e|Cut the whole line
+kill-word|e|Cut the next word
+backward-kill-word|e|Cut the previous word
+kill-buffer|e|Cut the whole buffer
+yank|e|Paste what was cut
+yank-pop|e|Cycle through earlier cuts after a paste
+copy-region-as-kill|e|Copy the selected region
+copy-prev-word|e|Copy the previous word
+insert-last-word|e|Insert the last word of the previous command
+undo|e|Undo the last edit
+transpose-words|e|Swap the two words around the cursor
+up-case-word|e|UPPERCASE the word
+down-case-word|e|lowercase the word
+capitalize-word|e|Capitalize the word
+quote-line|e|Quote the whole line
+quote-region|e|Quote the selected region
+quoted-insert|e|Insert the next key literally
+overwrite-mode|e|Toggle overwrite mode
+set-mark-command|e|Set the mark (start a selection)
+exchange-point-and-mark|e|Swap the cursor and the mark
+vi-match-bracket|e|Jump to the matching bracket
+vi-find-next-char|e|Jump to a character on the line
+vi-join|e|Join this line with the next
+vi-goto-column|e|Go to a column
+vi-cmd-mode|e|Switch to vi command mode
+beginning-of-buffer-or-history|h|Go to the first line, or the oldest history entry
+end-of-buffer-or-history|h|Go to the last line, or the newest history entry
+up-line-or-history|h|Previous line or history entry
+down-line-or-history|h|Next line or history entry
+history-search-backward|h|Search history backwards for this prefix
+history-search-forward|h|Search history forwards for this prefix
+history-incremental-search-backward|h|Incremental history search (backward)
+history-incremental-search-forward|h|Incremental history search (forward)
+_history-complete-older|h|Complete from older history
+_history-complete-newer|h|Complete from newer history
+infer-next-history|h|Run the history line that followed this one
+accept-line-and-down-history|h|Run this line, then bring up the next history line
+expand-history|h|Expand history references like !!
+get-line|h|Pull back a line you pushed
+push-line|s|Park this line, run another command first
+accept-and-hold|s|Run the line but keep it in the buffer
+accept-line|s|Run the command (Enter)
+send-break|s|Cancel (like Ctrl+G)
+clear-screen|s|Clear the screen
+execute-named-cmd|s|Run a zle widget by name
+which-command|s|Show which program a command would run
+what-cursor-position|s|Show the character under the cursor
+spell-word|s|Correct the spelling of the word
+digit-argument|s|Numeric prefix for the next command
+neg-argument|s|Negative prefix for the next command
+self-insert-unmeta|s|Insert the key as typed
+bracketed-paste|s|Pasted text arrives here
+undo-redo|s|Undo / redo
+_complete_help|c|Show which completers apply here
+_complete_debug|c|Debug the completion system
+_expand_alias|c|Expand the alias
+_expand_word|c|Expand the word
+_correct_word|c|Correct the word
+_correct_filename|c|Correct the filename
+_list_expansions|c|List possible expansions
+_most_recent_file|c|Complete the most recently changed file
+_next_tags|c|Cycle through completion tags
+_complete_tag|c|Complete a tag
+_bash_list-choices|c|List completions (bash style)
+_bash_complete-word|c|Complete the word (bash style)
+_read_comp|c|Read a completion from the keyboard
+list-choices|c|List the possible completions
+list-expand|c|List the expansions of the word
+expand-word|c|Expand the word
+"""
+USER = {}
+_uf = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "pal", "descriptions")
+if os.path.exists(_uf):
+    for _l in open(_uf, errors="replace"):
+        if "=" in _l and not _l.lstrip().startswith("#"):
+            _k, _v = _l.split("=", 1); USER[_k.strip()] = _v.strip()
+BUILTIN = {}
+for line in ZSH_TABLE.strip().splitlines():
+    w, c, d = line.split("|", 2)
+    BUILTIN[w] = (c, d)
+
+# widgets that are "mine" even though they are listed above
+CUSTOM = {w for w in BUILTIN if w.endswith("-widget") or w.startswith("fzf_") or w.startswith("atuin")}
+CUSTOM -= {"fzf-completion", "fzf-tab-debug", "edit-command-widget", "fzf-file-widget", "fzf-cd-widget", "atuin-up-search", "atuin-search"}
+CUSTOM |= {"edit-command-widget", "fzf-file-widget", "fzf-cd-widget", "atuin-search", "atuin-up-search"}
+NOISE = {"self-insert", "self-insert-unmeta", "bracketed-paste", "digit-argument", "neg-argument"}
+
+def prettify(name):
+    t = re.sub(r"[-_]+", " ", name).strip()
+    return t[:1].upper() + t[1:]
+
+def classify(w):
+    if w in BUILTIN: return BUILTIN[w][0]
+    n = w.lower()
+    if "history" in n: return "h"
+    if w.startswith("_") or "complet" in n or "expand" in n: return "c"
+    if re.search(r"(kill|yank|delete|word|char|line|undo|case|transpose|copy|region|buffer|vi-)", n): return "e"
+    if n.endswith("-widget") or n.startswith("fzf") or n.startswith("atuin"): return "t"
+    return "s"
+
+# ── key decoding (zsh bindkey notation) ────────────────────────────────────
+SPECIAL = {"[A": "Up", "[B": "Down", "[C": "Right", "[D": "Left", "OA": "Up", "OB": "Down", "OC": "Right", "OD": "Left",
+           "[H": "Home", "[F": "End", "OH": "Home", "OF": "End", "[1~": "Home", "[4~": "End", "[2~": "Insert",
+           "[3~": "Delete", "[5~": "PageUp", "[6~": "PageDown", "[Z": "Shift+Tab", "[200~": "Paste start", "[201~": "Paste end"}
+MODS = {"2": "Shift", "3": "Alt", "4": "Alt+Shift", "5": "Ctrl", "6": "Ctrl+Shift", "7": "Ctrl+Alt"}
+ARROWS = {"A": "Up", "B": "Down", "C": "Right", "D": "Left", "H": "Home", "F": "End"}
+
+def tokens(s):
+    out = []; i = 0
+    while i < len(s):
+        if s[i] == "^" and i + 1 < len(s):
+            c = s[i + 1]
+            out.append(("ESC",) if c == "[" else ("DEL",) if c == "?" else ("C", c)); i += 2
+        else:
+            out.append(("CH", s[i])); i += 1
+    return out
+
+def tok_name(t, after_alt=False):
+    if t[0] == "ESC": return "Esc"
+    if t[0] == "DEL": return "Backspace"
+    if t[0] == "C":
+        c = t[1]
+        if c == "I": return "Tab"
+        if c == "M": return "Enter"
+        if c == "@": return "Ctrl+Space"
+        return "Ctrl+" + c.upper()
+    c = t[1]
+    if c == " ": return "Space"
+    if c.isalpha() and c.isupper(): return "Shift+" + c if after_alt else c
+    return c
+
+def decode(raw):
+    s = re.sub(r"\\(.)", r"\1", raw)
+    if "\\M-" in raw or "M-" in s[:3] and "\\" in raw: return None
+    t = tokens(s)
+    if not t: return None
+    chords = []
+    if t[0][0] == "ESC" and len(t) > 1:
+        rest = t[1:]
+        if rest[0] in (("CH", "["), ("CH", "O")) and all(x[0] == "CH" for x in rest):
+            seq = "".join(x[1] for x in rest)
+            m = re.fullmatch(r"\[1;(\d)([A-HF])", seq)
+            if seq in SPECIAL: return [SPECIAL[seq]]
+            if m and m.group(1) in MODS: return [MODS[m.group(1)] + "+" + ARROWS[m.group(2)]]
+        first = rest[0]
+        chords.append("Alt+" + tok_name(first, True))
+        for x in rest[1:]: chords.append(tok_name(x))
+        return chords
+    return [tok_name(x) for x in t]
+
+# ── reading the sources ────────────────────────────────────────────────────
+def zsh_rows():
+    f = os.environ.get("PAL_BINDKEYS", "")
+    rows = []
+    if not f or not os.path.exists(f): return rows
+    rx = re.compile(r'^(?:bindkey\s+)?("(?:[^"\\]|\\.)*")\s+(\S+)\s*$')   # `bindkey -L` and plain `bindkey` both work
+    seen = set()
+    for line in open(f, errors="replace"):
+        m = rx.match(line.strip())
+        if not m: continue
+        raw = m.group(1)[1:-1]; w = m.group(2)
+        ch = decode(raw)
+        if not ch: continue
+        kt = " ".join(ch)
+        if (kt, w) in seen: continue
+        seen.add((kt, w))
+        cat = classify(w)
+        custom = 1 if (w in CUSTOM or (w not in BUILTIN and not w.startswith("_"))) else 0
+        desc = USER.get(w) or (BUILTIN[w][1] if w in BUILTIN else prettify(w))
+        rows.append({"kind": "zsh", "w": w, "raw": raw, "kt": kt, "ch": ch, "cat": cat, "custom": custom, "desc": desc, "noise": w in NOISE})
+    return rows
+
+def tmux_key(k):
+    k = k.strip("'\"")
+    if k.startswith("\\"): k = k[1:]
+    mods = []
+    while re.match(r"^[CMS]-.", k):
+        mods.append({"C": "Ctrl", "M": "Alt", "S": "Shift"}[k[0]]); k = k[2:]
+    names = {"Enter": "Enter", "Escape": "Esc", "BSpace": "Backspace", "BTab": "Shift+Tab", "PPage": "PageUp", "NPage": "PageDown", "Space": "Space"}
+    k = names.get(k, k)
+    if len(k) == 1 and k.isalpha():
+        if "Ctrl" in mods: k = k.upper()
+        elif k.isupper() and mods: k = "Shift+" + k
+    return "+".join(mods + [k]) if mods else k
+
+TMUX_DESC = {"new-window": "New window", "split-window": "Split the pane", "kill-pane": "Close the pane", "kill-window": "Close the window",
+             "next-window": "Next window", "previous-window": "Previous window", "select-pane": "Select a pane", "select-window": "Select a window",
+             "resize-pane": "Resize the pane", "copy-mode": "Enter copy mode", "detach-client": "Detach", "choose-tree": "Choose a session / window",
+             "rename-window": "Rename the window", "rename-session": "Rename the session", "last-window": "Last window", "swap-pane": "Swap panes",
+             "display-popup": "Open a popup", "display-menu": "Open a menu", "switch-client": "Switch mode / session", "source-file": "Reload a config file",
+             "send-keys": "Send keys", "paste-buffer": "Paste the buffer", "select-layout": "Change the layout", "refresh-client": "Refresh the client",
+             "command-prompt": "Open the command prompt", "break-pane": "Move the pane to its own window", "join-pane": "Join a pane here",
+             "set": "Change an option", "set-option": "Change an option", "run-shell": "Run a shell command", "if-shell": "Conditional action",
+             "resize-window": "Resize the window", "list-keys": "List keys", "clock-mode": "Show the clock"}
+
+def tmux_rows():
+    f = os.environ.get("PAL_TMUXKEYS", "")
+    rows = []
+    if not f or not os.path.exists(f): return rows
+    prefix = os.environ.get("PAL_TMUX_PREFIX", "C-b")
+    rx = re.compile(r"^bind-key\s+(?:-r\s+)?-T\s+(\S+)\s+(\S+)\s+(.*)$")
+    binds = []
+    for line in open(f, errors="replace"):
+        m = rx.match(line.strip())
+        if m: binds.append(m.groups())
+    entry = {"prefix": tmux_key(prefix)}
+    for table, key, cmd in binds:
+        m = re.match(r"switch-client\s+-T\s+(\S+)", cmd)
+        if table == "root" and m: entry[m.group(1)] = tmux_key(key)
+    for table, key, cmd in binds:
+        mouse = bool(re.search(r"(Mouse|Wheel|Double|Triple|Second)", key))
+        kt = tmux_key(key)
+        if table != "root":
+            kt = (entry[table] + " " + kt) if table in entry else "[" + table + "] " + kt
+        first = cmd.split()[0] if cmd.split() else cmd
+        desc = TMUX_DESC.get(first, prettify(first))
+        m = re.match(r"switch-client\s+-T\s+(\S+)", cmd)
+        if m: desc = "Enter " + m.group(1) + " mode"
+        elif first == "display-popup":
+            last = cmd.replace('"', " ").split()[-1]; desc = "Popup: " + last[:30]
+        elif first == "if-shell":
+            m2 = re.search(r"display-popup[^\"]*\"?\s*([A-Za-z0-9_./-]+)\"?\s+\"", cmd)
+            desc = "Popup: " + m2.group(1) if m2 else desc
+        if table.startswith("copy-mode"): desc = "(copy mode) " + desc
+        rows.append({"kind": "tmux", "w": cmd.replace("\t", " "), "raw": table + " " + key, "kt": kt, "ch": kt.split(" "), "cat": "x",
+                     "custom": 0, "desc": desc, "noise": mouse or table.startswith(("copy-mode", "choose"))})
+    return rows
+
+def recent_list():
+    f = os.environ.get("PAL_RECENT", "")
+    if f and os.path.exists(f): return [l.strip() for l in open(f, errors="replace") if l.strip()]
+    return []
+
+def free_rows(bound):
+    """Keys nobody uses yet (not in zsh, not in tmux's root table) that are safe to take."""
+    out = []
+    def add(kt, raw):
+        if kt in bound: return
+        out.append({"kind": "free", "w": "", "raw": raw, "kt": kt, "ch": kt.split(" "), "cat": "s", "custom": 0,
+                    "desc": "Free. Bind it:  bindkey '" + raw + "' your-widget", "noise": False})
+    for c in "abcdefghijklmnopqrstuvwxyz":
+        add("Alt+" + c, "^[" + c)
+    for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        add("Alt+Shift+" + c, "^[" + c)
+    for c in "abcdefghijklmnopqrstuvwxyz":
+        add("Ctrl+X " + c, "^X" + c)
+    for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        if c not in "CZIJM\\":     # Ctrl+C is the interrupt key; leave it alone
+            add("Alt+Ctrl+" + c, "^[^" + c)
+    return out
+
+def build():
+    rows = []
+    if mode == "free":
+        zs = zsh_rows(); tm = tmux_rows()
+        bound = {r["kt"] for r in zs}
+        bound |= {r["kt"] for r in tm if "[" not in r["kt"] and " " not in r["kt"]}   # tmux root keys never reach zsh
+        bound |= {"Ctrl+C", "Ctrl+S", "Ctrl+Q", "Ctrl+Z"}
+        return free_rows(bound)
+    if mode in ("all", "custom", "zsh", "everything"): rows += zsh_rows()
+    if mode in ("all", "custom", "tmux", "everything"): rows += tmux_rows()
+    if mode == "custom":
+        rows = [r for r in rows if r["custom"] or (r["kind"] == "tmux" and not r["raw"].startswith(("copy-mode",)) and r["w"].startswith(("display-popup", "if-shell", "run-shell")))]
+    if mode != "everything": rows = [r for r in rows if not r["noise"]]
+    rec = recent_list()
+    for r in rows: r["recent"] = (len(rec) - rec.index(r["w"])) if (r["kind"] == "zsh" and r["w"] in rec) else 0
+    rows.sort(key=lambda r: (0 if r["recent"] else 1, -r["recent"], CAT_ORDER.index(r["cat"]), r["kt"].lower()))
+    return rows
+
+def render(r, kw, dw):
+    icon, col, _ = CATS[r["cat"]]
+    caps = ""
+    parts = []
+    for c in r["ch"]:
+        parts.append(keycap(c))
+    caps = (" " + DIM + "›" + RST + " ").join(parts) if len(parts) > 1 else (parts[0] if parts else "")
+    wcaps = sum(keycap_width(c) for c in r["ch"]) + 3 * (len(r["ch"]) - 1)
+    pad = " " * max(1, kw - wcaps + 2)
+    desc = r["desc"]
+    if len(desc) > dw: desc = desc[:dw - 1] + "…"
+    star = (PINK + " " + chr(0xF005) + RST) if r["custom"] else "  "
+    tail = DIM + (r["w"] if r["kind"] == "zsh" else "") + RST
+    if r.get("recent"): tail += "  " + PEACH + chr(0xF1DA) + RST
+    if r["kind"] == "free": star = "  "; tail = GREEN + "free" + RST
+    return "  " + col + chr(icon) + RST + "  " + caps + pad + TEXT + desc + RST + " " * max(1, dw - len(desc) + 2) + star + " " + tail
+
+if mode == "decode":
+    d = decode(sys.argv[2]); print(" ".join(d) if d else ""); sys.exit(0)
+if mode == "caps":
+    parts = [keycap(c) for c in sys.argv[2].split(" ") if c]
+    print((" " + DIM + "›" + RST + " ").join(parts)); sys.exit(0)
+if mode == "keysof":
+    w = sys.argv[2]; me = sys.argv[3] if len(sys.argv) > 3 else ""
+    for r in zsh_rows():
+        if r["w"] == w and r["kt"] != me: print("".join(keycap(c) + " " for c in r["ch"]))
+    sys.exit(0)
+
+def trunc(s, n):
+    return s if len(s) <= n else s[:max(0, n - 1)] + "…"
+
+def group_of(r):
+    return ("free keys", chr(0xF005), GREEN) if r["kind"] == "free" else (CATS[r["cat"]][2], chr(CATS[r["cat"]][0]), CATS[r["cat"]][1])
+
+def source_of(r):
+    return r["w"] if r["kind"] == "zsh" else (r["raw"].split(" ")[0] + " table" if r["kind"] == "tmux" else "")
+
+def table(rows, style, term_w):
+    rows = sorted(rows, key=lambda r: (CAT_ORDER.index(r["cat"]) if r["kind"] != "free" else 9, r["kt"].lower()))
+    if style == "plain":                              # for pipes: aligned columns, no colors, grep friendly
+        kws = max([len(" > ".join(r["ch"])) for r in rows] or [3])
+        dws = max([len(r["desc"]) for r in rows] or [3])
+        for r in rows:
+            print("%-*s  %-*s  %s  [%s]" % (kws, " > ".join(r["ch"]), dws, r["desc"], source_of(r), group_of(r)[0]))
+        return
+    kw = max([sum(keycap_width(c) for c in r["ch"]) + 3 * (len(r["ch"]) - 1) for r in rows] or [8])
+    kw = max(kw, 3)
+    aw = min(46, max([len(r["desc"]) for r in rows] or [10]))
+    ww = max([len(source_of(r)) for r in rows] or [6])
+    ww = max(ww, 6)
+    def inner(): return 1 + 1 + kw + 2 + aw + (2 + ww if ww else 0)
+    while 2 + inner() + 4 > term_w and aw > 24: aw -= 2
+    if 2 + inner() + 4 > term_w: ww = 0
+    n = inner()
+    def line(content_plain_len, content):
+        return "  " + LINE + "│" + RST + " " + content + " " * max(0, n - content_plain_len) + " " + LINE + "│" + RST
+    out = []
+    out.append("  " + LINE + "╭" + "─" * (n + 2) + "╮" + RST)
+    head = " " * 2 + "KEY" + " " * (kw - 3 + 2) + "ACTION" + " " * (aw - 6) + (("  " + "WIDGET") if ww else "")
+    out.append(line(len(head), MAUVE + BOLD + head + RST))
+    out.append("  " + LINE + "├" + "─" * (n + 2) + "┤" + RST)
+    last = None
+    counts = {}
+    for r in rows: counts[group_of(r)[0]] = counts.get(group_of(r)[0], 0) + 1
+    for r in rows:
+        name, icon, col = group_of(r)
+        if name != last:
+            if last is not None: out.append(line(0, ""))
+            label = " " + name + " (" + str(counts[name]) + ") "
+            fill = max(2, n - 1 - len(label))
+            out.append(line(n, col + icon + RST + BOLD + TEXT + label + RST + LINE + "─" * fill + RST))
+            last = name
+        parts = [keycap(c) for c in r["ch"]]
+        caps = (" " + DIM + "›" + RST + " ").join(parts)
+        wcaps = sum(keycap_width(c) for c in r["ch"]) + 3 * (len(r["ch"]) - 1)
+        star = (PINK + chr(0xF005) + RST) if r["custom"] else " "
+        d = trunc(r["desc"], aw)
+        s = source_of(r)
+        plain = 2 + kw + 2 + aw + ((2 + ww) if ww else 0)
+        body = star + " " + caps + " " * (kw - wcaps + 2) + TEXT + d + RST + " " * (aw - len(d))
+        if ww: s = trunc(s, ww); body += "  " + DIM + s + RST + " " * (ww - len(s))
+        out.append(line(1 + 1 + kw + 2 + aw + ((2 + ww) if ww else 0), body))
+    out.append("  " + LINE + "╰" + "─" * (n + 2) + "╯" + RST)
+    mine = sum(1 for r in rows if r["custom"])
+    out.append("  " + DIM + str(len(rows)) + " bindings" + ("   " + PINK + chr(0xF005) + RST + DIM + " " + str(mine) + " yours" if mine else "") + RST)
+    sys.stdout.write("\n".join(out) + "\n")
+
+rows = build()
+if TABLE:
+    table(rows, TABLE[0], TABLE[1]); sys.exit(0)
+kw = min(30, max([sum(keycap_width(c) for c in r["ch"]) + 3 * (len(r["ch"]) - 1) for r in rows] or [8]))
+dw = min(52, max([len(r["desc"]) for r in rows] or [10]))
+for r in rows:
+    sys.stdout.write("\t".join([r["kind"], r["w"], r["raw"], r["kt"], r["cat"], str(r["custom"]), r["desc"], render(r, kw, dw)]) + "\n")
+PYEOF
+)
+rows() { python3 -c "$PAL_PY" "$@"; }   # rows MODE | keysof WIDGET | caps TEXT | decode RAW
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+die() { printf '\n  %s%s %s%s %s\n\n' "$RED" "$I_WARN" "$BOLD" "$*" "$RST" >&2; exit 1; }
+visible_len() {
+    local s n; s="$(printf '%s' "$1" | sed -E 's/\x1b\[[0-9;]*m//g')"
+    n="$(printf '%s' "$s" | LC_ALL=C.UTF-8 wc -m 2>/dev/null)"; printf '%d' "${n:-${#s}}"
+}
+repeat() { local n="$1" ch="$2" out=""; (( n > 0 )) || return 0; printf -v out '%*s' "$n" ''; printf '%s' "${out// /$ch}"; }
+short_path() { local p="$1"; [[ "$p" == "$HOME"* ]] && p="~${p#"$HOME"}"; printf '%s' "$p"; }
+
+TMPFILES=()
+cleanup() { local f; for f in "${TMPFILES[@]:-}"; do [[ -n "$f" ]] && rm -rf "$f" 2>/dev/null; done; [[ -t 1 ]] && { tput cnorm 2>/dev/null; stty sane 2>/dev/null; }; return 0; }
+trap cleanup EXIT
+
+pill() { printf '%s%s%s%s %s %s%s%s%s' "$1" "$CAP_L" "$RST" "$2$CRUST$BOLD" "$3" "$RST" "$1" "$CAP_R" "$RST"; }
+
+toast() {   # toast ok|err|info "text"
+    local kind="$1" txt="$2" col icon hex
+    case "$kind" in ok) col="$GREEN"; icon="$I_CHECK"; hex="#a6da95" ;; err) col="$RED"; icon="$I_WARN"; hex="#ed8796" ;; *) col="$MAUVE"; icon="$I_BOLT"; hex="#c6a0f6" ;; esac
+    if [[ -n "$GUM_BIN" ]]; then
+        printf '\n' >&2
+        "$GUM_BIN" style --foreground "$hex" --border rounded --border-foreground "$hex" --padding "0 2" --margin "0 2" "$icon  $txt" >&2
+    else printf '\n  %s%s  %s%s\n' "$col" "$icon" "$txt" "$RST" >&2; fi
+    sleep "${3:-1.6}"
+}
+copy_text() {
+    if   command -v wl-copy >/dev/null 2>&1; then printf '%s' "$1" | wl-copy
+    elif command -v xclip   >/dev/null 2>&1; then printf '%s' "$1" | xclip -selection clipboard
+    elif command -v xsel    >/dev/null 2>&1; then printf '%s' "$1" | xsel --clipboard --input
+    else return 1; fi
+}
+section() {
+    local t="$1" w="$2" n; n=$(( w - ${#t} - 5 )); (( n < 4 )) && n=4
+    printf '\n  %s──%s %s%s%s%s %s%s%s\n' "$LINE" "$RST" "$MAUVE" "$BOLD" "$t" "$RST" "$LINE" "$(repeat "$n" ─)" "$RST"
+}
+box() {   # box WIDTH line...
+    local w="$1" l pad inner=$(( $1 - 4 )); shift
+    printf '  %s╭%s╮%s\n' "$LINE" "$(repeat $((w - 2)) ─)" "$RST"
+    for l in "$@"; do
+        pad=$(( inner - $(visible_len "$l") )); (( pad < 0 )) && pad=0
+        printf '  %s│%s  %s%*s%s│%s\n' "$LINE" "$RST" "$l" "$pad" "" "$LINE" "$RST"
+    done
+    printf '  %s╰%s╯%s\n' "$LINE" "$(repeat $((w - 2)) ─)" "$RST"
+}
+
+# ── Sources ────────────────────────────────────────────────────────────────
+# zsh: the widget hands us its live `bindkey` in PAL_BINDKEYS. Standalone, we ask a fresh zsh.
+prepare_sources() {
+    local f
+    # zsh keys come from `bindkey -L`, handed over by the zsh wrapper/widget (pal.zsh) and cached.
+    # pal never starts a zsh of its own: an interactive zsh loads your whole .zshrc (that was the
+    # 20 second wait) and can fight pal for the terminal.
+    if [[ -z "${PAL_BINDKEYS:-}" || ! -r "${PAL_BINDKEYS:-}" ]]; then
+        [[ -s "$CACHE_FILE" ]] && export PAL_BINDKEYS="$CACHE_FILE"
+    fi
+    mkdir -p "$STATE_DIR" 2>/dev/null; export PAL_RECENT="$STATE_DIR/recent"
+    if command -v tmux >/dev/null 2>&1; then
+        f="$(mktemp)"; TMPFILES+=("$f")
+        if timeout 3 tmux list-keys >"$f" 2>/dev/null && [[ -s "$f" ]]; then      # fails when no tmux server runs
+            export PAL_TMUXKEYS="$f" PAL_TMUX_PREFIX="$(timeout 2 tmux show -gqv prefix 2>/dev/null)"
+        fi
+    fi
+}
+
+# ── Descriptions of your own (~/.config/pal/descriptions) are applied in the list ──
+# (handled in preview, where the text is shown in full)
+user_desc() {   # user_desc WIDGET
+    [[ -r "$CONFIG_DIR/descriptions" ]] || return 1
+    awk -F'=' -v w="$1" '{ k = $1; gsub(/[[:space:]]/, "", k); if (k == w) { sub(/^[^=]*=[[:space:]]*/, ""); print; exit } }' "$CONFIG_DIR/descriptions"
+}
+
+# ── Where a widget is defined (your zsh files) ─────────────────────────────
+find_def() {   # find_def WIDGET -> "file:line"
+    local w="$1" r hit wq
+    local -a roots=()
+    for r in "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.zshrc" "$HOME/.zshenv" "$HOME/.zprofile" "$HOME/.config/zsh" "$HOME/.zsh" "$HOME/.local/share/zsh"; do
+        [[ -e "$r" ]] && roots+=("$r")
+    done
+    (( ${#roots[@]} )) || return 1
+    local cf="${TMPDIR:-/tmp}/pal-def-$UID-${w//[^A-Za-z0-9_-]/_}"
+    if [[ -f "$cf" ]]; then [[ -s "$cf" ]] && cat "$cf"; [[ -s "$cf" ]]; return; fi
+    wq="$(printf '%s' "$w" | sed 's/[][\.*^$/+?(){}|-]/\\&/g')"
+    hit="$(timeout 1.5 grep -rIHn --exclude-dir=plugins --exclude-dir=.git --exclude-dir=node_modules --exclude-dir='zsh-*' --exclude-dir=themes --include='*.zsh' --include='*.sh' --include='.zshrc' --include='.zshenv' --include='.zprofile' \
+          -E "^[[:space:]]*(function[[:space:]]+)?${wq}[[:space:]]*\(\)" "${roots[@]}" 2>/dev/null | head -n1)"
+    [[ -z "$hit" ]] && hit="$(timeout 1.5 grep -rIHn --exclude-dir=plugins --exclude-dir=.git --exclude-dir=node_modules --exclude-dir='zsh-*' --exclude-dir=themes --include='*.zsh' --include='.zshrc' -E "zle[[:space:]]+-N[[:space:]]+${wq}([[:space:]]|\$)" "${roots[@]}" 2>/dev/null | head -n1)"
+    [[ -n "$hit" ]] || { : > "$cf"; return 1; }
+    printf '%s' "$hit" | awk -F: '{ print $1 ":" $2 }' | tee "$cf"
+}
+
+# ── Which program does a widget start? ─────────────────────────────────────
+widget_tool() {
+    case "$1" in
+        lazygit-widget) echo lazygit ;;   lazydocker-widget) echo lazydocker ;; superfile-widget) echo spf ;;
+        server-widget) echo server ;;     lzj-widget) echo lzj ;;               atuin*) echo atuin ;;
+        fzf_zoxide_jump) echo zoxide ;;   fzf*|fzf-*) echo fzf ;;               hastebin*) echo hastebin ;;
+        ltx-widget) echo ltx ;;           *) return 1 ;;
+    esac
+}
+
+# ── Preview (fzf calls:  pal __preview KIND WIDGET RAW KEYTEXT CAT CUSTOM) ──
+preview() {
+    local kind="$1" w="$2" raw="$3" kt="$4" cat="$5" custom="$6" desc="${7:-}" width cols="${FZF_PREVIEW_COLUMNS:-70}"
+    local l1 l2 l3 catname tool path ver def file line c
+    width=$(( cols - 4 )); (( width > 76 )) && width=76; (( width < 36 )) && width=36
+    [[ -z "$kt" ]] && { printf '\n  %sNothing selected%s\n' "$DIM" "$RST"; return; }
+    case "$cat" in
+        t) catname="tools"; c="$MAUVE"; ;;  h) catname="history"; c="$PEACH" ;;  e) catname="editing"; c="$BLUE" ;;
+        c) catname="completion"; c="$TEAL" ;; x) catname="tmux"; c="$GREEN" ;;   *) catname="shell"; c="$SUB" ;;
+    esac
+    printf '\n'
+    l1="$(rows caps "$kt")"
+    l2="${c}${catname}${RST}"
+    [[ "$custom" == 1 ]] && l2+="  ${PINK}${I_STAR} yours${RST}"
+    case "$kind" in zsh) l2+="  ${DIM}·  zsh widget ${TEXT}${w}${RST}" ;; free) l2+="  ${GREEN}·  free key${RST}" ;; *) l2+="  ${DIM}·  tmux${RST}" ;; esac
+    l3=""; [[ -n "$desc" ]] && l3="${TEXT}${BOLD}${desc}${RST}"
+    if [[ -n "$l3" ]]; then box "$width" "$l1" " " "$l2" "$l3"; else box "$width" "$l1" " " "$l2"; fi
+
+    if [[ "$kind" == free ]]; then
+        section "THIS KEY IS FREE" "$width"
+        printf '\n  %sNo zsh binding and no tmux root binding uses it. Put this in your .zshrc:%s\n\n' "$SUB" "$RST"
+        printf '%s\n' "my-widget() { echo hello; zle reset-prompt }" "zle -N my-widget" "bindkey '$raw' my-widget" \
+            | { [[ -n "$BAT_BIN" ]] && "$BAT_BIN" --color=always --style=plain --paging=never --language=zsh 2>/dev/null || cat; } | sed 's/^/  /'
+        printf '\n  %s⏎ copies the bindkey line%s\n' "$DIM" "$RST"
+        return
+    fi
+    if [[ "$kind" == zsh ]]; then
+        section "BINDING" "$width"
+        printf '\n  %s%s%s  %sraw: %s%s%s\n' "$BLUE" "$I_KEY" "$RST" "$DIM" "$TEXT" "$raw" "$RST"
+        local others; others="$(rows keysof "$w" "$kt" | paste -sd' ' | sed 's/  */  /g')"
+        [[ -n "$others" ]] && printf '  %salso on%s  %s\n' "$DIM" "$RST" "$(rows keysof "$w" "$kt" | paste -sd'|' | sed "s/|/   /g")"
+
+        if tool="$(widget_tool "$w")"; then
+            section "TOOL" "$width"
+            if path="$(command -v "$tool")"; then
+                ver="$(timeout 2 "$tool" --version 2>/dev/null | head -n1 | cut -c1-50)"
+                printf '\n  %s%s%s  %s%s%s  %s%s%s\n' "$GREEN" "$I_CHECK" "$RST" "$TEXT" "$tool" "$RST" "$DIM" "$(short_path "$path")${ver:+  ·  $ver}" "$RST"
+            else
+                printf '\n  %s%s  %s is not installed%s\n' "$YELLOW" "$I_WARN" "$tool" "$RST"
+            fi
+        fi
+
+        if def="$(find_def "$w")"; then
+            file="${def%:*}"; line="${def##*:}"
+            section "DEFINED IN YOUR CONFIG" "$width"
+            printf '\n  %s%s%s  %s%s%s%s:%s%s\n\n' "$PEACH" "$I_FILE" "$RST" "$SUB" "$(short_path "$file")" "$RST" "$DIM" "$line" "$RST"
+            local start=$(( line > 3 ? line - 3 : 1 ))
+            if [[ -n "$BAT_BIN" ]]; then
+                "$BAT_BIN" --color=always --style=numbers,grid --paging=never --language=zsh --highlight-line "$line" \
+                    --line-range "$start:$((line + 14))" "$file" 2>/dev/null | sed 's/^/  /'
+            else sed -n "${start},$((line + 14))p" "$file" | sed 's/^/  /'; fi
+        elif [[ "$custom" == 1 ]]; then
+            section "DEFINITION" "$width"
+            printf '\n  %sNot found in ~/.zshrc, ~/.config/zsh or ~/.zsh. It may come from a plugin.%s\n' "$DIM" "$RST"
+        fi
+
+        case "$w" in fzf-cd-widget|fzf-file-widget|fzf_file_dir_picker|fzf_zoxide_jump|superfile-widget)
+            section "HERE" "$width"; printf '\n  %s%s%s %s%s%s\n\n' "$PEACH" "$I_DIR" "$RST" "$SUB" "$(short_path "$PWD")" "$RST"
+            if [[ -n "$EZA_BIN" ]]; then "$EZA_BIN" --tree --level=1 --icons=always --color=always --git --group-directories-first "$PWD" 2>/dev/null | sed -n '2,12p' | sed 's/^/  /'
+            else ls -A --color=always "$PWD" 2>/dev/null | head -10 | sed 's/^/  /'; fi ;;
+        esac
+    else
+        section "COMMAND" "$width"
+        printf '\n'
+        if [[ -n "$BAT_BIN" ]]; then printf '%s\n' "$w" | "$BAT_BIN" --color=always --style=plain --paging=never --language=bash 2>/dev/null | fold -w $(( width - 2 )) | sed 's/^/  /'
+        else printf '  %s%s%s\n' "$TEAL" "$w" "$RST"; fi
+        section "TABLE" "$width"
+        printf '\n  %s%s%s  %s%s%s\n' "$BLUE" "$I_KEY" "$RST" "$DIM" "${raw%% *}" "$RST"
+    fi
+    printf '\n  %s⏎ run   ^Y copy key   ^E open definition%s\n' "$DIM" "$RST"
+}
+
+preview_help() {
+    local w=$(( ${FZF_PREVIEW_COLUMNS:-70} - 4 ))
+    k() { printf '    %s%-11s%s %s%s%s\n' "$MAUVE$BOLD" "$1" "$RST" "$SUB" "$2" "$RST"; }
+    printf '\n  %s%s  Keys%s\n' "$MAUVE$BOLD" "$I_HELP" "$RST"
+    section "RUN" "$w"
+    k "Enter"   "run the binding (zsh widgets: through pal-widget)"
+    k "Ctrl-Y"  "copy the key name"
+    k "Ctrl-E"  "open where it is defined in \$EDITOR"
+    section "FILTER" "$w"
+    k "Alt-Z"   "zsh keys (the default)"
+    k "Alt-F"   "free keys you can still bind (Enter copies a bindkey line)"
+    k "Alt-A"   "zsh + tmux together"
+    k "Alt-C"   "only the ones you made yourself"
+    k "Alt-T"   "tmux only"
+    k "Alt-E"   "everything, including mouse and copy-mode keys"
+    section "LOOK" "$w"
+    k "F1"      "this help"
+    k "Ctrl-/"  "hide / show the preview"
+    k "Shift-Up/Dn" "scroll the preview"
+    k "Esc"     "quit"
+}
+
+remember_use() {   # remember_use WIDGET : keeps the last 12 you ran, newest last
+    [[ -n "$1" ]] || return 0
+    { grep -vxF "$1" "$STATE_DIR/recent" 2>/dev/null; printf '%s\n' "$1"; } | tail -n 12 > "$STATE_DIR/recent.tmp" 2>/dev/null \
+        && mv "$STATE_DIR/recent.tmp" "$STATE_DIR/recent" 2>/dev/null
+    return 0
+}
+
+# ── Running a binding ──────────────────────────────────────────────────────
+run_tmux() {   # run_tmux "tmux command"   (a list-keys line may hold several commands joined by \;)
+    local part rc=0
+    while IFS= read -r -d '' part; do
+        [[ -n "$part" ]] && { timeout 4 tmux run-shell -C "$part" 2>/dev/null || rc=1; }
+    done < <(python3 -c '
+import sys
+s = sys.argv[1]; out = []; cur = ""; q = ""; depth = 0; i = 0
+while i < len(s):
+    c = s[i]
+    if q:
+        cur += c
+        if c == "\\" and q == "\"" and i + 1 < len(s): cur += s[i + 1]; i += 1
+        elif c == q: q = ""
+    elif c in "\"\x27": q = c; cur += c
+    elif c == "{": depth += 1; cur += c
+    elif c == "}": depth -= 1; cur += c
+    elif c == "\\" and i + 1 < len(s) and s[i + 1] == ";" and depth == 0: out.append(cur.strip()); cur = ""; i += 1
+    else: cur += c
+    i += 1
+out.append(cur.strip())
+sys.stdout.write("\0".join(p for p in out if p) + "\0")
+' "$1")
+    return $rc
+}
+
+# ── The picker ─────────────────────────────────────────────────────────────
+FZF_COLORS="bg:-1,bg+:#363a4f,fg:#a5adcb,fg+:#cad3f5,hl:#c6a0f6,hl+:#f5bde6,border:#494d64,label:#c6a0f6,\
+prompt:#8bd5ca,pointer:#c6a0f6,marker:#8bd5ca,spinner:#c6a0f6,info:#6e738d,header:#8087a2,\
+preview-border:#494d64,gutter:-1,query:#cad3f5,disabled:#6e738d"
+fzf_version() { "$FZF_BIN" --version 2>/dev/null | awk '{print $1}'; }
+version_ge() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]; }
+
+PICK_MODE=0
+
+picker() {
+    [[ -n "$FZF_BIN" ]] || die "fzf is not installed"
+    command -v python3 >/dev/null 2>&1 || die "python3 is not installed (pal needs it to decode keys)"
+    [[ -r /dev/tty ]] || die "pal needs a terminal"
+    prepare_sources
+    local statef rowsf mode="${1:-zsh}" out rc query key sel kind w raw kt cat custom hdr errf fv total mine def selfq
+    local -a fancy=()
+    statef="$(mktemp)"; errf="$(mktemp)"; TMPFILES+=("$statef" "$errf")
+    printf -v selfq '%q' "$SELF"
+    fv="$(fzf_version)"; [[ -n "$fv" ]] && version_ge "$fv" "0.58" && fancy=(--ghost='type a key, a name or what it does' --highlight-line)
+    query=""
+
+    while true; do
+        rowsf="$(mktemp)"; TMPFILES+=("$rowsf"); rows "$mode" > "$rowsf"
+        total="$(wc -l < "$rowsf")"
+        if (( total == 0 )); then
+            [[ "${PAL_BINDKEYS:-}" == "$CACHE_FILE" ]] && rm -f "$CACHE_FILE"     # unreadable cache: start over
+            [[ -n "${PAL_BINDKEYS:-}" && "$mode" != zsh ]] || die "no zsh keys yet. In zsh run:  bindkey -L | pal --import   (or press Alt+Shift+P)"
+            die "nothing to show in mode \"$mode\""
+        fi
+        hdr="${MAUVE}⏎${RST} ${SUB}run${RST}    ${MAUVE}^Y${RST} ${SUB}copy key${RST}    ${MAUVE}^E${RST} ${SUB}definition${RST}    ${MAUVE}F1${RST} ${SUB}all keys${RST}"
+        hdr+=$'\n'"${DIM}filter${RST}  ${MAUVE}Alt-Z${RST} ${SUB}zsh${RST}   ${MAUVE}Alt-C${RST} ${SUB}mine${RST}   ${MAUVE}Alt-T${RST} ${SUB}tmux${RST}   ${MAUVE}Alt-F${RST} ${SUB}free keys${RST}   ${MAUVE}Alt-A${RST} ${SUB}all${RST}   ${MAUVE}Alt-E${RST} ${SUB}everything${RST}"
+        out="$("$FZF_BIN" --ansi --delimiter=$'\t' --with-nth=8 "${fancy[@]}" \
+            --layout=reverse --border=rounded --margin=1,2 --padding=1,2 --info=inline --no-multi --cycle --no-scrollbar \
+            --prompt=" $I_KEY  " --pointer='▌' --query="$query" \
+            --border-label=" $I_KEY  command palette · $mode · $total " --border-label-pos=4 \
+            --header="$hdr" --header-first --color="$FZF_COLORS" \
+            --preview="$selfq __preview {1:q} {2:q} {3:q} {4:q} {5:q} {6:q} {7:q}" --preview-window='right,48%,border-rounded,wrap' --preview-label=' details ' \
+            --bind="alt-a:reload($selfq __rows all)+change-border-label( $I_KEY  command palette · all )+execute-silent(printf all > $statef)" \
+            --bind="alt-c:reload($selfq __rows custom)+change-border-label( $I_KEY  command palette · mine )+execute-silent(printf custom > $statef)" \
+            --bind="alt-z:reload($selfq __rows zsh)+change-border-label( $I_KEY  command palette · zsh )+execute-silent(printf zsh > $statef)" \
+            --bind="alt-t:reload($selfq __rows tmux)+change-border-label( $I_KEY  command palette · tmux )+execute-silent(printf tmux > $statef)" \
+            --bind="alt-f:reload($selfq __rows free)+change-border-label( $I_KEY  command palette · free keys )+execute-silent(printf free > $statef)" \
+            --bind="alt-e:reload($selfq __rows everything)+change-border-label( $I_KEY  command palette · everything )+execute-silent(printf everything > $statef)" \
+            --bind="f1:change-preview($selfq __help)+change-preview-label( keys )" \
+            --bind='ctrl-/:toggle-preview,shift-down:preview-half-page-down,shift-up:preview-half-page-up' \
+            --print-query --expect=ctrl-y,ctrl-e < "$rowsf" 2>"$errf")"
+        rc=$?
+        [[ -s "$statef" ]] && mode="$(cat "$statef")"
+        if (( rc == 2 )); then
+            if (( ${#fancy[@]} )); then fancy=(); continue; fi
+            printf '\n  %s%s  fzf could not start:%s\n  %s%s%s\n\n' "$RED" "$I_WARN" "$RST" "$DIM" "$(head -n3 "$errf")" "$RST" >&2; return 1
+        fi
+        (( rc == 130 || rc == 1 )) && return 0
+        { IFS= read -r query; IFS= read -r key; IFS= read -r sel; } <<<"$out"
+        [[ -z "$sel" ]] && continue
+        IFS=$'\t' read -r kind w raw kt cat custom _ <<<"$sel"
+
+        case "$key" in
+            ctrl-y) if copy_text "$kt"; then toast ok "copied  $kt" 1.1; else toast err "no clipboard tool (wl-copy, xclip or xsel)"; fi; continue ;;
+            ctrl-e) if [[ "$kind" == zsh ]] && def="$(find_def "$w")"; then
+                        "${EDITOR:-nvim}" "+${def##*:}" "${def%:*}" </dev/tty >/dev/tty 2>&1
+                    else toast info "no definition found (only widgets you defined in your zsh files have one)"; fi; continue ;;
+        esac
+
+        if [[ "$kind" == free ]]; then
+            if copy_text "bindkey '$raw' your-widget"; then toast ok "copied:  bindkey '$raw' your-widget" 2; else toast info "bindkey '$raw' your-widget" 3; fi
+            continue
+        fi
+        if [[ "$kind" == tmux ]]; then
+            if run_tmux "$w"; then return 0; else toast err "tmux could not run that command from here"; continue; fi
+        fi
+        # zsh widget
+        if [[ "$w" == pal-widget || "$w" == command-pallet-widget ]]; then toast info "you are already in the palette"; continue; fi
+        remember_use "$w"
+        if (( PICK_MODE )); then printf 'zsh\t%s\t%s\n' "$w" "$kt"; return 0; fi
+        toast info "$kt  runs  $w.  Widgets only run from inside your shell: press Alt+Shift+P." 3.2
+    done
+}
+
+# ── CLI ────────────────────────────────────────────────────────────────────
+usage() {
+    cat <<EOF
+pal $VERSION · command palette
+
+  pal                  browse and run key bindings (zsh + tmux)
+  pal ls [MODE]        a table of the bindings (plain text when piped)   MODE: zsh all custom tmux free everything
+  pal -v | -h
+
+Inside zsh, press Alt+Shift+P: Enter then runs the widget.
+
+Picker keys
+  Enter   run          Ctrl-Y  copy the key     Ctrl-E  open the definition
+  Alt-A   all          Alt-C   only mine        Alt-Z   zsh      Alt-T  tmux
+  Alt-E   everything   F1      all keys         Ctrl-/  toggle preview   Esc  quit
+EOF
+}
+
+case "${1:-}" in
+    __rows)     rows "${2:-all}"; exit 0 ;;
+    __preview)  preview "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}" "${8:-}"; exit 0 ;;
+    __help)     preview_help; exit 0 ;;
+    --import)   mkdir -p "${CACHE_FILE%/*}"; cat > "$CACHE_FILE"; printf 'saved %s zsh bindings\n' "$(grep -c '^bindkey' "$CACHE_FILE")" >&2; exit 0 ;;
+    -v|--version) printf 'pal %s\n' "$VERSION"; exit 0 ;;
+    -h|--help)  usage; exit 0 ;;
+    ls)         prepare_sources
+                style=plain; [[ -t 1 || "${3:-}" == --color ]] && style=pretty
+                cols="$(tput cols 2>/dev/null || echo "${COLUMNS:-100}")"
+                rows table "${2:-zsh}" "$style" "$cols"; exit 0 ;;
+    --pick)     PICK_MODE=1; picker "${2:-zsh}" ;;
+    "")         picker zsh ;;
+    -*)         die "unknown option: $1 (try pal --help)" ;;
+    *)          die "unknown command: $1 (try pal --help)" ;;
+esac
